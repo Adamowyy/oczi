@@ -14,18 +14,11 @@ without leaving what you're doing.
 ![Rust](https://img.shields.io/badge/Rust-backend-000?logo=rust)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
+<img src="../docs/island-card.jpg" alt="The Oczi card: Iskra, her service pills and the chat field" width="640">
+
 </div>
 
 ---
-
-## Screenshots
-
-<img src="../docs/island-card.jpg" alt="The Oczi card: Iskra, the integration pills and the chat field" width="720">
-
-<p>
-<img src="../docs/island-drop.jpg" alt="Drop a file and Iskra takes it" width="352">
-<img src="../docs/settings-terminal.jpg" alt="Settings — Terminal, off by default, with its warning" width="352">
-</p>
 
 ## Install
 
@@ -56,8 +49,23 @@ Everything else happens on its own: a finished integration pulse badges its pill
 and your services sit in the coloured pills next to Iskra.
 
 The UI is English by default; **Settings… → Language** switches it to Polish, and
-the island follows. Adding another language is one table in `src/core/i18n.ts` —
-`npm run check:i18n` keeps the tables in step.
+the island follows — the whole page is re-loaded, because the views bake their
+texts when they are built. Adding another language is one table in
+`src/core/i18n.ts`, and `npm run check:i18n` keeps the tables in step.
+
+## Screenshots
+
+<img src="../docs/island-drop.jpg" alt="The drop view: Drop files here, with PDF, Images, Code and Docs" width="640">
+
+*Drop a file on her and she takes it — the original is copied into an inbox, never touched.*
+
+<img src="../docs/settings-terminal.jpg" alt="Settings — Terminal, on, with the warning it shows" width="430">
+
+*Terminal access is off by default, and says what it will do before it does it.*
+
+<img src="../docs/settings-integrations.jpg" alt="Settings — integrations, keys masked" width="430">
+
+*Integrations: each service gets a pill with its own little character. Keys never leave the Credential Manager.*
 
 ## Terminal
 

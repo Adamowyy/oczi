@@ -4,7 +4,7 @@
 import { Tracked, Spring, clamp } from "../core/anim";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
 import {
-  EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_W,
+  EXPANDED_CORNER, EXPANDED_W, NOTCH_H, NOTCH_W, PANEL_H, PANEL_W,
   ROUNDED_CORNER, VIEW_LAYOUTS, botGlowColor, botGlowOpacity, botPosition, chatPromptHeight,
   islandSize,
   type IslandMode, type IslandViewName,
@@ -934,10 +934,14 @@ export class Island {
     this.botSize.target = p.diameter / 0.6;
 
     const greetingActive = State.mode === "expanded" && State.view === "greeting";
+    const grown = clamp(this.height.value / NOTCH_H, 0, 1);
+    // She waits until the bar is a third of the way out, so the order on screen
+    // is always the bar first, then her fading in.
+    const shown = clamp((grown - 0.35) / 0.65, 0, 1);
     // The drop canvas draws its own Iskra; two of them would overlap.
-    const visible = p.opacity > 0 && !greetingActive && !this.uploadActive;
+    const visible = p.opacity > 0 && shown > 0.01 && !greetingActive && !this.uploadActive;
     this.botShown = visible;
-    this.botCanvas.style.opacity = visible ? "1" : "0";
+    this.botCanvas.style.opacity = visible ? String(shown) : "0";
 
     if (State.mode === "expanded" && State.view !== "uploading" && !greetingActive && !this.uploadActive) {
       const d = p.diameter;

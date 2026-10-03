@@ -10,19 +10,25 @@ Drop a file, chat through the DeepSeek API, snap a region screenshot — all wit
 ![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=black)
 ![Rust](https://img.shields.io/badge/Rust-backend-000?logo=rust)
 
+<img src="docs/island-card.jpg" alt="The Oczi card: Iskra on the left, her service pills on the right, and the chat field below" width="640">
+
 </div>
 
 ---
 
 ## Screenshots
 
-<img src="docs/island-card.jpg" alt="The Oczi card: Iskra on the left, the integration pills on the right, and the chat field below" width="720">
+<img src="docs/island-drop.jpg" alt="The drop view: Drop files here, with PDF, Images, Code and Docs" width="640">
 
-<p>
-<img src="docs/island-drop.jpg" alt="Drop a file and Iskra takes it" width="352">
-<img src="docs/settings-terminal.jpg" alt="Settings — Terminal, off by default, with the warning it shows" width="352">
-<img src="docs/settings-integrations.jpg" alt="Settings — integrations, keys masked" width="352">
-</p>
+*Drop a file on her and she takes it — the original is copied into an inbox, never touched.*
+
+<img src="docs/settings-terminal.jpg" alt="Settings — Terminal, on, with the warning it shows" width="430">
+
+*Terminal access is off by default, and says what it will do before it does it.*
+
+<img src="docs/settings-integrations.jpg" alt="Settings — integrations, keys masked" width="430">
+
+*Integrations: each service gets a pill with its own little character. Keys never leave the Credential Manager.*
 
 ## Install
 

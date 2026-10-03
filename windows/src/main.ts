@@ -65,19 +65,24 @@ async function main() {
     island.snipStart();
   });
 
-  // A click anywhere else in Windows. The island cannot hear it — it is click-through
-  // whenever the mouse is away — so Rust watches the mouse button and tells us.
+  // A click anywhere else in Windows. The island cannot hear it, it is click-through
+  // whenever the mouse is away, so Rust watches the mouse button and tells us.
   await onEvent<null>("click-outside", () => island.clickOutside());
 
-  // The selection overlay answered — with a region, or with nothing (Esc).
+  // The selection overlay answered, with a region, or with nothing (Esc).
   await onEvent<{ width: number; height: number; bytes: number }>("snip-done", (info) =>
     island.snipDone(info),
   );
 
   // The settings window writes preferences; apply them here without a restart.
   await onEvent<Settings>("settings-changed", (s) => {
+    const languageChanged = s.language !== State.settings.language;
     State.settings = { ...State.settings, ...s };
     setLang(State.settings.language);
+    if (languageChanged) {
+      location.reload();
+      return;
+    }
     island.applySettings();
     State.loadIntegrationTasks();
     void refreshConfigured();
