@@ -13,7 +13,7 @@ import { Sound } from "../core/sound";
 import { State } from "../core/state";
 import { BotEngine, hexToRGB } from "../bot/engine";
 import { Greeting } from "../bot/greeting";
-import { createMiniBot, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../bot/minibots";
+import { createMiniBot, miniBotCount, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../bot/minibots";
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
@@ -79,6 +79,8 @@ export class Island {
 
   // Bot hover → love (IslandWindowController.botHoverIn)
   private botHovering = false;
+  /** True once the character has been drawn this frame; see the frame loop. */
+  private botShown = false;
   private botHoverTimer: number | null = null;
   private lastLoveTime = 0;
   private botHoverStart = { x: 0, y: 0 };
@@ -785,13 +787,15 @@ export class Island {
     if (UploadSeq.isActive) this.stepSequence();
     this.updateCountdown(nowMs);
 
-    // Nothing is drawn while the island is hidden, so nothing may keep the loop
-    // alive either. This used to read `... || this.engine.busy || State.mode !==
+      miniBotCount() > 0 ||
+      greetingActive ||
+      this.engine.busy ||
+      UploadSeq.isActive;
     const busy = State.mode === "hidden"
       ? settling
       : settling ||
         !this.botCx.settled || !this.botCy.settled || !this.botSize.settled ||
-        greetingActive || this.engine.busy || UploadSeq.isActive;
+        alive;
 
     if (busy) {
       requestAnimationFrame(this.frame);
@@ -810,6 +814,7 @@ export class Island {
     const greetingActive = State.mode === "expanded" && State.view === "greeting";
     // The drop canvas draws its own Iskra; two of them would overlap.
     const visible = p.opacity > 0 && !greetingActive && !this.uploadActive;
+    this.botShown = visible;
     this.botCanvas.style.opacity = visible ? "1" : "0";
 
     if (State.mode === "expanded" && State.view !== "uploading" && !greetingActive && !this.uploadActive) {
