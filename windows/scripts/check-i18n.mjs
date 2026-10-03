@@ -35,7 +35,7 @@ for (const [key, value] of Object.entries(en)) {
   if (!value.trim()) problems.push(`en: "${key}" is empty`);
 }
 
-// Any Polish left in a UI file means a string never went through t() — the way
+// Any Polish left in a UI file means a string never went through t(), the way
 // half the island once stayed Polish while English was the default.
 const POLISH = new RegExp(
   "[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]|\\b(brak|otw[óo]rz|zobacz|kliknij|zapisz|usu[ńn]|wy[śs]lij|poka[żz]|gotowe|" +
@@ -74,7 +74,7 @@ function rustFiles(dir) {
 
 const ROOT = join(HERE, "..");
 // The terminal tests quote a reply the model really sent, Polish and full-width
-// pipes included — that text has to stay exactly as it was.
+// pipes included, that text has to stay exactly as it was.
 const RUST_SKIP = new Set(["text_tools.rs"]);
 
 function scan(files) {
@@ -86,6 +86,8 @@ function scan(files) {
       if (code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")) return;
       // The HTML entity table maps names to letters like ó, which is not a word.
       if (/^"[a-z]+"\s*=>/.test(code)) return;
+      // A line may opt out with `// i18n-ok: why` above it, for strings Rust translates.
+      if (code.includes("i18n-ok") || (lines[i - 1] || "").includes("i18n-ok")) return;
       if (POLISH.test(code)) problems.push(`${file.replace(ROOT, "").replace(/\\/g, "/")}:${i + 1} looks Polish: ${code.slice(0, 70)}`);
     });
   }

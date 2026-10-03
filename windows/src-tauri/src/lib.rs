@@ -59,13 +59,14 @@ fn boot(app: AppHandle, shared: State<Shared>) -> BootInfo {
 
 #[tauri::command]
 fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
-    let (screen_changed, autostart_changed, hotkey_changed) = {
+    let (screen_changed, autostart_changed, hotkey_changed, language_changed) = {
         let mut current = shared.settings.lock().unwrap();
         let screen_changed = current.screen != settings.screen;
         let autostart_changed = current.autostart != settings.autostart;
         let hotkey_changed = current.hotkey != settings.hotkey;
+        let language_changed = current.language != settings.language;
         *current = settings.clone();
-        (screen_changed, autostart_changed, hotkey_changed)
+        (screen_changed, autostart_changed, hotkey_changed, language_changed)
     };
     if let Err(err) = settings::save(&settings) {
         eprintln!("[oczi] could not save settings: {err}");
@@ -82,6 +83,14 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
     }
     if hotkey_changed {
         island::update_hotkey(&settings.hotkey);
+    }
+    // The tray and the window frame are drawn by the system, so they take their
+    // language from here rather than from the front end.
+    if language_changed {
+        tray::set_language(&app, &settings.language);
+        if let Some(win) = app.get_webview_window("settings") {
+            let _ = win.set_title(settings_title(&settings.language));
+        }
     }
     // Keep the other window in step (island ⇄ settings window).
     let _ = app.emit("settings-changed", settings);
@@ -162,7 +171,7 @@ async fn chat_send(
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
-    let (model, thinking, web_search, provider, terminal) = {
+    let (model, thinking, web_search, provider, terminal, language) = {
         let settings = shared.settings.lock().unwrap();
         (
             settings.model.clone(),
@@ -170,6 +179,7 @@ async fn chat_send(
             settings.web_search,
             settings.search_provider.clone(),
             settings.terminal_enabled,
+            settings.language.clone(),
         )
     };
     // A pending screenshot is read off disk here, once, and only for the turn it was
@@ -195,6 +205,7 @@ async fn chat_send(
             web: web_search,
             provider: &provider,
             terminal,
+            language: &language,
         },
         query,
         context,
@@ -366,13 +377,20 @@ fn settings_page_url(app: &AppHandle) -> WebviewUrl {
     WebviewUrl::App("settings.html".into())
 }
 
-/// Created hidden at launch and only shown/hidden afterwards: a WebView2 window
-/// created later silently comes up blank, so it must exist before the island.
-fn create_settings_window(app: &AppHandle) {
+fn settings_title(language: &str) -> &'static str {
+    if language == "pl" {
+        // i18n-ok: the Polish branch, picked at run time from the UI language.
+        "Ustawienia — Oczi"
+    } else {
+        "Settings — Oczi"
+    }
+}
+
+fn create_settings_window(app: &AppHandle, settings: &Settings) {
     let url = settings_page_url(app);
     match WebviewWindowBuilder::new(app, "settings", url)
         .additional_browser_args(BROWSER_ARGS)
-        .title("Settings — Oczi")
+        .title(settings_title(&settings.language))
         .inner_size(560.0, 680.0)
         .min_inner_size(460.0, 480.0)
         .resizable(true)
@@ -511,9 +529,9 @@ pub fn run() {
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
-            tray::build(&handle)?;
+            tray::build(&handle, &loaded.language)?;
             // Before the island: see create_settings_window.
-            create_settings_window(&handle);
+            create_settings_window(&handle, &loaded);
             // Same reason, and the overlay must exist before anything can ask for it.
             create_snip_window(&handle);
 

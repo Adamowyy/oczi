@@ -28,7 +28,7 @@ pub const DEFAULT_MODEL: &str = "deepseek-flash";
 
 const SYSTEM_PROMPT: &str = "You are Oczi, a personal AI assistant living in a small window at the top of the user's screen. \
 You help with absolutely anything — research, coding, finding places, recommendations, tasks, questions. \
-Respond in the user's language. Always answer briefly and concisely: short sentences, the direct answer first, no padding, no summaries nobody asked for. \
+Always answer briefly and concisely: short sentences, the direct answer first, no padding, no summaries nobody asked for. \
 Never ask clarifying or follow-up questions — act on what you have. \
 No markdown formatting (no **, no ##, no bullet dashes). Use plain text with line breaks.";
 
@@ -52,7 +52,8 @@ To open a program or a file use launch_app — it finds things by name — and k
 On this machine the usual folders are not always where they look: ask Windows for one — in PowerShell, [Environment]::GetFolderPath(\"Desktop\") — or use the %USERPROFILE% variable, instead of assuming a path. \nUse them whenever the answer needs the real machine — files, installed versions, processes, git state, a build or a script — instead of guessing or telling the user to do it themselves. \
 Prefer read-only commands. Before anything that deletes, overwrites, installs or changes the system, say exactly what you are about to run and wait for the user to agree. \
 Never run something destructive as a side effect of a guess. \
-Every command is written to the app log, so report the command you ran and what it printed, and never claim a result you did not see. \nCall the tools the normal way: never write the call out as text or XML, because that does nothing at all.";
+Every command is written to the app log, so report the command you ran and what it printed, and never claim a result you did not see. \nCall the tools the normal way: never write the call out as text or XML, because that does nothing at all. \
+When you have asked whether to do something and the user answers ok, yes, go ahead or anything else that reads as agreement, that is permission: do it, without asking a second time.";
 
 /// Rounds of tool calls allowed in one turn. Terminal work is a chain, look,
 /// look again, act, so this is the budget for a whole task, not one lookup.
@@ -69,6 +70,18 @@ pub struct Options<'a> {
     pub provider: &'a str,
     /// Offer the terminal tools (off by default; the user has to turn them on).
     pub terminal: bool,
+    /// The interface language: the answers come back in it.
+    pub language: &'a str,
+}
+
+/// Saying the language out loud is what makes the answers come in it, "respond
+/// in the user's language" was ignored often enough.
+fn language_line(language: &str) -> &'static str {
+    if language == "pl" {
+        "The interface is Polish. Answer in Polish unless the user clearly writes in another language. "
+    } else {
+        "The interface is English. Answer in English unless the user clearly writes in another language. "
+    }
 }
 
 /// The names of the tools offered this turn, so a call the model writes into
@@ -209,9 +222,10 @@ fn tools(web: bool, terminal: bool) -> Value {
     Value::Array(list)
 }
 
-fn system_prompt(web: bool, terminal: bool) -> String {
+fn system_prompt(web: bool, terminal: bool, language: &str) -> String {
     let date = crate::util::today();
     let mut prompt = SYSTEM_PROMPT.to_string();
+    prompt.push_str(language_line(language));
     if web {
         prompt.push_str(&WEB_PROMPT.replace("{date}", &date));
     } else {
@@ -409,7 +423,10 @@ pub async fn send(
     let mut messages = chat.snapshot();
     messages.insert(
         0,
-        json!({ "role": "system", "content": system_prompt(options.web, options.terminal) }),
+        json!({
+            "role": "system",
+            "content": system_prompt(options.web, options.terminal, options.language)
+        }),
     );
     let mut turn: Vec<Value> = Vec::new();
     if let Some(ref opener) = opener {
