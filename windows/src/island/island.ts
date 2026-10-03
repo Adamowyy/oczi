@@ -26,6 +26,7 @@ import { IslandStateMachine } from "./fsm";
 const BOT_OVERHANG = 40;
 /** Same margin as the Rust hit test (src-tauri/src/island.rs). */
 const HIT_MARGIN = 14;
+const RESTING_FPS = 15;
 
 /** The three views the drop sequence owns; leaving them stops the engine. */
 const UPLOAD_VIEWS: ReadonlySet<IslandViewName> = new Set(["upload", "uploading", "choose"]);
@@ -246,13 +247,16 @@ export class Island {
     if (mode === "expanded") Sound.play("open");
     if (prev === "expanded") {
       Sound.play("close");
-      // Nothing is expanded any more, so nothing needs holding open either: a pin
+      State.isPinned = false;
       this.fsm.pinned = false;
       this.sticky = false;
       void Bridge.focusWindow(false);
     }
     if (mode !== "expanded") {
       this.engine.resetMorph();
+      UploadSeq.deactivate();
+      // A fold takes the island out of the upload flow no matter what view it
+      // was on, so Rust must stop offering the copy cursor.
       this.uploadPin = false;
       void Bridge.setAcceptDrops(false);
     }
@@ -301,17 +305,18 @@ export class Island {
   }
 
   collapse() {
-    // A note is a message, not a destination: once the island folds away it has
+    if (State.view === "note") {
       State.noteMessage = null;
       State.view = State.defaultView();
     }
     State.isPinned = false;
     this.fsm.pinned = false;
-    // Drive the state machine rather than the mode: setting the mode behind its
+    // Drive the state machine, not the mode: setting the mode behind its back desyncs it.
+    this.fsm.forcePetit();
   }
 
-  /**
-   /** Keeps the island open for the next `seconds`, or indefinitely when given 0. */
+  /** Keeps the island open for the next `seconds`, or indefinitely when given 0. */
+  holdOpen(seconds: number) {
     State.isPinned = true;
     this.fsm.pinned = true;
     if (this.holdTimer !== null) {
@@ -323,7 +328,8 @@ export class Island {
       this.holdTimer = null;
       State.isPinned = false;
       this.fsm.pinned = false;
-      // The island stays put for the full interval from now, not from whenever the
+      // The island stays for the full interval from now, and only after a real mouse leave.
+      this.homeCollapseAt = performance.now() + State.settings.autoCloseInterval * 1000;
       if (this.fsm.state === "home" && !this.wasInIsland) this.fsm.mouseLeft();
     }, seconds * 1000);
   }
@@ -339,22 +345,23 @@ export class Island {
     this.fsm.reveal();
   }
 
-  /** Summon from anywhere, the summon hotkey, or a click on the compact island.
-   /** Opens straight to the chat with the caret in the field, so the very next thing is typing. */
+  /** The summon hotkey asks for the chat with the caret in the field, the island opens on the view it shows.
+   */
+  revealOrOpen() {
     if (State.mode === "expanded") {
-      // Already open: make sure it is showing the chat, and hand it the keyboard
+      this.fsm.forceHome();
       this.expand("prompt");
       this.focusChat();
       return;
     }
-    // A transition into the state the machine already believes it is in is ignored, so
+    this.fsm.forceHidden();
     this.fsm.forceHome();
     this.expand("prompt");
     this.focusChat();
   }
 
-  /**
-   /** Hands the keyboard to the chat field. */
+  /** Hands the keyboard to the chat field. */
+    this.lastSyncedView = null;
     this.takeKeyboardFocus();
   }
 
@@ -372,7 +379,7 @@ export class Island {
   private sticky = false;
 
   /**
-   * The eye. Freezes the screen, dims it with the selection overlay, and pins the
+    if (this.snipping) return;
     this.snipping = true;
     try {
       // The overlay answers with an event rather than with the command's result: the
@@ -422,8 +429,8 @@ export class Island {
     if (State.paused) return;
     // Files are only taken in the explicit upload flow (the plus tab). A stray
     // drag over the island while chatting or browsing does nothing, it must
-    // never flip views out from under the user, and never leave the drop
-    // sequence half-started.
+    // never flip views out from under the user, and never leave the drop sequence half-started.
+      case "enter":
       case "over": {
         if (!inFlow || State.fileDragOver) return;
         State.fileDragOver = true;
@@ -455,10 +462,17 @@ export class Island {
     }
   }
 
+  /**
+   * Iskra eats the file. Nothing here waits on the file system: the copy into
+    State.droppedFile = { name, path };
     State.promptContext = { kind: "file", name, path };
     State.chatHistory = [];
     void Bridge.chatReset();
 
+    // The drop must always have a sequence to play: OLE can deliver a drop that
+    // was never preceded by an enter on our target, and a view showing 0 % for
+    // ever is worse than a slightly late start.
+    }
     UploadSeq.performDrop(State.uploadDuration);
     this.uploadTens = 0;
     this.uploadDone = false;
@@ -488,9 +502,7 @@ export class Island {
       });
   }
 
-  /**
-   * Sounds and view changes hung off the canvas timeline: a `tick` every 10 %,
-   * the ✓ chime when the bar completes, then `choose` once Iskra has grown back.
+    if (since == null) return;
     const dur = State.uploadDuration;
     const p = Math.max(0, Math.min(1, (since - PRE_PROGRESS) / dur));
 
@@ -602,6 +614,10 @@ export class Island {
       Sound.resume();
       State.lastActivity = performance.now();
       if (State.mode !== "expanded") {
+        // A click on the compact island is an intent to type, so it opens the chat
+        // with the caret already in the field. The home card's bar used to be a
+        // second click the user always made anyway.
+      }
       if (this.isBotHit(e.clientX, e.clientY)) {
         this.cancelBotHover();
         this.engine.slap();
@@ -779,6 +795,7 @@ export class Island {
     if (UploadSeq.isActive) this.stepSequence();
     this.updateCountdown(nowMs);
 
+      miniBotCount() > 0 ||
       greetingActive ||
       this.engine.busy ||
       UploadSeq.isActive;
@@ -794,6 +811,9 @@ export class Island {
       return;
     }
 
+    // Nothing on screen but a character being alive: retract, hover and open
+    // cards keep the full rate, everything else drops to RESTING_FPS. The wait
+      !this.hovered &&
       !greetingActive &&
       !this.uploadActive &&
       !UploadSeq.isActive &&
@@ -818,7 +838,7 @@ export class Island {
 
   /**
    * The decorative animations in the stylesheet, the shimmer, the marching
-   * dashes, the pulse, belong to the card, and the card sits at zero opacity
+    document.documentElement.classList.toggle("asleep", !awake);
   }
 
   private updateBotTargets() {
@@ -869,8 +889,7 @@ export class Island {
     const focus = State.focusTask;
     // A tint means "this colour belongs to the service you are looking at", so it
     // only applies on the Services view. On the home screen Iskra stays neutral, 
-    // before this, focusTask fell back to tasks[0] and Iskra wore GitHub's red
-    // whether or not that service had anything to say.
+    this.engine.particleOverhang = BOT_OVERHANG;
     this.engine.lookX = this.lookX();
     this.engine.lookY = this.lookY();
     if (this.engine.morph > 0.3) {
