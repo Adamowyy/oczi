@@ -14,6 +14,32 @@ Drop a file, chat through the DeepSeek API, snap a region screenshot — all wit
 
 ---
 
+## Screenshots
+
+<img src="docs/island-card.jpg" alt="The Oczi card: Iskra on the left, the integration pills on the right, and the chat field below" width="720">
+
+<p>
+<img src="docs/island-drop.jpg" alt="Drop a file and Iskra takes it" width="352">
+<img src="docs/settings-terminal.jpg" alt="Settings — Terminal, off by default, with the warning it shows" width="352">
+<img src="docs/settings-integrations.jpg" alt="Settings — integrations, keys masked" width="352">
+</p>
+
+## Install
+
+Download **`Oczi-Windows-0.1.2-setup.exe`** from
+[Releases](https://github.com/Adamowyy/oczi/releases/latest) and run it. Windows
+10 or 11; WebView2 is already there on a normal install — the installer offers it
+if it is missing.
+
+The installer is **not code-signed**, so Windows may show a SmartScreen warning
+(*More info → Run anyway*), and Defender has once flagged it as
+`Trojan:Win32/WacatacH!ml` — a false positive from an unsigned NSIS installer,
+reported to Microsoft. Build it yourself from source if that bothers you; the
+whole thing is in this repository.
+
+Oczi asks for a DeepSeek API key on first run (Settings → DeepSeek). Without one
+it can still sit there and look pretty, but it cannot answer anything.
+
 ## What it does
 
 Iskra is a soft little crystal with three shards orbiting her, living at the top centre of the screen. She waves hello, follows your cursor with her eyes, gets annoyed when you poke her (and dizzy if you insist), and turns into a box to swallow a file you drop on her.
@@ -27,7 +53,7 @@ Iskra is a soft little crystal with three shards orbiting her, living at the top
 - 🌍 **English by default** — Polish is one setting away; another language is one table in `src/core/i18n.ts`.
 - 🖥️ **Terminal, off by default** — turn it on and the chat can run commands on your PC, in the background too. It warns you first, and every command lands in the app log.
 
-See [`windows/README.md`](windows/README.md) for screenshots and the full details.
+See [`windows/README.md`](windows/README.md) for how everything works under the hood.
 
 ## Build from source
 

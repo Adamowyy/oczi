@@ -12,10 +12,10 @@ on:
 permissions:
   contents: write
 
-# Publishing is paused: Defender flags the unsigned installer as
-# Trojan:Win32/Wacatac.H!ml (false positive, reported to Microsoft). Tags still
-# build, to check the app compiles, but nothing is uploaded. Set this back to
-# 'true' once the installer is signed or the detection is cleared.
+# Publishing is off, so a tag only proves the tree builds and the three version
+# files agree. Nothing is uploaded while the installer is unsigned: Defender has
+# false-positived on it once (Trojan:Win32/WacatacH!ml). Releases are cut by hand
+# from a local `npm run pack` until that is sorted out.
 env:
   PUBLISH: 'false'
 
@@ -83,28 +83,14 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           Get-ChildItem release | Format-Table Name, Length
 
-      # Upload only on a manual run or when publishing a release.
-      # The repo is public, so artifacts are downloadable by any signed-in GitHub
-      # user; the condition keeps them off automatic tag builds while downloads
-      # are paused. retention-days: 3 limits exposure.
+      # Upload only on a manual run. The repo is public, so artifacts are
+      # downloadable by any signed-in GitHub user; retention-days: 3 limits how
+      # long they sit there.
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'workflow_dispatch' || env.PUBLISH == 'true'
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: Oczi-Windows-setup
           path: windows/release/Oczi-Windows-${{ steps.pack.outputs.version }}-setup.exe
-          retention-days: 3
-
-      # The unsigned NSIS installer is what Defender false-positives on, so the
-      # bare binaries go up as well. hooks.rs already falls back to looking for
-      # oczi-hook.exe next to oczi.exe, which is exactly this layout, so the
-      # portable pair runs with working Claude Code hooks and no installer.
-      - uses: actions/upload-artifact@v4
-        if: github.event_name == 'workflow_dispatch' || env.PUBLISH == 'true'
-        with:
-          name: Oczi-Windows-portable
-          path: |
-            windows/target/release/oczi.exe
-            windows/target/release/oczi-hook.exe
           retention-days: 3
 
       - name: Publish the release
@@ -122,22 +108,19 @@ jobs:
           1. Download ``Oczi-Windows-$v-setup.exe`` and run it. The installer is not
              code-signed yet, so Windows SmartScreen shows a warning: click
              **More info → Run anyway**. It installs for the current user only — no
-             admin prompt.
+             admin prompt. Defender has also false-positived on it once
+             (``Trojan:Win32/WacatacH!ml``, reported to Microsoft); building from
+             source gives the same app with none of that.
           2. Launch Oczi. The island sits at the top of your screen; ``Ctrl+Alt+M``
              summons it, ``Esc`` dismisses it.
           3. Open **Settings → DeepSeek**, paste your API key and pick a model
              (``deepseek-flash`` or ``deepseek-v4-pro``). The key is stored in the
              Windows Credential Manager, never on disk and never sent to the web view.
           "@
-          # --latest=false is not cosmetic: without it GitHub hands "Latest" to
-          # whichever release was published last, and the site's Download for Mac
-          # button points at /releases/latest. A Windows tag would silently send
-          # Mac users to the .exe. The macOS `v*` releases own that slot.
           gh release create "${{ github.ref_name }}" `
             "release/Oczi-Windows-$v-setup.exe" `
             --title "Oczi for Windows $v" `
-            --notes $notes `
-            --latest=false
+            --notes $notes
 
       - name: Update the rolling windows-latest release
         if: env.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/windows-v')
@@ -149,8 +132,7 @@ jobs:
           $exists = gh release view windows-latest 2>$null
           if ($LASTEXITCODE -eq 0) {
             # The tag has to follow the release, or windows-latest keeps pointing
-            # at the first commit it was ever created from and anyone building
-            # from it gets an old tree.
+            # at the first commit it was ever created from.
             git tag -f windows-latest "${{ github.sha }}"
             git push -f origin windows-latest
             gh release edit windows-latest --title "Oczi for Windows (latest)" --notes "Always the newest Windows build — currently $v."
@@ -159,6 +141,5 @@ jobs:
             gh release create windows-latest `
               "release/Oczi-Windows-setup.exe" `
               --title "Oczi for Windows (latest)" `
-              --notes "Always the newest Windows build — currently $v." `
-              --latest=false
+              --notes "Always the newest Windows build — currently $v."
           }

@@ -18,15 +18,27 @@ without leaving what you're doing.
 
 ---
 
+## Screenshots
+
+<img src="../docs/island-card.jpg" alt="The Oczi card: Iskra, the integration pills and the chat field" width="720">
+
+<p>
+<img src="../docs/island-drop.jpg" alt="Drop a file and Iskra takes it" width="352">
+<img src="../docs/settings-terminal.jpg" alt="Settings — Terminal, off by default, with its warning" width="352">
+</p>
+
 ## Install
 
-The downloadable installer is **temporarily unavailable**. Microsoft Defender
-wrongly flags the unsigned installer as malware (`Trojan:Win32/Wacatac.H!ml`, a
-machine-learning false positive). A report is under review at Microsoft, and the
-installer will be published again once it is cleared and code-signed.
+Download **`Oczi-Windows-0.1.2-setup.exe`** from
+[Releases](https://github.com/Adamowyy/oczi/releases/latest). It installs for the
+current user only — no admin prompt.
 
-Until then, [build it yourself](#build-it-yourself): it takes a few minutes and
-installs for the current user only — no admin prompt.
+The installer is **not code-signed yet**, so expect a SmartScreen warning
+(*More info → Run anyway*). Microsoft Defender has also flagged it once as
+`Trojan:Win32/WacatacH!ml` — a machine-learning false positive on unsigned NSIS
+installers, reported to Microsoft. If that is not acceptable, [build it
+yourself](#build-it-yourself): a few minutes, and you get the same thing from
+source.
 
 ## Using it
 
