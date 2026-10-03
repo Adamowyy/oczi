@@ -13,6 +13,10 @@ pub struct Settings {
     /// Seconds the small bar waits before it hides, once the cursor has left it.
     #[serde(default = "default_notch_hide")]
     pub notch_hide_interval: f64,
+    /// Where the island sits along the top of its screen: 0 = flush left, 0.5 the
+    /// middle, 1 = flush right of the working area. Dragged into place and kept.
+    #[serde(default = "default_anchor")]
+    pub island_anchor: f64,
     pub absence_interval: f64,
     pub active_integrations: Vec<String>,
     /// "primary" = the main display, "cursor" = whichever display the mouse is on.
@@ -45,6 +49,10 @@ pub struct Settings {
     /// on and accepted the warning.
     #[serde(default)]
     pub terminal_enabled: bool,
+}
+
+fn default_anchor() -> f64 {
+    0.5
 }
 
 fn default_notch_hide() -> f64 {
@@ -81,6 +89,7 @@ impl Default for Settings {
             sound_volume: 0.12,
             auto_close_interval: 15.0,
             notch_hide_interval: default_notch_hide(),
+            island_anchor: default_anchor(),
             absence_interval: 180.0,
             active_integrations: vec![
                 "integration_resend".into(),

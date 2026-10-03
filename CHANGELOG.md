@@ -56,6 +56,12 @@ MIT, the name, the character and the icon are not (see LICENSE-ASSETS.md).
   never did.
 - How long the small bar waits before it hides is a setting of its own, next to the
   one for the big card, instead of a fixed sixty seconds.
+- The island can be dragged along the top of the screen: press and hold her body
+  (not a control) and she follows, and where she is left is remembered as a
+  fraction of the room she has, so it survives a restart and another resolution.
+- No more flash of a big stretched square when she wakes: the sizes and places the
+  frame loop caches are dropped the moment the island goes to sleep, so the first
+  frame back re-asserts them instead of painting what the DOM still carried.
 
 **Removed**
 

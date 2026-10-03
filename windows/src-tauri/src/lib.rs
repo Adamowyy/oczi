@@ -79,7 +79,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         }
     }
     if screen_changed {
-        island::apply_geometry(&app, &settings.screen);
+        island::apply_geometry(&app, &settings.screen, settings.island_anchor);
     }
     if hotkey_changed {
         island::update_hotkey(&settings.hotkey);
@@ -133,8 +133,30 @@ fn focus_window(app: AppHandle, focused: bool) {
 
 #[tauri::command]
 fn reposition(app: AppHandle, shared: State<Shared>) {
-    let pref = shared.settings.lock().unwrap().screen.clone();
-    island::apply_geometry(&app, &pref);
+    let (pref, anchor) = {
+        let s = shared.settings.lock().unwrap();
+        (s.screen.clone(), s.island_anchor)
+    };
+    island::apply_geometry(&app, &pref, anchor);
+}
+
+/// Dragging the island: it slides, and the place it was left in is written down so
+/// it comes back there after a restart.
+#[tauri::command]
+fn set_island_anchor(app: AppHandle, shared: State<Shared>, anchor: f64, persist: bool) {
+    let anchor = anchor.clamp(0.0, 1.0);
+    let (pref, mut settings) = {
+        let s = shared.settings.lock().unwrap();
+        (s.screen.clone(), s.clone())
+    };
+    island::set_anchor(&app, &pref, anchor);
+    if persist {
+        settings.island_anchor = anchor;
+        *shared.settings.lock().unwrap() = settings.clone();
+        if let Err(err) = settings::save(&settings) {
+            log::line(format!("could not save the island position: {err}"));
+        }
+    }
 }
 
 #[tauri::command]
@@ -526,6 +548,7 @@ pub fn run() {
             open_n8n,
             open_settings_window,
             set_paused,
+            set_island_anchor,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -537,7 +560,7 @@ pub fn run() {
 
             if let Some(win) = island::window(&handle) {
                 island::make_non_activating(&win);
-                island::apply_geometry(&handle, &loaded.screen);
+                island::apply_geometry(&handle, &loaded.screen, loaded.island_anchor);
                 let _ = win.show();
                 // Files are handed to the window itself, not to the webview: see
                 // own_file_drops for why the COM route cannot work here.

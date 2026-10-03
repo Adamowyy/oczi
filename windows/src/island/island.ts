@@ -50,8 +50,8 @@ export class Island {
   private viewsEl!: HTMLElement;
   private botCanvas!: HTMLCanvasElement;
   private botGlow!: HTMLElement;
-  /** Last glow values written; see updateBotTargets. The glow is blurred, so a
-   *  write that changes nothing is not free. */
+  /** Last glow values written, see updateBotTargets. A blurred rewrite is not free. */
+  private awake = true;
   private glowColor = "";
   private glowSize = -1;
   private glowPos = { x: -1, y: -1 };
@@ -222,6 +222,7 @@ export class Island {
     this.greetingCanvas.style.height = "150px";
 
     this.root.append(this.wakeStrip, this.islandEl);
+    this.bindDrag();
     this.applyGeometry();
   }
 
@@ -932,7 +933,75 @@ export class Island {
    *  while the card is up or the cursor is on the island, see the `.asleep` rule. */
   private syncAsleep() {
     const awake = State.mode === "expanded" || this.hovered;
+    if (!awake) this.awake = false;
+    else if (!this.awake) {
+      this.awake = true;
+      this.forgetLaidOutSizes();
+    }
     document.documentElement.classList.toggle("asleep", !awake);
+  }
+
+  private forgetLaidOutSizes() {
+    this.glowSize = -1;
+    this.glowPos = { x: -1, y: -1 };
+    this.glowColor = "";
+    this.glowOpacity = "";
+    this.canvasPx = 0;
+    this.botPos = { x: -1, y: -1 };
+    this.geometryKey = "";
+  }
+
+  private bindDrag() {
+    let dragging = false;
+    let moved = false;
+    let grabX = 0;
+    let startAnchor = 0.5;
+
+    const isControl = (target: EventTarget | null) =>
+      target instanceof Element &&
+      !!target.closest("button, input, select, textarea, a, .mini, .pill, .upload-hit");
+
+    const down = (e: PointerEvent) => {
+      if (e.button !== 0 || isControl(e.target)) return;
+      // The drop card is a place where a press means something else.
+      if (UPLOAD_VIEWS.has(State.view)) return;
+      dragging = true;
+      grabX = e.screenX;
+      startAnchor = State.settings.islandAnchor;
+      // Capture keeps the moves coming once the cursor is past the window edge, which
+      // a fast drag does. Not worth failing the drag over.
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {
+        /* no capture: the drag still works while the cursor stays over us */
+      }
+    };
+
+    const move = (e: PointerEvent) => {
+      if (!dragging) return;
+      // A fraction of the room the island has to slide in, so the same number means
+      // the same place on another screen or at another resolution.
+      const span = Math.max(1, window.screen.availWidth - this.panelSize.w);
+      const anchor = clamp(startAnchor + (e.screenX - grabX) / span, 0, 1);
+      State.settings.islandAnchor = anchor;
+      moved = true;
+      void Bridge.setIslandAnchor(anchor, false);
+    };
+
+    const up = () => {
+      if (!dragging) return;
+      dragging = false;
+      // A plain click on her is not a drag: no reason to write the settings for it.
+      if (moved) void Bridge.setIslandAnchor(State.settings.islandAnchor, true);
+      moved = false;
+    };
+
+    for (const el of [this.islandEl, this.wakeStrip]) {
+      el.addEventListener("pointerdown", down);
+      el.addEventListener("pointermove", move);
+      el.addEventListener("pointerup", up);
+      el.addEventListener("pointercancel", up);
+    }
   }
 
   private updateBotTargets() {

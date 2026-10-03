@@ -74,6 +74,8 @@ export interface Settings {
   autoCloseInterval: number;
   /** Seconds the small bar waits before it hides once the cursor leaves it. */
   notchHideInterval: number;
+  /** Where the island sits along the top of its screen: 0 left, 0.5 centre, 1 right. */
+  islandAnchor: number;
   absenceInterval: number;
   activeIntegrations: string[];
   screen: "primary" | "cursor";
@@ -99,6 +101,7 @@ export const DEFAULT_SETTINGS: Settings = {
   soundVolume: 0.12,
   autoCloseInterval: 15,
   notchHideInterval: 60,
+  islandAnchor: 0.5,
   absenceInterval: 180,
   activeIntegrations: [
     "integration_resend", "integration_n8n", "integration_vercel", "integration_github",

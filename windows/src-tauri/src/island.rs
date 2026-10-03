@@ -432,9 +432,54 @@ pub fn screen_info(app: &AppHandle, pref: &str) -> ScreenInfo {
     }
 }
 
-/// Places and sizes the window on the chosen display. The size is constant, 
-/// see PANEL_W, so this only ever moves it.
-pub fn apply_geometry(app: &AppHandle, pref: &str) {
+fn anchored_x(mp: PhysicalPosition<i32>, mw: u32, pw: u32, anchor: f64) -> i32 {
+    let free = (mw as f64 - pw as f64).max(0.0);
+    mp.x + (free * anchor.clamp(0.0, 1.0)).round() as i32
+}
+
+#[cfg(test)]
+mod anchor_tests {
+    use super::anchored_x;
+    use tauri::PhysicalPosition;
+
+    #[test]
+    fn the_middle_is_the_middle() {
+        // 1920 - 720 = 1200 of free room, so half of it is 600.
+        assert_eq!(anchored_x(PhysicalPosition::new(0, 0), 1920, 720, 0.5), 600);
+    }
+
+    #[test]
+    fn the_ends_are_the_ends() {
+        assert_eq!(anchored_x(PhysicalPosition::new(0, 0), 1920, 720, 0.0), 0);
+        assert_eq!(anchored_x(PhysicalPosition::new(0, 0), 1920, 720, 1.0), 1200);
+        // Past the ends and a monitor that is narrower than the panel both land
+        // inside it rather than off it.
+        assert_eq!(anchored_x(PhysicalPosition::new(0, 0), 1920, 720, 2.0), 1200);
+        assert_eq!(anchored_x(PhysicalPosition::new(0, 0), 1920, 720, -1.0), 0);
+        assert_eq!(anchored_x(PhysicalPosition::new(0, 0), 640, 720, 0.7), 0);
+    }
+
+    #[test]
+    fn a_second_monitor_gets_its_own_origin() {
+        // The left-hand display starts at -1920: flush right of it is -720.
+        assert_eq!(anchored_x(PhysicalPosition::new(-1920, 0), 1920, 720, 1.0), -720);
+    }
+}
+
+/// Slides the island along the top of its screen. Only the position moves: the size
+/// and the always-on-top flag belong to `apply_geometry`, and re-asserting them on
+/// every mouse move makes the drag stutter.
+pub fn set_anchor(app: &AppHandle, pref: &str, anchor: f64) {
+    let Some(win) = window(app) else { return };
+    let Some(m) = target_monitor(app, pref) else { return };
+    let scale = m.scale_factor();
+    let mp = *m.position();
+    let ms = *m.size();
+    let pw = (PANEL_W * scale).round().max(1.0) as u32;
+    let _ = win.set_position(PhysicalPosition::new(anchored_x(mp, ms.width, pw, anchor), mp.y));
+}
+
+pub fn apply_geometry(app: &AppHandle, pref: &str, anchor: f64) {
     let Some(win) = window(app) else { return };
     let Some(m) = target_monitor(app, pref) else { return };
 
@@ -444,7 +489,7 @@ pub fn apply_geometry(app: &AppHandle, pref: &str) {
 
     let pw = (PANEL_W * scale).round().max(1.0) as u32;
     let ph = (PANEL_H * scale).round().max(1.0) as u32;
-    let x = mp.x + (ms.width as i32 - pw as i32) / 2;
+    let x = anchored_x(mp, ms.width, pw, anchor);
     let y = mp.y;
 
     let _ = win.set_size(PhysicalSize::new(pw, ph));

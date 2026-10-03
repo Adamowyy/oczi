@@ -32,6 +32,10 @@ export const Bridge = {
   /** Shrink the window down to the invisible wake strip (hidden) or back to full. */
   setCollapsed: (collapsed: boolean) => call<void>("set_collapsed", { collapsed }),
 
+  /** Slide the island along the top of its screen. `persist` writes it down. */
+  setIslandAnchor: (anchor: number, persist: boolean) =>
+    call<void>("set_island_anchor", { anchor, persist }),
+
   /** Island rect in window coords; Rust flips click-through from its own cursor poll, not this. */
   setIslandRect: (x: number, y: number, width: number, height: number) =>
     call<void>("set_island_rect", { x, y, width, height }),
