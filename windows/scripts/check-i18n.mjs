@@ -11,12 +11,31 @@ const SOURCE = join(HERE, "..", "src", "core", "i18n.ts");
 const BUNDLE = join(HERE, ".i18n.bundle.mjs");
 
 await build({ entryPoints: [SOURCE], bundle: true, format: "esm", outfile: BUNDLE, logLevel: "warning" });
-const { table, LANGUAGES } = await import(pathToFileURL(BUNDLE).href);
+let remembered = null;
+Object.defineProperty(globalThis, "localStorage", {
+  value: {
+    getItem: (key) => (key === "oczi.lang" ? remembered : null),
+    setItem: () => {},
+    removeItem: () => {},
+  },
+  configurable: true,
+});
+const { table, LANGUAGES, currentLang } = await import(pathToFileURL(BUNDLE).href);
+
+// The home view is built before the boot reply, so the choice must be there at import time.
+remembered = "pl";
+const again = await import(pathToFileURL(BUNDLE).href + "?remembered");
 unlinkSync(BUNDLE);
 
 const placeholders = (s) => (s.match(/\{\}/g) || []).length;
 const en = table("en");
 const problems = [];
+
+// Guards the two bugs the table check cannot see: home view timing and the remembered choice.
+if (currentLang() !== "en") problems.push("an empty storage must start in English");
+if (again.currentLang() !== "pl") {
+  problems.push("the remembered language is not applied before the first view is built");
+}
 
 for (const { tag } of LANGUAGES) {
   if (tag === "en") continue;

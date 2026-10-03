@@ -253,6 +253,9 @@ export function storedLang(): Lang {
   }
 }
 
+// Runs before any view is built, so the stored choice is in place at import time.
+lang = storedLang();
+
 export const currentLang = () => lang;
 
 /** The text for `key`, with `{}` placeholders filled in order. */

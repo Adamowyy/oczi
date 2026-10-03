@@ -4,7 +4,7 @@ import "./style.css";
 import { Bridge, IS_TAURI, onEvent } from "./core/bridge";
 import { Sound } from "./core/sound";
 import { State, type Settings } from "./core/state";
-import { setLang } from "./core/i18n";
+import { currentLang, setLang, storedLang } from "./core/i18n";
 import { Island } from "./island/island";
 import { registerIntegrationHandlers, refreshConfigured } from "./island/integrations";
 
@@ -14,12 +14,18 @@ async function main() {
 
   void Sound.preload();
 
+  const builtWith = currentLang();
   const island = new Island(root);
 
   const boot = await Bridge.boot();
   if (boot) {
     State.settings = { ...State.settings, ...boot.settings };
     setLang(State.settings.language);
+  }
+  // The stored home view may differ from the one already built, so reload it.
+  if (State.settings.language !== builtWith && storedLang() === State.settings.language) {
+    location.reload();
+    return;
   }
   island.applySettings();
   State.loadIntegrationTasks();
