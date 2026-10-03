@@ -369,6 +369,17 @@ function generalSection(): HTMLElement {
     void save();
   });
 
+  const notchHide = h("input", {
+    type: "number", min: "5", max: "600", step: "5",
+    value: String(Math.round(settings.notchHideInterval)),
+    style: "width:72px",
+  }) as HTMLInputElement;
+  notchHide.addEventListener("change", () => {
+    settings.notchHideInterval = Math.max(5, Math.min(600, Number(notchHide.value) || 60));
+    notchHide.value = String(settings.notchHideInterval);
+    void save();
+  });
+
   const screen = h("select", {}) as HTMLSelectElement;
   screen.append(
     h("option", { value: "primary", text: t("set.screenPrimary") }),
@@ -397,6 +408,11 @@ function generalSection(): HTMLElement {
       h("label", { text: t("set.autoClose") }),
       autoClose,
       h("span", { class: "hint", text: t("set.autoCloseHint") }),
+    ),
+    h("div", { class: "row" },
+      h("label", { text: t("set.notchHide") }),
+      notchHide,
+      h("span", { class: "hint", text: t("set.notchHideHint") }),
     ),
     h("div", { class: "row" }, h("label", { text: t("set.islandScreen") }), screen),
     h("div", { class: "row" }, h("label", { text: t("set.hotkey") }), hotkey),

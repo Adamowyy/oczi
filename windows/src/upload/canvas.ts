@@ -74,21 +74,19 @@ export class UploadCanvas {
     this.canvas = document.createElement("canvas");
     this.canvas.id = "upload-canvas";
 
-    // Invisible hit areas at the reference button positions. The labels are
-    // painted on the canvas; these only catch the click.
     const mk = (x: number, w: number, onclick: () => void) => {
       const b = document.createElement("button");
       b.className = "upload-hit";
       b.style.left = `${x}px`;
-      b.style.top = "113px";
+      b.style.top = "106px";
       b.style.width = `${w}px`;
-      b.style.height = "26px";
+      b.style.height = "40px";
       b.addEventListener("click", onclick);
       return b;
     };
     this.overlay = document.createElement("div");
     this.overlay.id = "upload-overlay";
-    this.overlay.append(mk(114, 168, actions.ask), mk(290, 120, actions.cancel));
+    this.overlay.append(mk(110, 174, actions.ask), mk(286, 128, actions.cancel));
 
     this.el = document.createElement("div");
     this.el.id = "upload-layer";
@@ -270,7 +268,7 @@ export class UploadCanvas {
     ctx.translate(0, (1 - f.chooseAlpha) * 4);
 
     const name = State.droppedFile?.name ?? "file";
-    text(ctx, `${name} jest gotowy.`, 114, 80, `600 14px ${FONT}`, "#F5F6F8");
+    text(ctx, t("upload.ready", name), 114, 80, `600 14px ${FONT}`, "#F5F6F8");
     text(ctx, t("upload.whatToDo"), 114, 100, `400 12.5px ${FONT}`, "#9398A1");
 
     ctx.fillStyle = "#F5F6F8";

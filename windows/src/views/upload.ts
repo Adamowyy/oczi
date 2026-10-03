@@ -89,7 +89,7 @@ export function buildChoose(actions: ViewActions): ViewHost {
     { class: "actions" },
     h("button", {
       class: "btn primary",
-      text: "Zadaj pytanie",
+      text: t("upload.ask"),
       onclick: () => actions.setView("prompt"),
     }),
     h("button", {
@@ -112,10 +112,7 @@ export function buildChoose(actions: ViewActions): ViewHost {
     el,
     sync() {
       clear(title);
-      title.append(
-        h("b", { text: State.droppedFile?.name ?? t("upload.fileLower") }),
-        document.createTextNode(" jest gotowy."),
-      );
+      title.textContent = t("upload.ready", State.droppedFile?.name ?? t("upload.fileLower"));
     },
   };
 }

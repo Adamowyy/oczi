@@ -143,6 +143,21 @@ body {
   transition: opacity 0.22s ease-in-out;
 }
 
+/* Nothing inside them may catch a click either, buttons included: `.view.on` turns
+   pointer events back on for the active view, so an invisible button from the DOM
+   card used to sit on top of the button the sequence paints — over part of its
+   area the click went to the wrong button, or to nothing at all. */
+#views.hidden-by-upload * {
+  pointer-events: none !important;
+}
+
+/* The header sits on top of the sequence's card and stays usable while it runs:
+   its buttons turn pointer events back on for themselves, since the content they
+   live in has them switched off for the duration. */
+#header button {
+  pointer-events: auto;
+}
+
 /* Positioned with a transform, never with left/top: the glow is a large soft
    square that follows the character, and moving it by layout made the GPU
    process re-rasterise it on every frame of an open card. The radial gradient

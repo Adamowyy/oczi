@@ -50,6 +50,12 @@ MIT, the name, the character and the icon are not (see LICENSE-ASSETS.md).
 - Coming back from the top edge, the bar arrives before the character in it:
   Iskra overhangs her bar by design, and used to be on screen while it was still a
   sliver.
+- The drop card's two buttons work: the sequence's card is painted on a canvas, and
+  the invisible card of ordinary views used to lie on top of it and swallow the
+  click — *Ask about it* only worked where the two happened to line up, and *Cancel*
+  never did.
+- How long the small bar waits before it hides is a setting of its own, next to the
+  one for the big card, instead of a fixed sixty seconds.
 
 **Removed**
 

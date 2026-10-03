@@ -60,6 +60,7 @@ const POLISH = new RegExp(
   "[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]|\\b(brak|otw[óo]rz|zobacz|kliknij|zapisz|usu[ńn]|wy[śs]lij|poka[żz]|gotowe|" +
     "b[łl][ąa]d|anuluj|zamknij|dzisiaj|teraz|minut|godzin|sekund|spotka[ńn]|modu[łl]|wersj|strona|stron|" +
     "lista|list[ęe]|dane|klucz|has[łl]o|ustawien|powiadom|zmian|pogod|od[śs]wie[żz]|pon[óo]w|zako[ńn]cz|" +
+    "gotow|zadaj|pytani|nazw|trwa|wybierz|" +
     "oczekuje|trwa|zaraz|jeszcze|tylko|razem|suma|wybierz|wpisz|wype[łl]nij|w[łl][ąa]cz|wy[łl][ąa]cz|" +
     "mo[żz]esz|musisz|nale[żz]y|dost[ęe]p|zapisano|usuni[ęe]to|u[żz]yw|zaplanowan|ostatni|nast[ęe]pn|" +
     "poprzedn|przez|je[żz]eli|kt[óo]r|si[ęe]|powinien|zamiast|prosz[ęe]|u[żz]ytkownik|zapytaj|" +

@@ -10,6 +10,9 @@ pub struct Settings {
     pub sound_enabled: bool,
     pub sound_volume: f64,
     pub auto_close_interval: f64,
+    /// Seconds the small bar waits before it hides, once the cursor has left it.
+    #[serde(default = "default_notch_hide")]
+    pub notch_hide_interval: f64,
     pub absence_interval: f64,
     pub active_integrations: Vec<String>,
     /// "primary" = the main display, "cursor" = whichever display the mouse is on.
@@ -44,6 +47,10 @@ pub struct Settings {
     pub terminal_enabled: bool,
 }
 
+fn default_notch_hide() -> f64 {
+    60.0
+}
+
 fn default_true() -> bool {
     true
 }
@@ -73,6 +80,7 @@ impl Default for Settings {
             sound_enabled: true,
             sound_volume: 0.12,
             auto_close_interval: 15.0,
+            notch_hide_interval: default_notch_hide(),
             absence_interval: 180.0,
             active_integrations: vec![
                 "integration_resend".into(),

@@ -163,6 +163,12 @@ export class Island {
         void Bridge.saveSettings(State.settings);
         State.notify();
       },
+      setNotchHide: (s) => {
+        State.settings.notchHideInterval = s;
+        this.fsm.petitToHiddenDelay = s;
+        void Bridge.saveSettings(State.settings);
+        State.notify();
+      },
       openSettingsWindow: () => void Bridge.openSettingsWindow(),
       blip: () => Sound.play("blip"),
     };
@@ -223,6 +229,7 @@ export class Island {
 
   private wireFsm() {
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
+    this.fsm.petitToHiddenDelay = State.settings.notchHideInterval;
     this.fsm.onTransition = (from, to) => {
       switch (to) {
         case "hidden":
@@ -634,7 +641,8 @@ export class Island {
       this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
     }
 
-    const rect = { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
+    const settled = this.targetSize();
+    const rect = { x: (PANEL_W - settled.w) / 2, y: 0, w: settled.w, h: settled.h };
     const p = this.pushedRect;
     if (Math.abs(p.x - rect.x) > 0.5 || Math.abs(p.w - rect.w) > 0.5 || Math.abs(p.h - rect.h) > 0.5) {
       this.pushedRect = rect;
@@ -1054,7 +1062,8 @@ export class Island {
     const greetingActive = expanded && State.view === "greeting";
 
     this.contentEl.style.opacity = expanded && !greetingActive ? "1" : "0";
-    this.contentEl.style.pointerEvents = expanded && !greetingActive ? "auto" : "none";
+    this.contentEl.style.pointerEvents =
+      expanded && !greetingActive && !this.uploadActive ? "auto" : "none";
     this.greetingCanvas.style.display = greetingActive ? "block" : "none";
 
     this.header.sync();
@@ -1103,6 +1112,7 @@ export class Island {
     Sound.setEnabled(State.settings.soundEnabled);
     Sound.setVolume(State.settings.soundVolume);
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
+    this.fsm.petitToHiddenDelay = State.settings.notchHideInterval;
     State.notify();
   }
 

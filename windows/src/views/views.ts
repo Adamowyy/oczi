@@ -24,6 +24,7 @@ export interface ViewActions {
   openTarget(): void;
   openUrl(url: string): void;
   setAutoClose(seconds: number): void;
+  setNotchHide(seconds: number): void;
   openSettingsWindow(): void;
   blip(): void;
 }
@@ -357,6 +358,10 @@ function buildSettings(actions: ViewActions): ViewHost {
   const segButtons = [10, 15, 30].map((s) =>
     h("button", { onclick: () => actions.setAutoClose(s) }, `${s}s`),
   );
+  const notchLabel = h("span", {});
+  const notchButtons = [10, 30, 60].map((s) =>
+    h("button", { onclick: () => actions.setNotchHide(s) }, `${s}s`),
+  );
   // The island may only ask whether the key exists, never read it, so the
   // badge is refreshed from Rust instead of from State.
   const keyBadge = h("span", { class: "status-badge" });
@@ -381,15 +386,20 @@ function buildSettings(actions: ViewActions): ViewHost {
     ),
     h(
       "div",
+      { class: "settings-row" },
+      svg(ICONS.timer, 12),
+      notchLabel,
+      h("div", { class: "seg" }, ...notchButtons),
+    ),
+    h(
+      "div",
       { class: "settings-row", style: "gap:14px" },
       keyBadge,
       h("div", { class: "grow" }),
       h("button", {
-        class: "link-btn",
-        style: "color:#8e939c;font-size:11.5px",
-        text: t("int.settings"),
+        class: "btn secondary",
         onclick: () => actions.openSettingsWindow(),
-      }),
+      }, svg(ICONS.gear, 13), document.createTextNode(t("int.settings"))),
     ),
   );
 
@@ -402,6 +412,8 @@ function buildSettings(actions: ViewActions): ViewHost {
       const s = State.settings;
       autoLabel.textContent = t("set.autoCloseChip", Math.round(s.autoCloseInterval));
       segButtons.forEach((b, i) => b.classList.toggle("on", s.autoCloseInterval === [10, 15, 30][i]));
+      notchLabel.textContent = t("set.notchChip", Math.round(s.notchHideInterval));
+      notchButtons.forEach((b, i) => b.classList.toggle("on", s.notchHideInterval === [10, 30, 60][i]));
       // Re-check while the view is open, so saving a key in the settings window
       // shows up without a restart.
       if (performance.now() - lastKeyCheck > 1500) void refreshKey();
