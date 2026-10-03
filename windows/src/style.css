@@ -901,6 +901,19 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 4px 2px;
 }
 
+/*
+ * A tucked-away island must cost nothing. Chromium goes on compositing CSS
+ * animations for a window that is merely small and out of the way, so the
+ * shimmer, the marching dashes and the pulse went on burning a third of a core
+ * around the clock — with nothing on screen to show for it. The class comes from
+ * the island's own mode, in syncDom().
+ */
+html.asleep *,
+html.asleep *::before,
+html.asleep *::after {
+  animation-play-state: paused !important;
+}
+
 .typing i {
   width: 5px;
   height: 5px;
