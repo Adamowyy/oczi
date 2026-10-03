@@ -1,6 +1,6 @@
 
 import { build } from "esbuild";
-import { unlinkSync } from "node:fs";
+import { readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -33,11 +33,44 @@ for (const [key, value] of Object.entries(en)) {
   if (!value.trim()) problems.push(`en: "${key}" is empty`);
 }
 
-if (problems.length) {
-  console.error(problems.join("\n"));
-  console.error(`\n${problems.length} problem(s) in the translations.`);
-  process.exit(1);
+// Any Polish left in a UI file means a string never went through t(), the way
+// half the island once stayed Polish while English was the default.
+const POLISH = new RegExp(
+  "[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]|\\b(brak|otw[óo]rz|zobacz|kliknij|zapisz|usu[ńn]|wy[śs]lij|poka[żz]|gotowe|" +
+    "b[łl][ąa]d|anuluj|zamknij|dzisiaj|teraz|minut|godzin|sekund|spotka[ńn]|modu[łl]|wersj|strona|stron|" +
+    "lista|list[ęe]|dane|klucz|has[łl]o|ustawien|powiadom|zmian|pogod|od[śs]wie[żz]|pon[óo]w|zako[ńn]cz|" +
+    "oczekuje|trwa|zaraz|jeszcze|tylko|razem|suma|wybierz|wpisz|wype[łl]nij|w[łl][ąa]cz|wy[łl][ąa]cz|" +
+    "mo[żz]esz|musisz|nale[żz]y|dost[ęe]p|zapisano|usuni[ęe]to|u[żz]yw|zaplanowan|ostatni|nast[ęe]pn|" +
+    "poprzedn|przez|je[żz]eli|kt[óo]r|si[ęe]|powinien|zamiast|prosz[ęe]|u[żz]ytkownik|zapytaj|" +
+    "odpowiedz|plik|dzia[łl]a|wracam|chwil[ęe]|spos[óo]b|razie|potrzeb|wymaga|wyspa|zrzut|obszar|ekran|" +
+    "przed chwil|wdro[żz]|p[łl]atno[śs][ćc]|przep[łl]yw|gwiazdek|tytu[łl]u|szczeg[óo][łl]y|wczytywanie)\\b",
+  "i",
+);
+
+function uiFiles(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...uiFiles(path));
+    else if (entry.name.endsWith(".ts") && entry.name !== "i18n.ts") out.push(path);
+  }
+  return out;
+}
+
+const ROOT = join(HERE, "..");
+for (const file of [...uiFiles(join(ROOT, "src")), join(ROOT, "index.html"), join(ROOT, "settings.html"), join(ROOT, "snip.html")]) {
+  const lines = readFileSync(file, "utf8").split("\n");
+  lines.forEach((line, i) => {
+    const code = line.trim();
+    if (code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")) return;
+    if (POLISH.test(code)) problems.push(`${file.replace(ROOT, "").replace(/\\/g, "/")}:${i + 1} looks Polish: ${code.slice(0, 70)}`);
+  });
 }
 
 const count = Object.keys(en).length;
+if (problems.length) {
+  console.error(problems.join("\n"));
+  console.error(`\n${problems.length} problem(s) with the translations.`);
+  process.exit(1);
+}
 console.log(`i18n ok — ${count} keys in ${LANGUAGES.length} languages`);

@@ -25,7 +25,7 @@ function dashedFrame(): SVGSVGElement {
 
 export function buildUpload(): ViewHost {
   const frame = dashedFrame();
-  const title = h("div", { class: "drop-title", text: "Upuść pliki tutaj" });
+  const title = h("div", { class: "drop-title", text: t("upload.dropHere") });
   const tags = h(
     "div",
     { class: "drop-tags" },
@@ -66,7 +66,7 @@ export function buildUploading(): ViewHost {
       const done = State.uploadProgress >= 0.999;
       const pct = Math.round(State.uploadProgress * 100);
       label.textContent = done
-        ? `✓  ${State.droppedFile?.name ?? "Plik"}`
+        ? `✓  ${State.droppedFile?.name ?? t("upload.file")}`
         : `Wgrywanie ${State.droppedFile?.name ?? "pliku"}`;
       label.classList.toggle("done", done);
       percent.textContent = done ? "" : `${pct} %`;
@@ -81,7 +81,7 @@ export function buildUploading(): ViewHost {
 
 export function buildChoose(actions: ViewActions): ViewHost {
   const title = h("div", { class: "title" });
-  const sub = h("div", { class: "sub", text: "Co chcesz z nim zrobić?" });
+  const sub = h("div", { class: "sub", text: t("upload.whatToDo") });
   const row = h(
     "div",
     { class: "actions" },
@@ -111,7 +111,7 @@ export function buildChoose(actions: ViewActions): ViewHost {
     sync() {
       clear(title);
       title.append(
-        h("b", { text: State.droppedFile?.name ?? "plik" }),
+        h("b", { text: State.droppedFile?.name ?? t("upload.fileLower") }),
         document.createTextNode(" jest gotowy."),
       );
     },

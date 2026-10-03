@@ -10,7 +10,7 @@ export function timeAgo(value: unknown): string {
   const date = typeof value === "number" ? new Date(value) : new Date(String(value));
   const diff = (Date.now() - date.getTime()) / 1000;
   if (!Number.isFinite(diff)) return "";
-  if (diff < 60) return "przed chwilą";
+  if (diff < 60) return t("time.justNow");
   if (diff < 3600) return `${Math.floor(diff / 60)}m`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
   return `${Math.floor(diff / 86400)}d`;
@@ -54,7 +54,7 @@ function idleCard(task: AgentTask, openSettings: () => void): HTMLElement {
   const configured = info?.configured ?? false;
   const error = info?.error ?? null;
   const missing = t("int.missingKey");
-  const label = error ?? (configured ? "Połączono · wczytywanie…" : missing);
+  const label = error ?? (configured ? t("int.connected") : missing);
   const statusColor = error || !configured ? "#F4505E" : "#22C55E";
 
   const actions = h("div", { class: "int-actions" });
@@ -82,7 +82,7 @@ function idleCard(task: AgentTask, openSettings: () => void): HTMLElement {
       h("button", {
         class: "link-btn",
         style: `color:${task.color}d9`,
-        text: "Odśwież",
+        text: t("int.refresh"),
         onclick: () => void Bridge.refreshIntegration(task.id),
       }),
     );
@@ -113,7 +113,7 @@ function vercelCard(onDetail: () => void): HTMLElement {
     if (i === 0) {
       const more = h(
         "button",
-        { class: "int-more", title: "Szczegóły", onclick: onDetail },
+        { class: "int-more", title: t("int.details"), onclick: onDetail },
         svg(ICONS.ellipsis, 8),
       );
       rows.append(listRow(accent, true, name, ago, more));
@@ -121,7 +121,7 @@ function vercelCard(onDetail: () => void): HTMLElement {
       rows.append(listRow(accent, false, name, ago));
     }
   });
-  return h("div", { class: "int-card" }, header("#7C5CFF", "Vercel", "Wdrożenia"), rows);
+  return h("div", { class: "int-card" }, header("#7C5CFF", "Vercel", t("int.deployments")), rows);
 }
 
 function vercelDetail(onBack: () => void): HTMLElement {
@@ -152,7 +152,7 @@ function vercelDetail(onBack: () => void): HTMLElement {
       { class: "int-detail-head" },
       h("button", { class: "int-back", onclick: onBack }, svg(ICONS.chevronLeft, 10, { stroke: 2.4 })),
       dot(accent, 6),
-      h("b", { text: String(d.projectName ?? "Wdrożenie") }),
+      h("b", { text: String(d.projectName ?? t("int.deployment")) }),
       h("span", { class: "int-badge", style: `color:${accent};background:${accent}24`, text: status }),
     ),
     body,
@@ -204,11 +204,11 @@ function githubCard(): HTMLElement {
   return h(
     "div",
     { class: "int-card" },
-    header("#F4505E", "GitHub", "Przegląd"),
+    header("#F4505E", "GitHub", t("int.overview")),
     h(
       "div",
       { class: "int-stats" },
-      statRow(ICONS.star, "#F5A524", "Łącznie gwiazdek", fmt(stars)),
+      statRow(ICONS.star, "#F5A524", t("int.starsTotal"), fmt(stars)),
       statRow(ICONS.stack, "#6B7079", "Repozytoria", String(repos)),
     ),
   );
@@ -229,7 +229,7 @@ function stripeCard(): HTMLElement {
         "div",
         { class: "int-row" },
         dot(accent, 5),
-        h("span", { class: "int-name", text: String(p.description ?? "Płatność") }),
+        h("span", { class: "int-name", text: String(p.description ?? t("int.payment")) }),
         h("span", {
           class: "int-amount",
           style: "color:#22c55e",
@@ -242,7 +242,7 @@ function stripeCard(): HTMLElement {
   return h(
     "div",
     { class: "int-card" },
-    header("#0570DE", "Stripe", "Płatności"),
+    header("#0570DE", "Stripe", t("int.payments")),
     h("div", { class: "int-balance" }, h("span", { text: balance }), h("i", { text: currency })),
     rows,
   );
@@ -265,7 +265,7 @@ function notionCard(): HTMLElement {
         p.emoji
           ? h("span", { class: "int-emoji", text: String(p.emoji) })
           : h("i", { class: "int-emoji" }, svg(ICONS.doc, 9)),
-        h("span", { class: "int-name", text: String(p.title ?? "Bez tytułu") }),
+        h("span", { class: "int-name", text: String(p.title ?? t("int.untitled")) }),
         h("span", { class: "int-ago", text: timeAgo(p.lastEditedAt) }),
       ),
     );
@@ -310,7 +310,7 @@ function n8nCard(task: AgentTask, onDetail: () => void, openSettings: () => void
   return h(
     "div",
     { class: "int-card" },
-    header("#F29B38", "n8n", "Przepływ"),
+    header("#F29B38", "n8n", t("int.workflow")),
     h(
       "div",
       { class: "int-actions" },
@@ -322,7 +322,7 @@ function n8nCard(task: AgentTask, onDetail: () => void, openSettings: () => void
           onclick: onDetail,
         },
         dot(accent, 5),
-        h("span", { class: "int-name", text: task.steps[0] ?? "Przepływ" }),
+        h("span", { class: "int-name", text: task.steps[0] ?? t("int.workflow") }),
         svg(ICONS.ellipsis, 8),
       ),
     ),
@@ -341,7 +341,7 @@ function n8nDetail(task: AgentTask, onBack: () => void): HTMLElement {
       { class: "int-detail-head" },
       h("button", { class: "int-back", onclick: onBack }, svg(ICONS.chevronLeft, 10, { stroke: 2.4 })),
       dot(accent, 6),
-      h("b", { text: task.steps[0] ?? "Przepływ" }),
+      h("b", { text: task.steps[0] ?? t("int.workflow") }),
       h("span", {
         class: "int-badge",
         style: `color:${accent};background:${accent}24`,

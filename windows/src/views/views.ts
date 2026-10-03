@@ -101,7 +101,7 @@ function buildHome(actions: ViewActions): ViewHost {
   // screen, not in the conversation.
   const eye = h(
     "button",
-    { class: "snip-btn", title: "Zrób zrzut fragmentu ekranu i zapytaj o niego" },
+    { class: "snip-btn", title: t("chat.snipTip") },
     svg(ICONS.eye, 13),
   );
   eye.addEventListener("mousedown", (e) => {
@@ -110,7 +110,7 @@ function buildHome(actions: ViewActions): ViewHost {
   });
   const fresh = h(
     "button",
-    { class: "snip-btn", title: "Nowy czat — wyczyść tę rozmowę" },
+    { class: "snip-btn", title: t("chat.newTip") },
     svg(ICONS.plus, 12),
   );
   fresh.addEventListener("mousedown", (e) => {
@@ -139,7 +139,7 @@ function buildHome(actions: ViewActions): ViewHost {
   const shortcuts = h(
     "div",
     { class: "home-shortcuts" },
-    h("span", { text: "Zrzut ekranu: Ctrl+Alt+Shift+S" }),
+    h("span", { text: t("chat.snipHint") }),
   );
 
   const el = h(
@@ -312,7 +312,7 @@ function buildEmpty(actions: ViewActions): ViewHost {
     h(
       "div",
       { style: "display:flex;flex-direction:column;gap:5px" },
-      h("div", { class: "title", text: "Na razie nic się nie dzieje." }),
+      h("div", { class: "title", text: t("empty.quiet") }),
       h("div", { class: "sub", text: t("chat.askSub") }),
     ),
     h("div", { class: "grow" }),
@@ -327,7 +327,7 @@ function buildConfused(): ViewHost {
   const body = h(
     "div",
     { class: "stack", style: "padding:0 18px 0 128px" },
-    h("div", { class: "title", text: "Za dużo naraz." }),
+    h("div", { class: "title", text: t("empty.tooMuch") }),
     h("div", { class: "sub", text: t("absence.text") }),
   );
   return { el: h("div", { class: "view" }, card("pink", body)), sync() {} };
@@ -437,7 +437,7 @@ export function buildViews(
   map.set("uploading", buildUploading());
   map.set("choose", buildChoose(actions));
   // Not in the Windows v1: sending a file by email, window attach + web result.
-  map.set("mail", buildPlaceholder("Wysyłanie e-mailem nie jest dostępne w tej wersji.", ""));
+  map.set("mail", buildPlaceholder(t("empty.noEmail"), ""));
   map.set("searching", buildPlaceholder("Szukam…", ""));
   map.set("result", buildPlaceholder("Wynik", ""));
   return map;

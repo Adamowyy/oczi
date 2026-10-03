@@ -170,7 +170,7 @@ export class UploadCanvas {
   private drawDropText(ctx: CanvasRenderingContext2D, f: UploadFrame) {
     ctx.save();
     ctx.globalAlpha = f.textAlpha;
-    text(ctx, "Upuść pliki tutaj", USC.TEXT_X, USC.TEXT_Y - 4, `500 13px ${FONT}`, "#D5D7DB");
+    text(ctx, t("upload.dropHere"), USC.TEXT_X, USC.TEXT_Y - 4, `500 13px ${FONT}`, "#D5D7DB");
 
     let cx = USC.TEXT_X;
     for (const chip of ["PDF", "Images", "Code", "Docs"]) {
@@ -270,7 +270,7 @@ export class UploadCanvas {
 
     const name = State.droppedFile?.name ?? "file";
     text(ctx, `${name} jest gotowy.`, 114, 80, `600 14px ${FONT}`, "#F5F6F8");
-    text(ctx, "Co chcesz z nim zrobić?", 114, 100, `400 12.5px ${FONT}`, "#9398A1");
+    text(ctx, t("upload.whatToDo"), 114, 100, `400 12.5px ${FONT}`, "#9398A1");
 
     ctx.fillStyle = "#F5F6F8";
     rr(ctx, 114, 113, 168, 26, 13);

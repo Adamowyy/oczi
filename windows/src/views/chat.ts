@@ -52,7 +52,7 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
   const send = h("button", { class: "send-btn", title: t("chat.send") }, svg(ICONS.arrowUp, 11));
   const snip = h(
     "button",
-    { class: "snip-btn", title: "Zrób zrzut fragmentu ekranu i zapytaj o niego" },
+    { class: "snip-btn", title: t("chat.snipTip") },
     svg(ICONS.eye, 13),
   );
   snip.addEventListener("click", () => actions.snip());
@@ -60,7 +60,7 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
   // stops seeing it either.
   const fresh = h(
     "button",
-    { class: "snip-btn", title: "Nowy czat — wyczyść tę rozmowę" },
+    { class: "snip-btn", title: t("chat.newTip") },
     svg(ICONS.plus, 12),
   );
   const bar = h("div", { class: "chat-bar" }, fresh, snip, input, send);
@@ -152,7 +152,7 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
     el,
     sync() {
       const label = State.snip
-        ? `Zrzut ekranu ${State.snip.width}×${State.snip.height}`
+        ? t("chat.snipLabel", State.snip.width, State.snip.height)
         : State.droppedFile?.name ?? "";
       if (chipRow.dataset.label !== label) {
         chipRow.dataset.label = label;
