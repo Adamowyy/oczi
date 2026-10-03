@@ -2,6 +2,7 @@
 
 import { State } from "../core/state";
 import { ISKRA } from "../bot/skin";
+import { t } from "../core/i18n";
 import {
   USC, eIn, eInOut, eOut, lerp, progressAt,
   type UploadEyeShape, type UploadFrame,
@@ -274,12 +275,12 @@ export class UploadCanvas {
     ctx.fillStyle = "#F5F6F8";
     rr(ctx, 114, 113, 168, 26, 13);
     ctx.fill();
-    text(ctx, "Zadaj pytanie na jego temat", 198, 126, `500 12.5px ${FONT}`, "#0B0C0E", "center");
+    text(ctx, t("upload.ask"), 198, 126, `500 12.5px ${FONT}`, "#0B0C0E", "center");
 
     ctx.fillStyle = "rgba(255,255,255,0.09)";
     rr(ctx, 290, 113, 120, 26, 13);
     ctx.fill();
-    text(ctx, "Cancel", 350, 126, `500 12.5px ${FONT}`, "#F1F2F4", "center");
+    text(ctx, t("upload.cancel"), 350, 126, `500 12.5px ${FONT}`, "#F1F2F4", "center");
     ctx.restore();
   }
 

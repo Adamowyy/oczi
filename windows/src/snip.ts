@@ -1,9 +1,13 @@
 // The screen-selection overlay, the "eye".
 
 import { invoke } from "@tauri-apps/api/core";
+import { setLang, storedLang, t } from "./core/i18n";
 
 const band = document.getElementById("snip-band") as HTMLDivElement;
 const body = document.body;
+
+setLang(storedLang());
+(document.getElementById("snip-hint") as HTMLDivElement).textContent = t("snip.hint");
 
 let origin: { x: number; y: number } | null = null;
 

@@ -2,6 +2,7 @@
 
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
 import type { EyeShape } from "../bot/engine";
+import type { Lang } from "./i18n";
 
 export type PillBadge = "finished" | "error";
 
@@ -85,6 +86,8 @@ export interface Settings {
   webSearch: boolean;
   /** Which search backend backs those tools: "duckduckgo", "brave" or "tavily". */
   searchProvider: string;
+  /** UI language. English unless the user picked Polish. */
+  language: Lang;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -102,6 +105,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hotkey: "Ctrl+Alt+M",
   webSearch: true,
   searchProvider: "duckduckgo",
+  language: "en",
 };
 
 type Listener = () => void;

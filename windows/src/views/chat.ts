@@ -6,6 +6,7 @@ import { ICONS } from "./icons";
 import { Bridge, type ChatContext } from "../core/bridge";
 import { Sound } from "../core/sound";
 import { State, type ChatMessage } from "../core/state";
+import { t } from "../core/i18n";
 import type { ViewActions, ViewHost } from "./views";
 
 let nextId = 1;
@@ -45,10 +46,10 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
   const input = h("input", {
     type: "text",
     class: "chat-input",
-    placeholder: "Zapytaj mnie o cokolwiek…",
+    placeholder: t("chat.placeholder"),
     spellcheck: "false",
   }) as HTMLInputElement;
-  const send = h("button", { class: "send-btn", title: "Wyślij" }, svg(ICONS.arrowUp, 11));
+  const send = h("button", { class: "send-btn", title: t("chat.send") }, svg(ICONS.arrowUp, 11));
   const snip = h(
     "button",
     { class: "snip-btn", title: "Zrób zrzut fragmentu ekranu i zapytaj o niego" },
@@ -170,9 +171,9 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
       }
 
       input.placeholder = State.snip
-        ? "Zapytaj o ten zrzut ekranu…"
+        ? t("chat.placeholderSnip")
         : State.chatHistory.length === 0
-          ? "Zapytaj mnie o cokolwiek…"
+          ? t("chat.placeholder")
           : "Kontynuuj…";
       input.disabled = sending;
     },

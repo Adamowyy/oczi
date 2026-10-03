@@ -136,18 +136,6 @@ export class Island {
       openUrl: (url) => {
         if (url) void Bridge.openUrl(url);
       },
-      toggleSound: () => {
-        State.settings.soundEnabled = !State.settings.soundEnabled;
-        Sound.setEnabled(State.settings.soundEnabled);
-        void Bridge.saveSettings(State.settings);
-        State.notify();
-      },
-      setVolume: (v) => {
-        State.settings.soundVolume = v;
-        Sound.setVolume(v);
-        void Bridge.saveSettings(State.settings);
-        State.notify();
-      },
       setAutoClose: (s) => {
         State.settings.autoCloseInterval = s;
         this.fsm.homeToPetitDelay = s;

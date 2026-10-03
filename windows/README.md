@@ -43,6 +43,10 @@ installs for the current user only — no admin prompt.
 Everything else happens on its own: a finished integration pulse badges its pill,
 and your services sit in the coloured pills next to Iskra.
 
+The UI is English by default; **Settings… → Language** switches it to Polish, and
+the island follows. Adding another language is one table in `src/core/i18n.ts` —
+`npm run check:i18n` keeps the tables in step.
+
 ## Chat
 
 **Settings… → DeepSeek** takes your API key and picks the model — `deepseek-flash`

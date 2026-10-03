@@ -3,6 +3,7 @@ import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
 import { State, type AgentTask } from "../core/state";
 import { Bridge } from "../core/bridge";
+import { t } from "../core/i18n";
 
 /** Same shape as the Swift `timeAgo` computed properties. */
 export function timeAgo(value: unknown): string {
@@ -52,7 +53,7 @@ function idleCard(task: AgentTask, openSettings: () => void): HTMLElement {
   const info = State.integrations[task.id];
   const configured = info?.configured ?? false;
   const error = info?.error ?? null;
-  const missing = "Brak klucza";
+  const missing = t("int.missingKey");
   const label = error ?? (configured ? "Połączono · wczytywanie…" : missing);
   const statusColor = error || !configured ? "#F4505E" : "#22C55E";
 
@@ -62,7 +63,7 @@ function idleCard(task: AgentTask, openSettings: () => void): HTMLElement {
       h("button", {
         class: "link-btn",
         style: `color:${task.color}d9`,
-        text: "Otwórz n8n",
+        text: t("int.openN8n"),
         onclick: () => void Bridge.openN8n(),
       }),
     );
@@ -71,7 +72,7 @@ function idleCard(task: AgentTask, openSettings: () => void): HTMLElement {
       h("button", {
         class: "link-btn",
         style: `color:${task.color}d9`,
-        text: `Otwórz ${task.name}`,
+        text: t("int.open", task.name),
         onclick: () => void Bridge.openUrl(OPEN_URLS[task.id]),
       }),
     );
@@ -87,7 +88,7 @@ function idleCard(task: AgentTask, openSettings: () => void): HTMLElement {
     );
   } else {
     actions.append(
-      h("button", { class: "link-btn", style: "color:#8e939c", text: "Ustawienia…", onclick: openSettings }),
+      h("button", { class: "link-btn", style: "color:#8e939c", text: t("int.settings"), onclick: openSettings }),
     );
   }
 
@@ -127,7 +128,7 @@ function vercelDetail(onBack: () => void): HTMLElement {
   const d = arr("integration_vercel", "deployments")[0] ?? {};
   const success = d.state === "READY";
   const accent = success ? "#22C55E" : "#F4505E";
-  const status = success ? "Gotowe" : d.state === "CANCELED" ? "Anulowane" : "Błąd";
+  const status = success ? t("int.done") : d.state === "CANCELED" ? t("int.cancelled") : t("int.failed");
   const body = h("div", { class: "int-detail-body" });
   if (d.commitMessage) body.append(h("div", { class: "int-commit", text: String(d.commitMessage) }));
   const meta = h("div", { class: "int-meta" });
@@ -280,7 +281,7 @@ function calcomCard(): HTMLElement {
     .sort((a, b) => new Date(String(a.start)).getTime() - new Date(String(b.start)).getTime());
   const rows = h("div", { class: "int-rows tight" });
   if (bookings.length === 0) {
-    rows.append(h("div", { class: "int-empty", text: "Brak zaplanowanych spotkań" }));
+    rows.append(h("div", { class: "int-empty", text: t("int.noMeetings") }));
   }
   for (const b of bookings.slice(0, 3)) {
     const when = new Date(String(b.start));
@@ -351,7 +352,7 @@ function n8nDetail(task: AgentTask, onBack: () => void): HTMLElement {
       ? h("pre", { class: "int-detail-text", text: detail })
       : h("div", {
           class: "int-status",
-          text: success ? "Ukończono pomyślnie." : "Brak szczegółów błędu.",
+          text: success ? t("int.finishedOk") : t("int.noDetails"),
         }),
   );
 }

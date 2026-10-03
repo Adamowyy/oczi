@@ -1,6 +1,7 @@
 
 import { h, clear } from "./dom";
 import { State } from "../core/state";
+import { t } from "../core/i18n";
 import type { ViewActions, ViewHost } from "./views";
 
 /** Dashed rounded rect drawn as SVG so the dashes can march like on macOS. */
@@ -91,7 +92,7 @@ export function buildChoose(actions: ViewActions): ViewHost {
     }),
     h("button", {
       class: "btn secondary",
-      text: "Anuluj",
+      text: t("upload.cancel"),
       onclick: () => actions.setView(State.defaultView()),
     }),
   );

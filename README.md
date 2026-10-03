@@ -24,6 +24,7 @@ Iskra is a soft little crystal with three shards orbiting her, living at the top
 - 🔌 **Integrations** — Stripe, n8n, GitHub, Vercel, Resend, Notion, Cal.com. Each one gets its own coloured mini character pill.
 - 🫥 **Invisible when idle** — hides into the top edge and peeks out when you hover it. `Ctrl+Alt+M` summons it from anywhere; `Ctrl+Alt+Shift+S` starts a snip.
 - 🔒 **Private by design** — no telemetry, no account. Keys live in the Windows Credential Manager. The app only talks to the services you plug in.
+- 🌍 **English by default** — Polish is one setting away; another language is one table in `src/core/i18n.ts`.
 
 See [`windows/README.md`](windows/README.md) for screenshots and the full details.
 

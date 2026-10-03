@@ -48,6 +48,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The two translation tables drift silently: a key added to one language
+      # and forgotten in the other shows the raw key to the user.
+      - name: Check the translations
+        run: npm run check:i18n
+
       # Three files carry the version and they drift silently. Publishing a
       # "0.1.1" that installs a 0.1.0 is the kind of thing nobody notices until
       # a bug report arrives against the wrong build.
@@ -66,9 +71,9 @@ jobs:
           if ($tag -ne $cargo) { $bad += "Cargo.toml says $cargo" }
           if ($bad) { throw "tag says $tag but $($bad -join '; ')" }
 
-      # `npm run build` (run by tauri as beforeBuildCommand) builds oczi-hook
-      # first, which tauri.conf.json then bundles as a resource. `pack` then
-      # copies the installer out of target/ under its shipping name.
+      # `npm run build` (run by tauri as beforeBuildCommand) compiles the front
+      # end; `pack` then copies the installer out of target/ under its shipping
+      # name.
       - name: Build and pack the installer
         id: pack
         shell: pwsh

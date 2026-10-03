@@ -35,6 +35,9 @@ pub struct Settings {
     /// The keyless one needs no setup, so it is the default.
     #[serde(default = "default_search_provider")]
     pub search_provider: String,
+    /// UI language. English unless the user picked Polish in the settings.
+    #[serde(default = "default_language")]
+    pub language: String,
 }
 
 fn default_true() -> bool {
@@ -51,6 +54,13 @@ fn default_model() -> String {
 
 fn default_hotkey() -> String {
     "Ctrl+Alt+M".to_string()
+}
+
+/// Languages the UI ships with. Anything else in settings.json becomes English.
+pub const LANGUAGES: [&str; 2] = ["en", "pl"];
+
+fn default_language() -> String {
+    "en".to_string()
 }
 
 impl Default for Settings {
@@ -73,6 +83,7 @@ impl Default for Settings {
             hotkey: default_hotkey(),
             web_search: true,
             search_provider: default_search_provider(),
+            language: default_language(),
         }
     }
 }
@@ -114,6 +125,9 @@ pub fn load() -> Settings {
             }
             if !crate::web::PROVIDERS.contains(&settings.search_provider.as_str()) {
                 settings.search_provider = default_search_provider();
+            }
+            if !LANGUAGES.contains(&settings.language.as_str()) {
+                settings.language = default_language();
             }
             settings
         }

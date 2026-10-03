@@ -4,6 +4,7 @@
 import "./settings.css";
 import { Bridge, onEvent } from "../core/bridge";
 import { DEFAULT_SETTINGS, type Settings } from "../core/state";
+import { LANGUAGES, isLang, setLang, t, type TextKey } from "../core/i18n";
 import { h, clear } from "../views/dom";
 
 let settings: Settings = { ...DEFAULT_SETTINGS };
@@ -40,27 +41,25 @@ const MODELS: [string, string][] = [
 
 function apiSection(hasKey: boolean): HTMLElement {
   const dot = statusDot(hasKey);
-  const state = h("span", { class: "hint", text: hasKey ? "Klucz zapisany w menedżerze poświadczeń Windows." : "Brak klucza — czat go potrzebuje." });
+  const state = h("span", { class: "hint", text: hasKey ? t("set.keyStored") : t("set.keyMissing") });
 
   const field = h("input", {
     type: "password",
-    placeholder: hasKey ? "••••••••••••  (zapisany)" : "sk-…",
+    placeholder: hasKey ? t("set.keyPlaceholderSaved") : "sk-…",
     style: "flex:1 1 auto;min-width:0",
     autocomplete: "off",
     spellcheck: "false",
   }) as HTMLInputElement;
 
-  const saveBtn = h("button", { class: "primary", text: "Zapisz klucz" });
-  const clearBtn = h("button", { class: "danger", text: "Usuń" });
+  const saveBtn = h("button", { class: "primary", text: t("set.keySave") });
+  const clearBtn = h("button", { class: "danger", text: t("set.keyRemove") });
   const feedback = h("div", {});
 
   async function refresh() {
     const present = (await Bridge.secretPresent("deepseek-api-key")) ?? false;
     dot.style.background = present ? "#22c55e" : "#f4505e";
-    state.textContent = present
-      ? "Klucz zapisany w menedżerze poświadczeń Windows."
-      : "Brak klucza — czat go potrzebuje.";
-    field.placeholder = present ? "••••••••••••  (zapisany)" : "sk-…";
+    state.textContent = present ? t("set.keyStored") : t("set.keyMissing");
+    field.placeholder = present ? t("set.keyPlaceholderSaved") : "sk-…";
     clearBtn.style.display = present ? "" : "none";
   }
 
@@ -71,10 +70,10 @@ function apiSection(hasKey: boolean): HTMLElement {
     try {
       await Bridge.secretSet("deepseek-api-key", value);
       field.value = "";
-      feedback.append(h("div", { class: "notice ok", text: "Zapisano. Nigdy nie trafia na dysk." }));
+      feedback.append(h("div", { class: "notice ok", text: t("set.keySaved") }));
       await refresh();
     } catch (err) {
-      feedback.append(h("div", { class: "notice err", text: `Nie udało się zapisać: ${String(err)}` }));
+      feedback.append(h("div", { class: "notice err", text: t("set.keySaveFailed", String(err)) }));
     }
   });
 
@@ -82,10 +81,10 @@ function apiSection(hasKey: boolean): HTMLElement {
     clear(feedback);
     try {
       await Bridge.secretClear("deepseek-api-key");
-      feedback.append(h("div", { class: "notice ok", text: "Klucz usunięty." }));
+      feedback.append(h("div", { class: "notice ok", text: t("set.keyRemoved") }));
       await refresh();
     } catch (err) {
-      feedback.append(h("div", { class: "notice err", text: `Nie udało się usunąć: ${String(err)}` }));
+      feedback.append(h("div", { class: "notice err", text: t("set.keyRemoveFailed", String(err)) }));
     }
   });
 
@@ -102,14 +101,14 @@ function apiSection(hasKey: boolean): HTMLElement {
   return h(
     "section",
     {},
-    h("h2", {}, dot, h("span", { text: "DeepSeek" })),
+    h("h2", {}, dot, h("span", { text: t("set.deepseek") })),
     state,
-    h("div", { class: "row" }, h("label", { text: "Klucz API" }), field, saveBtn, clearBtn),
-    h("div", { class: "row" }, h("label", { text: "Model" }), model),
+    h("div", { class: "row" }, h("label", { text: t("set.apiKey") }), field, saveBtn, clearBtn),
+    h("div", { class: "row" }, h("label", { text: t("set.model") }), model),
     h("div", { class: "row" },
-      h("label", { text: "Myślenie" }),
+      h("label", { text: t("set.thinking") }),
       toggle(settings.thinking, (v) => { settings.thinking = v; void save(); }),
-      h("span", { class: "hint", text: "wolniej, ale najpierw myśli" }),
+      h("span", { class: "hint", text: t("set.thinkingHint") }),
     ),
     feedback,
   );
@@ -117,36 +116,36 @@ function apiSection(hasKey: boolean): HTMLElement {
 
 // ── Web access section ────────────────────────────────────────────────────────
 
-const SEARCH_PROVIDERS: [string, string, string][] = [
-  ["duckduckgo", "DuckDuckGo", "bez klucza"],
-  ["brave", "Brave Search", "wymaga klucza"],
-  ["tavily", "Tavily", "wymaga klucza"],
-];
-
-/** Keys only the keyed backends use; DuckDuckGo needs nothing configured. */
-const SEARCH_KEYS = [
-  { key: "brave-api-key", label: "Klucz Brave", placeholder: "BSA…", secret: true },
-  { key: "tavily-api-key", label: "Klucz Tavily", placeholder: "tvly-…", secret: true },
+const SEARCH_PROVIDERS: [string, string, TextKey][] = [
+  ["duckduckgo", "DuckDuckGo", "set.noKeyNeeded"],
+  ["brave", "Brave Search", "set.needsKey"],
+  ["tavily", "Tavily", "set.needsKey"],
 ];
 
 interface SecretField {
   key: string;
-  label: string;
+  labelKey: TextKey;
   placeholder: string;
   secret: boolean;
 }
+
+/** Keys only the keyed backends use; DuckDuckGo needs nothing configured. */
+const SEARCH_KEYS: SecretField[] = [
+  { key: "brave-api-key", labelKey: "set.braveKey", placeholder: "BSA…", secret: true },
+  { key: "tavily-api-key", labelKey: "set.tavilyKey", placeholder: "tvly-…", secret: true },
+];
 
 /** One credential row: input, save button, status dot. Shared by the
  * integrations and the search backends — same rules for every secret. */
 function secretRow(field: SecretField, present: Record<string, boolean>): HTMLElement {
   const input = h("input", {
     type: field.secret ? "password" : "text",
-    placeholder: present[field.key] ? "••••••••  (stored)" : field.placeholder,
+    placeholder: present[field.key] ? t("set.stored") : field.placeholder,
     autocomplete: "off",
     spellcheck: "false",
     style: "flex:1 1 auto;min-width:0",
   }) as HTMLInputElement;
-  const saveBtn = h("button", { text: "Zapisz" });
+  const saveBtn = h("button", { text: t("set.save") });
   const dotEl = statusDot(present[field.key] ?? false);
   saveBtn.addEventListener("click", async () => {
     const value = input.value.trim();
@@ -154,22 +153,22 @@ function secretRow(field: SecretField, present: Record<string, boolean>): HTMLEl
       await Bridge.secretSet(field.key, value);
       present[field.key] = value.length > 0;
       input.value = "";
-      input.placeholder = value ? "••••••••  (stored)" : field.placeholder;
+      input.placeholder = value ? t("set.stored") : field.placeholder;
       dotEl.style.background = value ? "#22c55e" : "#f4505e";
     } catch {
       dotEl.style.background = "#f5a524";
     }
   });
   return h("div", { class: "row" },
-    h("label", { style: "min-width:104px", text: field.label }),
+    h("label", { style: "min-width:104px", text: t(field.labelKey) }),
     input, saveBtn, dotEl,
   );
 }
 
 function webSection(present: Record<string, boolean>): HTMLElement {
   const provider = h("select", {}) as HTMLSelectElement;
-  for (const [id, label, note] of SEARCH_PROVIDERS) {
-    provider.append(h("option", { value: id, text: `${label} — ${note}` }));
+  for (const [id, label, noteKey] of SEARCH_PROVIDERS) {
+    provider.append(h("option", { value: id, text: `${label} — ${t(noteKey)}` }));
   }
   provider.value = settings.searchProvider;
   provider.addEventListener("change", () => {
@@ -183,16 +182,16 @@ function webSection(present: Record<string, boolean>): HTMLElement {
   return h(
     "section",
     {},
-    h("h2", {}, h("span", { text: "Internet" })),
+    h("h2", {}, h("span", { text: t("set.internet") })),
     h("div", { class: "row" },
-      h("label", { text: "Szukanie w sieci" }),
+      h("label", { text: t("set.webSearch") }),
       toggle(settings.webSearch, (v) => { settings.webSearch = v; void save(); }),
-      h("span", { class: "hint", text: "świeże dane, linki, pogoda, ceny" }),
+      h("span", { class: "hint", text: t("set.webSearchHint") }),
     ),
     h("div", { class: "row" },
-      h("label", { text: "Wyszukiwarka" }),
+      h("label", { text: t("set.searchEngine") }),
       provider,
-      h("span", { class: "hint", text: "klucze tylko dla Brave / Tavily — DuckDuckGo działa od razu" }),
+      h("span", { class: "hint", text: t("set.searchKeysHint") }),
     ),
     rows,
   );
@@ -210,22 +209,22 @@ interface IntegrationDef {
 
 const INTEGRATIONS: IntegrationDef[] = [
   { id: "integration_stripe", name: "Stripe", color: "#0570DE",
-    fields: [{ key: "stripe-api-key", label: "Klucz tajny", placeholder: "sk_live_…", secret: true }] },
+    fields: [{ key: "stripe-api-key", labelKey: "set.secretKey", placeholder: "sk_live_…", secret: true }] },
   { id: "integration_github", name: "GitHub", color: "#F4505E",
-    fields: [{ key: "github-token", label: "Token", placeholder: "ghp_…", secret: true }] },
+    fields: [{ key: "github-token", labelKey: "set.token", placeholder: "ghp_…", secret: true }] },
   { id: "integration_vercel", name: "Vercel", color: "#7C5CFF",
-    fields: [{ key: "vercel-token", label: "Token", placeholder: "…", secret: true }] },
+    fields: [{ key: "vercel-token", labelKey: "set.token", placeholder: "…", secret: true }] },
   { id: "integration_n8n", name: "n8n", color: "#F29B38",
     fields: [
-      { key: "n8n-url", label: "URL instancji", placeholder: "https://n8n.example.com", secret: false },
-      { key: "n8n-api-key", label: "Klucz API", placeholder: "…", secret: true },
+      { key: "n8n-url", labelKey: "set.instanceUrl", placeholder: "https://n8n.example.com", secret: false },
+      { key: "n8n-api-key", labelKey: "set.apiKey", placeholder: "…", secret: true },
     ] },
   { id: "integration_resend", name: "Resend", color: "#22C55E",
-    fields: [{ key: "resend-api-key", label: "Klucz API", placeholder: "re_…", secret: true }] },
+    fields: [{ key: "resend-api-key", labelKey: "set.apiKey", placeholder: "re_…", secret: true }] },
   { id: "integration_notion", name: "Notion", color: "#8C8C8C",
-    fields: [{ key: "notion-api-key", label: "Token integracji", placeholder: "ntn_…", secret: true }] },
+    fields: [{ key: "notion-api-key", labelKey: "set.integrationToken", placeholder: "ntn_…", secret: true }] },
   { id: "integration_calcom", name: "Cal.com", color: "#C9956A",
-    fields: [{ key: "calcom-api-key", label: "Klucz API", placeholder: "cal_…", secret: true }] },
+    fields: [{ key: "calcom-api-key", labelKey: "set.apiKey", placeholder: "cal_…", secret: true }] },
 ];
 
 const MAX_ACTIVE = 4;
@@ -236,7 +235,7 @@ function integrationsSection(present: Record<string, boolean>): HTMLElement {
 
   function updateNote() {
     const used = settings.activeIntegrations.length;
-    note.textContent = `Wybierz maksymalnie ${MAX_ACTIVE} pigułki obok Iskra — użyto ${used}/${MAX_ACTIVE}. Klucze są przechowywane w menedżerze poświadczeń Windows, nigdy na dysku.`;
+    note.textContent = t("set.integrationsNote", MAX_ACTIVE, used, MAX_ACTIVE);
   }
 
   for (const def of INTEGRATIONS) {
@@ -271,7 +270,7 @@ function integrationsSection(present: Record<string, boolean>): HTMLElement {
   }
 
   updateNote();
-  return h("section", {}, h("h2", {}, h("span", { text: "Integracje" })), note, list);
+  return h("section", {}, h("h2", {}, h("span", { text: t("set.integrations") })), note, list);
 }
 
 // ── General section ───────────────────────────────────────────────────────────
@@ -281,6 +280,17 @@ function integrationsSection(present: Record<string, boolean>): HTMLElement {
 const HOTKEY_OPTIONS = ["Ctrl+Alt+M", "Ctrl+Alt+Shift+M", "Ctrl+Shift+M", "Ctrl+Alt+G", "Ctrl+Alt+Space"];
 
 function generalSection(): HTMLElement {
+  const language = h("select", {}) as HTMLSelectElement;
+  for (const { tag, label } of LANGUAGES) language.append(h("option", { value: tag, text: label }));
+  language.value = settings.language;
+  language.addEventListener("change", () => {
+    if (!isLang(language.value)) return;
+    settings.language = language.value;
+    void save();
+    // The texts live in the widgets, so a language change rebuilds the window.
+    location.reload();
+  });
+
   const autoClose = h("input", {
     type: "number", min: "5", max: "120", step: "1",
     value: String(Math.round(settings.autoCloseInterval)),
@@ -294,8 +304,8 @@ function generalSection(): HTMLElement {
 
   const screen = h("select", {}) as HTMLSelectElement;
   screen.append(
-    h("option", { value: "primary", text: "Monitor główny" }),
-    h("option", { value: "cursor", text: "Monitor pod kursorem" }),
+    h("option", { value: "primary", text: t("set.screenPrimary") }),
+    h("option", { value: "cursor", text: t("set.screenCursor") }),
   );
   screen.value = settings.screen;
   screen.addEventListener("change", () => {
@@ -314,22 +324,17 @@ function generalSection(): HTMLElement {
   return h(
     "section",
     {},
-    h("h2", {}, h("span", { text: "Ogólne" })),
+    h("h2", {}, h("span", { text: t("set.general") })),
+    h("div", { class: "row" }, h("label", { text: t("set.language") }), language),
     h("div", { class: "row" },
-      h("label", { text: "Auto-zamykanie" }),
+      h("label", { text: t("set.autoClose") }),
       autoClose,
-      h("span", { class: "hint", text: "sekund po opuszczeniu wyspy" }),
+      h("span", { class: "hint", text: t("set.autoCloseHint") }),
     ),
+    h("div", { class: "row" }, h("label", { text: t("set.islandScreen") }), screen),
+    h("div", { class: "row" }, h("label", { text: t("set.hotkey") }), hotkey),
     h("div", { class: "row" },
-      h("label", { text: "Wyspa mieszka na" }),
-      screen,
-    ),
-    h("div", { class: "row" },
-      h("label", { text: "Skrót otwierający" }),
-      hotkey,
-    ),
-    h("div", { class: "row" },
-      h("label", { text: "Uruchamiaj przy starcie" }),
+      h("label", { text: t("set.autostart") }),
       toggle(settings.autostart, (v) => { settings.autostart = v; void save(); }),
     ),
   );
@@ -343,6 +348,9 @@ async function main() {
     settings = { ...settings, ...boot.settings };
     version = boot.version;
   }
+
+  setLang(settings.language);
+  document.title = t("set.title");
 
   const hasKey = (await Bridge.secretPresent("deepseek-api-key")) ?? false;
 
@@ -361,10 +369,7 @@ async function main() {
     webSection(present),
     integrationsSection(present),
     generalSection(),
-    h("div", {
-      class: "hint",
-      text: "Bez telemetrii. Zapytania sieciowe trafiają wyłącznie do usług, które sam konfigurujesz.",
-    }),
+    h("div", { class: "hint", text: t("set.privacy") }),
   );
 
   void onEvent<Settings>("settings-changed", (s) => {

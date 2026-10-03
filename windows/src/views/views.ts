@@ -5,6 +5,7 @@ import { ICONS } from "./icons";
 import { Bridge } from "../core/bridge";
 import { State, type AgentTask } from "../core/state";
 import { washRGBA, type IslandViewName, type Wash } from "../core/layout";
+import { t } from "../core/i18n";
 import { createMiniBot, pruneMiniBots } from "../bot/minibots";
 import { buildPrompt } from "./chat";
 import { buildChoose, buildUpload, buildUploading } from "./upload";
@@ -20,8 +21,6 @@ export interface ViewActions {
   /** The ↗ button: opens whatever the focused pill points at. */
   openTarget(): void;
   openUrl(url: string): void;
-  toggleSound(): void;
-  setVolume(v: number): void;
   setAutoClose(seconds: number): void;
   openSettingsWindow(): void;
   blip(): void;
@@ -61,12 +60,11 @@ function btn(
 // ── Header ────────────────────────────────────────────────────────────────────
 
 export function buildHeader(actions: ViewActions): ViewHost {
-  const tabHome = h("button", { class: "tab", title: "Główna", onclick: () => go("home") }, svg(ICONS.house, 13));
-  const tabChat = h("button", { class: "tab", title: "Pytaj", onclick: () => go("prompt") }, svg(ICONS.bubble, 13));
-  const tabDrop = h("button", { class: "tab", title: "Dodaj plik", onclick: () => go("upload") }, svg(ICONS.plus, 13));
+  const tabHome = h("button", { class: "tab", title: t("tab.home"), onclick: () => go("home") }, svg(ICONS.house, 13));
+  const tabChat = h("button", { class: "tab", title: t("tab.ask"), onclick: () => go("prompt") }, svg(ICONS.bubble, 13));
+  const tabDrop = h("button", { class: "tab", title: t("tab.add"), onclick: () => go("upload") }, svg(ICONS.plus, 13));
 
-  const gearBtn = h("button", { title: "Ustawienia", onclick: () => go("settings") }, svg(ICONS.gear, 14));
-  const soundBtn = h("button", { title: "Wycisz", onclick: () => actions.toggleSound() }, svg(ICONS.speakerOn, 14));
+  const gearBtn = h("button", { title: t("int.tip"), onclick: () => go("settings") }, svg(ICONS.gear, 14));
 
   function go(v: IslandViewName) {
     actions.blip();
@@ -77,7 +75,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
     "div",
     { id: "header" },
     h("div", { class: "tabs" }, tabHome, tabChat, tabDrop),
-    h("div", { class: "header-actions" }, gearBtn, soundBtn),
+    h("div", { class: "header-actions" }, gearBtn),
   );
 
   return {
@@ -90,8 +88,6 @@ export function buildHeader(actions: ViewActions): ViewHost {
       gearBtn.classList.toggle("on", v === "settings");
       clear(gearBtn);
       gearBtn.append(svg(v === "settings" ? ICONS.gearFill : ICONS.gear, 14));
-      clear(soundBtn);
-      soundBtn.append(svg(State.settings.soundEnabled ? ICONS.speakerOn : ICONS.speakerOff, 14));
       el.style.opacity = v === "confused" ? "0" : "1";
     },
   };
@@ -129,10 +125,10 @@ function buildHome(actions: ViewActions): ViewHost {
   });
   const bar = h(
     "div",
-    { class: "chat-bar home-bar", title: "Otwórz czat" },
+    { class: "chat-bar home-bar", title: t("chat.openBar") },
     fresh,
     eye,
-    h("div", { class: "home-hint", text: "Zapytaj mnie o cokolwiek…" }),
+    h("div", { class: "home-hint", text: t("chat.placeholder") }),
     h("button", { class: "send-btn" }, svg(ICONS.arrowUp, 11)),
   );
   bar.addEventListener("mousedown", () => {
@@ -186,7 +182,7 @@ function buildOverview(actions: ViewActions): ViewHost {
   const leftBody = h("div", { class: "left-body" });
   const jump = h(
     "button",
-    { class: "icon-btn jump", title: "Otwórz", onclick: () => actions.openTarget() },
+    { class: "icon-btn jump", title: t("int.tipOpen"), onclick: () => actions.openTarget() },
     svg(ICONS.arrowUpRight, 8),
   );
   const left = card(null, leftBody, jump);
@@ -317,10 +313,10 @@ function buildEmpty(actions: ViewActions): ViewHost {
       "div",
       { style: "display:flex;flex-direction:column;gap:5px" },
       h("div", { class: "title", text: "Na razie nic się nie dzieje." }),
-      h("div", { class: "sub", text: "Zapytaj mnie o cokolwiek." }),
+      h("div", { class: "sub", text: t("chat.askSub") }),
     ),
     h("div", { class: "grow" }),
-    btn("Zapytaj DeepSeek", "primary", () => actions.setView("prompt")),
+    btn(t("chat.askButton"), "primary", () => actions.setView("prompt")),
   );
   return { el: h("div", { class: "view" }, card(null, body)), sync() {} };
 }
@@ -332,7 +328,7 @@ function buildConfused(): ViewHost {
     "div",
     { class: "stack", style: "padding:0 18px 0 128px" },
     h("div", { class: "title", text: "Za dużo naraz." }),
-    h("div", { class: "sub", text: "Daj mi chwilę — za trzy sekundy wracam do pracy." }),
+    h("div", { class: "sub", text: t("absence.text") }),
   );
   return { el: h("div", { class: "view" }, card("pink", body)), sync() {} };
 }
@@ -353,11 +349,6 @@ function buildNote(): ViewHost {
 // ── In-island settings ────────────────────────────────────────────────────────
 
 function buildSettings(actions: ViewActions): ViewHost {
-  const soundSwitch = h("button", { class: "switch", onclick: () => actions.toggleSound() });
-  const volume = h("input", {
-    type: "range", min: "0", max: "0.2", step: "0.005",
-    oninput: (e: Event) => actions.setVolume(Number((e.target as HTMLInputElement).value)),
-  }) as HTMLInputElement;
   const autoLabel = h("span", {});
   const segButtons = [10, 15, 30].map((s) =>
     h("button", { onclick: () => actions.setAutoClose(s) }, `${s}s`),
@@ -377,7 +368,6 @@ function buildSettings(actions: ViewActions): ViewHost {
   const rows = h(
     "div",
     { class: "settings-rows" },
-    h("div", { class: "settings-row" }, soundSwitch, h("span", { text: "Dźwięk" }), volume),
     h(
       "div",
       { class: "settings-row" },
@@ -393,7 +383,7 @@ function buildSettings(actions: ViewActions): ViewHost {
       h("button", {
         class: "link-btn",
         style: "color:#8e939c;font-size:11.5px",
-        text: "Ustawienia…",
+        text: t("int.settings"),
         onclick: () => actions.openSettingsWindow(),
       }),
     ),
@@ -406,10 +396,7 @@ function buildSettings(actions: ViewActions): ViewHost {
     el,
     sync() {
       const s = State.settings;
-      soundSwitch.classList.toggle("on", s.soundEnabled);
-      volume.value = String(s.soundVolume);
-      volume.style.opacity = s.soundEnabled ? "1" : "0.4";
-      autoLabel.textContent = `Auto-zamykanie · ${Math.round(s.autoCloseInterval)}s`;
+      autoLabel.textContent = t("set.autoCloseChip", Math.round(s.autoCloseInterval));
       segButtons.forEach((b, i) => b.classList.toggle("on", s.autoCloseInterval === [10, 15, 30][i]));
       // Re-check while the view is open, so saving a key in the settings window
       // shows up without a restart.
