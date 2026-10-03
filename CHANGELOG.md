@@ -34,7 +34,10 @@ MIT, the name, the character and the icon are not (see LICENSE-ASSETS.md).
 
 - English by default, Polish one setting away. `npm run check:i18n` keeps the two
   tables in step and fails the build when Polish text is left in a UI file, and
-  switching the language re-loads the island so every view is re-translated.
+  switching the language re-loads the island so every view is re-translated. The
+  remembered choice is applied before the first view is built — the island builds
+  its home view while the boot reply is still on its way, so without that the home
+  page came up English on every start.
 - File drag-and-drop onto the island goes through the app's own drop target, so
   files land reliably on Windows.
 - Survives a crash inside WebView2: the reason and exit code go to the log and
