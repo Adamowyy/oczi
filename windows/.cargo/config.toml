@@ -1,0 +1,11 @@
+# Applied only when building with the GNU (MinGW-w64) toolchain, i.e. the
+# toolchain you get without the MSVC build tools. Ignored for MSVC builds,
+# which is what the CI and the default rustup setup on Windows use.
+#
+# Why: `oczi_lib` is declared as a cdylib, and GNU ld's automatic export of
+# every global symbol from the linked static libraries overflows the 16-bit PE
+# export ordinal table ("error: export ordinal too large: 67447"). That DLL is a
+# mobile-only artefact — on Windows the app is `oczi.exe`, linked against the
+# rlib — so exporting nothing from it is safe and the link succeeds.
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-arg=-Wl,--exclude-all-symbols"]

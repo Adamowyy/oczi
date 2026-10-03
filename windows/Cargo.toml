@@ -1,0 +1,15 @@
+[workspace]
+members = ["src-tauri"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.2"
+edition = "2021"
+
+# Release profile: small and fast startup, since the island appears at logon.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

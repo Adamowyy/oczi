@@ -1,0 +1,7 @@
+# Local only (never published)
+.claude/
+_prive/
+
+# OS noise
+.DS_Store
+Thumbs.db

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Snip — Oczi</title>
+    <style>
+      /* Self-contained on purpose: this page never loads the island's stylesheet,
+         so the overlay cannot be broken by a change made for the island. */
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        cursor: crosshair;
+        user-select: none;
+      }
+      body {
+        /* The desktop shows through: this window is transparent, and the dimming is
+           what tells the user the app is waiting for a selection. */
+        background: rgba(6, 7, 9, 0.35);
+        font: 500 13px/1.4 -apple-system, "Segoe UI", system-ui, sans-serif;
+        color: rgba(255, 255, 255, 0.92);
+      }
+      #snip-band {
+        position: fixed;
+        border: 1.5px solid rgba(255, 255, 255, 0.95);
+        background: rgba(255, 255, 255, 0.06);
+        box-shadow: 0 0 0 9999px rgba(6, 7, 9, 0.35), 0 6px 24px rgba(0, 0, 0, 0.45);
+        border-radius: 3px;
+        pointer-events: none;
+      }
+      #snip-hint {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        padding: 9px 16px;
+        border-radius: 999px;
+        background: rgba(10, 11, 14, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        white-space: nowrap;
+        pointer-events: none;
+        transition: opacity 0.15s ease-out;
+      }
+      body.selecting #snip-hint {
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="snip-hint">Zaznacz obszar, na który Iskra ma spojrzeć · Esc anuluje</div>
+    <div id="snip-band" hidden></div>
+    <script type="module" src="/src/snip.ts"></script>
+  </body>
+</html>
