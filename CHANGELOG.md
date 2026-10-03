@@ -33,7 +33,8 @@ MIT, the name, the character and the icon are not (see LICENSE-ASSETS.md).
 **The app**
 
 - English by default, Polish one setting away. `npm run check:i18n` keeps the two
-  tables in step and fails the build when Polish text is left in a UI file.
+  tables in step and fails the build when Polish text is left in a UI file, and
+  switching the language re-loads the island so every view is re-translated.
 - File drag-and-drop onto the island goes through the app's own drop target, so
   files land reliably on Windows.
 - Survives a crash inside WebView2: the reason and exit code go to the log and
@@ -43,6 +44,9 @@ MIT, the name, the character and the icon are not (see LICENSE-ASSETS.md).
   away (~1 % of a core), runs at 30 fps for an open card nobody is touching, 15 fps
   for the small bar, and at full rate the moment the cursor is on the island or
   the chat is in use.
+- Coming back from the top edge, the bar arrives before the character in it:
+  Iskra overhangs her bar by design, and used to be on screen while it was still a
+  sliver.
 
 **Removed**
 
