@@ -2,6 +2,8 @@
 name = "oczi"
 description = "Oczi — Iskra lives at the top of your screen"
 authors = ["Adam Warzecha"]
+license = "MIT"
+repository = "https://github.com/Adamowyy/oczi"
 version.workspace = true
 edition.workspace = true
 
