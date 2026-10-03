@@ -1,4 +1,5 @@
-// Running commands on this machine, for the chat's terminal tools.
+// Running commands for the chat's terminal tools. Off unless the user enabled
+// it; every command is written to the app log. Long jobs go to `spawn`.
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
@@ -66,6 +67,8 @@ fn command_for(cmd: &str, cwd: Option<&str>) -> Result<Command, String> {
 
     let mut c = Command::new("cmd");
     c.arg("/C");
+    // Raw arg keeps the command exactly as written: a normal argument gets
+    // quoted for CreateProcess and cmd then rejects quoted paths as bad syntax.
     #[cfg(windows)]
     c.raw_arg(cmd);
     #[cfg(not(windows))]
@@ -88,6 +91,8 @@ fn command_for(cmd: &str, cwd: Option<&str>) -> Result<Command, String> {
     Ok(c)
 }
 
+/// Opens a program or file like a double-click. `what` is a path, or a name
+/// looked up on the desktop, the public desktop and the Start menu.
 pub fn launch(what: &str) -> Result<String, String> {
     #[cfg(windows)]
     use std::os::windows::process::CommandExt;
@@ -217,6 +222,8 @@ pub fn clear_logs() {
     }
 }
 
+/// Kills commands a previous run left behind when the app was killed, not quit.
+/// Only a live `cmd.exe` carrying the pid we wrote is touched, so a reused pid is safe.
 pub fn kill_orphans() {
     let Ok(entries) = fs::read_dir(jobs_dir()) else {
         return;

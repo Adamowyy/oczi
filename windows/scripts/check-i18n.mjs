@@ -1,3 +1,5 @@
+// Fails when the translation tables drift apart: a key missing from one language,
+// a key nobody uses, or a `{}` count that does not match English. Run: npm run check:i18n
 
 import { build } from "esbuild";
 import { readFileSync, readdirSync, unlinkSync } from "node:fs";
@@ -33,7 +35,7 @@ for (const [key, value] of Object.entries(en)) {
   if (!value.trim()) problems.push(`en: "${key}" is empty`);
 }
 
-// Any Polish left in a UI file means a string never went through t(), the way
+// Any Polish left in a UI file means a string never went through t() — the way
 // half the island once stayed Polish while English was the default.
 const POLISH = new RegExp(
   "[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]|\\b(brak|otw[óo]rz|zobacz|kliknij|zapisz|usu[ńn]|wy[śs]lij|poka[żz]|gotowe|" +
@@ -72,7 +74,7 @@ function rustFiles(dir) {
 
 const ROOT = join(HERE, "..");
 // The terminal tests quote a reply the model really sent, Polish and full-width
-// pipes included, that text has to stay exactly as it was.
+// pipes included — that text has to stay exactly as it was.
 const RUST_SKIP = new Set(["text_tools.rs"]);
 
 function scan(files) {

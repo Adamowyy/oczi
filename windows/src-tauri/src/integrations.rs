@@ -1,3 +1,5 @@
+// Integration pollers for Stripe, GitHub, Vercel, n8n, Resend, Notion and Cal.com.
+// Nothing polls without a key in the Credential Manager; each emits an `integration` event.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -82,6 +84,8 @@ where
         let mut ticker = tokio::time::interval(Duration::from_secs(every_secs));
         loop {
             ticker.tick().await;
+            // Ticker keeps its cadence; a disabled integration or a paused app
+            // must make no network calls at all.
             if PAUSED.load(Ordering::Relaxed) || !enabled(&app, id) {
                 continue;
             }

@@ -1,4 +1,5 @@
-// Live web access for the chat: a search and a page reader.
+// Live web access for the chat: the app performs the lookups and hands the model
+// text back to answer from. Keyless by default, and only on when the user asks.
 
 use std::time::Duration;
 
@@ -624,6 +625,8 @@ mod tests {
         assert_eq!(host_of("ftp://example.com"), None);
     }
 
+    /// Opt-in check against the real endpoints, since a fixture cannot catch a
+    /// DDG markup change: `OCZI_LIVE_WEB=1 cargo test --lib live_web -- --nocapture`
     #[test]
     fn live_web() {
         if std::env::var("OCZI_LIVE_WEB").is_err() {

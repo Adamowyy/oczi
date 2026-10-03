@@ -1,3 +1,5 @@
+// Integration cards in the overview's left card — DOM ports from IslandViewContent.swift.
+// Cal.com is the one simplification: here it is a list of upcoming bookings, not a calendar.
 
 import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";

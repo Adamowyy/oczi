@@ -87,6 +87,8 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
     let _ = app.emit("settings-changed", settings);
 }
 
+/// True while the island is retracted into the top edge: tells the cursor poll to
+/// idle and starts answering drags and hovers on the wake band.
 #[tauri::command]
 fn set_collapsed(app: AppHandle, shared: State<Shared>, collapsed: bool) {
     shared.gate.collapsed.store(collapsed, Ordering::Relaxed);
@@ -348,6 +350,8 @@ fn log_line(message: String) {
 
 // ── Settings window ───────────────────────────────────────────────────────────
 
+/// WebView2 allows one browser environment per app with fixed options, so every
+/// window must pass the same args as the island (tauri.conf.json) or come up blank.
 const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required";
 
 /// In a dev build the pages are served by Vite, so the second window needs the
@@ -362,6 +366,8 @@ fn settings_page_url(app: &AppHandle) -> WebviewUrl {
     WebviewUrl::App("settings.html".into())
 }
 
+/// Created hidden at launch and only shown/hidden afterwards: a WebView2 window
+/// created later silently comes up blank, so it must exist before the island.
 fn create_settings_window(app: &AppHandle) {
     let url = settings_page_url(app);
     match WebviewWindowBuilder::new(app, "settings", url)

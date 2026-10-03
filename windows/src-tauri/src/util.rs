@@ -18,7 +18,8 @@ pub fn base64_for(bytes: &[u8]) -> String {
     out
 }
 
-// Today's local date as `YYYY-MM-DD`, plus the weekday.
+/// Today's local date as `YYYY-MM-DD`, plus the weekday, read from Windows so
+/// the user's time zone and DST are already applied.
 pub fn today() -> String {
     const WEEKDAYS: [&str; 7] = [
         "Sunday",

@@ -17,6 +17,8 @@ export interface ViewActions {
   setFocus(id: string): void;
   /** The eye: snip a region of the screen and ask about it. */
   snip(): void;
+  /** Keep the island open for `seconds` (0 = until released): a chat turn takes as
+   *  long as it takes, and the answer must stay readable. */
   holdOpen(seconds: number): void;
   /** The ↗ button: opens whatever the focused pill points at. */
   openTarget(): void;
@@ -95,6 +97,8 @@ export function buildHeader(actions: ViewActions): ViewHost {
 
 // ── Home ──────────────────────────────────────────────────────────────────────
 
+/** The island's home screen: Iskra, the integration pills above the bar, and the bar
+ *  as a doorway into the chat. One text input in the app, not two fighting over focus. */
 function buildHome(actions: ViewActions): ViewHost {
   const pills = h("div", { class: "pills" });
   // The eye is the one thing here that must not open the chat: it works on the

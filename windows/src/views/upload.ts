@@ -1,3 +1,5 @@
+// Drop zone, upload progress and the choose card — ports from IslandViewContent.swift.
+// Email-send is out of Windows v1, so `choose` offers only "ask a question about it".
 
 import { h, clear } from "./dom";
 import { State } from "../core/state";

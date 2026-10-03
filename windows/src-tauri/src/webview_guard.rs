@@ -1,3 +1,5 @@
+// Watches the WebView2 processes Oczi owns: a crash inside the runtime is logged
+// and the app restarted, since one environment serves every window (lib.rs).
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -85,6 +87,8 @@ fn attach(app: &AppHandle, label: &str) {
 
         let mut token = 0i64;
         match unsafe { core.add_ProcessFailed(&handler, &mut token) } {
+            // The runtime holds only a COM reference, so leak ours: it must live as
+            // long as the webview does.
             Ok(()) => std::mem::forget(handler),
             Err(err) => log::line(format!("webview  {in_closure}: not watched — {err}")),
         }
@@ -146,6 +150,8 @@ fn failed(app: &AppHandle, label: &str, args: &ICoreWebView2ProcessFailedEventAr
     recover(app);
 }
 
+/// Failures the runtime repairs on its own (worker processes it restarts without
+/// disturbing the page); everything else leaves a dead or error-page window.
 fn webview2_recovers(kind: COREWEBVIEW2_PROCESS_FAILED_KIND) -> bool {
     matches!(
         kind,
@@ -177,6 +183,8 @@ fn recover(app: &AppHandle) {
     record_restart();
     log::line("webview  restarting Oczi — a WebView2 environment cannot be rebuilt in place");
 
+    // The single-instance plugin holds a named mutex; release it first, or the
+    // restarted copy would hand over its argv and exit instead of coming up.
     tauri_plugin_single_instance::destroy(app);
     let env = app.env();
     tauri::process::restart(&env);

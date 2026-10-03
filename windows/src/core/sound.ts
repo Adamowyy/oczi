@@ -51,6 +51,8 @@ class SoundEngine {
     void this.ctx?.resume();
   }
 
+  /** Called when the island goes quiet: an idle AudioContext still burns CPU.
+   *  The delay covers the tail of the last sound; `play()` resumes on its own. */
   idle() {
     if (!this.ctx || this.ctx.state !== "running" || this.idleTimer != null) return;
     this.idleTimer = window.setTimeout(() => {

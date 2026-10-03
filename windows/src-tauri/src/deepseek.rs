@@ -1,4 +1,5 @@
-// DeepSeek API client, multi-turn chat against the OpenAI-compatible /chat/completions endpoint.
+// DeepSeek chat client. Keeps the API key in the Credential Manager and file
+// bytes off IPC; a thinking turn keeps only `content`, never `reasoning_content`.
 
 use std::sync::Mutex;
 
@@ -21,6 +22,8 @@ const MAX_INLINE_IMAGE: u64 = 10 * 1024 * 1024;
 const ATTEMPT_TIMEOUT_SECS: u64 = 45;
 const MAX_ATTEMPTS: u32 = 3;
 
+/// Current model IDs from api-docs.deepseek.com; the retired `deepseek-chat` /
+/// `deepseek-reasoner` aliases now error, and thinking is a per-request switch.
 pub const DEFAULT_MODEL: &str = "deepseek-flash";
 
 const SYSTEM_PROMPT: &str = "You are Oczi, a personal AI assistant living in a small window at the top of the user's screen. \
@@ -365,7 +368,8 @@ pub struct ChatReply {
     pub text: String,
 }
 
-// One chat turn. Returns the assistant's text, or a message the island shows in the note view.
+/// One chat turn. With web or terminal access on this is a small agent loop:
+/// the model asks, the app performs the lookup, the result returns as a message.
 pub async fn send(
     chat: &Chat,
     options: Options<'_>,
@@ -376,6 +380,8 @@ pub async fn send(
     let key = secrets::get("deepseek-api-key")
         .ok_or_else(|| "No API key — open the settings.".to_string())?;
 
+    // A dropped file or window titles the conversation, so it rides the first
+    // message only; a screenshot rides whichever turn the user took it for.
     let first_turn = chat.is_empty();
     let opener: Option<Value> = match &context {
         Some(ChatContext::File { name, path }) if first_turn => Some(file_opener(name, path)),
@@ -479,6 +485,8 @@ pub async fn send(
             .cloned()
             .unwrap_or_default();
 
+        // Weaker models sometimes write the tool call into the text instead of
+        // the tool_calls field; take it and keep the markup out of the answer.
         if calls.is_empty() {
             let found = crate::text_tools::parse(&visible, &known);
             if !found.is_empty() {
@@ -742,6 +750,8 @@ fn image_mime(name: &str) -> Option<&'static str> {
     }
 }
 
+/// Text and code are inlined; any other binary is named but not attached
+/// (images go through `file_opener` instead).
 fn file_context(name: &str, path: &str) -> String {
     let len = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     if len > MAX_INLINE_TEXT {

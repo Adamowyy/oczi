@@ -1,4 +1,5 @@
-// The screen-selection overlay, the "eye".
+// The screen-selection overlay — the "eye". All pixels live in Rust (`snip.rs`), which
+// froze the desktop and does the crop; this file only turns a drag into a window rect.
 
 import { invoke } from "@tauri-apps/api/core";
 import { setLang, storedLang, t } from "./core/i18n";

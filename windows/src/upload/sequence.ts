@@ -1,5 +1,7 @@
+// The drop choreography — port of UploadSequenceEngine.swift. Pure arithmetic: no DOM,
+// draws nothing. Coordinates are island points (640 × 176), so constants match macOS.
 
-/** Constants, exact mirror of USC in UploadSequenceEngine.swift. */
+/** Constants — exact mirror of USC in UploadSequenceEngine.swift. */
 export const USC = {
   W: 640,
   ISL_H: 176,
@@ -74,6 +76,8 @@ function squeezeX(t: number): number {
   return 1.0;
 }
 
+/** Progress curve of the upload bar: quick to 60 %, a slow middle, then a last
+ *  push. A plain ease-out reads as a different animation. */
 export function uploadProgressCurve(u: number): number {
   if (u < 0.4) return 0.6 * eOut(u / 0.4);
   if (u < 0.85) return 0.6 + 0.32 * eInOut((u - 0.4) / 0.45);
@@ -497,7 +501,7 @@ class UploadSequence {
     f.greenWash = Math.max(hoverGreen, uploadGreen);
     f.chooseAlpha = seg(pt, growStart + 0.15, growEnd);
 
-    // Mouth rect in island coordinates, the file is clipped against it.
+    // Mouth rect in island coordinates — the file is clipped against it.
     const R = f.d / 2 / 1.04;
     const mc = Math.max(0, Math.min(f.morph, 1));
     const rx = R * (1.04 - 0.04 * mc);

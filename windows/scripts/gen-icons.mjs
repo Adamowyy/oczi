@@ -1,3 +1,5 @@
+// Rasterises the character into the PNG/ICO set Tauri needs. The outline comes from
+// src/bot/skin.ts (esbuild-bundled), so the icon cannot drift from the app.
 
 import { build } from "esbuild";
 import { deflateSync } from "node:zlib";

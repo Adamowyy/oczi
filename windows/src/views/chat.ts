@@ -118,7 +118,10 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
       Sound.play("error");
     } finally {
       sending = false;
+      // Re-enable before focusing: the browser blurs a disabled input, and focus()
+      // on a still-disabled field silently does nothing.
       input.disabled = false;
+      // Hold open until the user closes it, so a long answer can be read through.
       actions.holdOpen(0);
       State.notify();
       onHeightChange();

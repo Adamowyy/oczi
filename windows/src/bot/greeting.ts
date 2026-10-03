@@ -445,6 +445,8 @@ function drawMinis(x: CanvasRenderingContext2D, alpha: number) {
 
 // ── Controller ────────────────────────────────────────────────────────────────
 
+/** Runs the greeting animation on its own canvas. `onComplete` fires once at
+ *  T.end, or right after the collapse when interrupted. */
 export class Greeting {
   private startMs = 0;
   private tc = Number.POSITIVE_INFINITY;
@@ -465,12 +467,12 @@ export class Greeting {
     );
   }
 
-  /** Mouse entered the island during the greeting, hold it open. */
+  /** Mouse entered the island during the greeting — hold it open. */
   hover() {
     if (this.tc >= T.autoLeave) this.tc = Number.POSITIVE_INFINITY;
   }
 
-  /** Mouse left, collapse from now. */
+  /** Mouse left — collapse from now. */
   interrupt() {
     const t = (performance.now() - this.startMs) / 1000;
     if (!Number.isFinite(this.tc) || this.tc > t) this.tc = t;

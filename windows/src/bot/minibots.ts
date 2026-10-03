@@ -13,7 +13,8 @@ interface MiniBot {
 
 const live = new Map<HTMLCanvasElement, MiniBot>();
 
-/** Creates a mini character whose **body** is `bodySize` CSS pixels across. */
+/** Mini character whose body is `bodySize` CSS px across. The engine draws the
+ *  body at 60 % of the canvas, so size the canvas `bodySize / 0.6`. */
 export function createMiniBot(task: AgentTask, bodySize: number): HTMLElement {
   const slot = document.createElement("span");
   slot.className = "mini";

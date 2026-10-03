@@ -32,6 +32,7 @@ export const Bridge = {
   /** Shrink the window down to the invisible wake strip (hidden) or back to full. */
   setCollapsed: (collapsed: boolean) => call<void>("set_collapsed", { collapsed }),
 
+  /** Island rect in window coords; Rust flips click-through from its own cursor poll, not this. */
   setIslandRect: (x: number, y: number, width: number, height: number) =>
     call<void>("set_island_rect", { x, y, width, height }),
 
@@ -57,6 +58,8 @@ export const Bridge = {
   chatSend: (query: string, context: ChatContext | null) =>
     callOrThrow<{ text: string }>("chat_send", { query, context }),
   chatReset: () => call<void>("chat_reset"),
+  /** The eye, step one: freeze the desktop and show the selection overlay.
+   *  The result arrives as the `snip-done` event, not this promise's value. */
   beginSnip: () => callOrThrow<void>("begin_snip"),
   /** Copies a dropped file into the inbox. */
   ingestFile: (path: string) => callOrThrow<DroppedFile>("ingest_file", { path }),
@@ -119,7 +122,7 @@ export interface DragDropPayload {
   paths?: string[];
 }
 
-/** Files dragged onto the island. */
+/** Files dragged onto the island. Raised by Rust off the window's own `WM_DROPFILES`, *  see `own_file_drops` for why Tauri's built-in drag path cannot work on this stack. */
 export async function onDragDrop(handler: (e: DragDropPayload) => void) {
   if (!IS_TAURI) return () => {};
   return listen<DragDropPayload>("drag", (event) => handler(event.payload));

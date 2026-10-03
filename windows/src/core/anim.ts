@@ -1,4 +1,5 @@
-// Easing + spring helpers.
+// Easing + spring helpers. Ease.* mirrors BotEngine.swift's `enum Ease`.
+// Spring mirrors SwiftUI `.spring(response:dampingFraction:)` so motion matches the macOS app.
 
 export const Ease = {
   out: (t: number) => 1 - Math.pow(1 - t, 3),
@@ -18,12 +19,12 @@ export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 export const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 export const seg = (t: number, a: number, b: number) => clamp((t - a) / (b - a), 0, 1);
 
-/** cubic-bezier(x1,y1,x2,y2), used for the 340 ms close curve (.45,0,.2,1). */
+/** cubic-bezier(x1,y1,x2,y2) — used for the 340 ms close curve (.45,0,.2,1). */
 export function cubicBezier(x1: number, y1: number, x2: number, y2: number): EaseFn {
   const cx = (t: number) => ((1 - t) ** 2 * 3 * t * x1) + (3 * (1 - t) * t * t * x2) + t ** 3;
   const cy = (t: number) => ((1 - t) ** 2 * 3 * t * y1) + (3 * (1 - t) * t * t * y2) + t ** 3;
   return (x) => {
-    // Newton-ish bisection on x, 12 iterations is plenty at 60 fps.
+    // Newton-ish bisection on x — 12 iterations is plenty at 60 fps.
     let lo = 0;
     let hi = 1;
     let t = x;
@@ -39,7 +40,8 @@ export function cubicBezier(x1: number, y1: number, x2: number, y2: number): Eas
 
 export const closeCurve = cubicBezier(0.45, 0, 0.2, 1);
 
-/** SwiftUI-equivalent spring: ω₀ = 2π / response, ζ = dampingFraction. */
+/** SwiftUI-equivalent spring: ω₀ = 2π / response, ζ = dampingFraction.
+ *  Sub-stepped per frame so a dropped frame never destabilises it. */
 export class Spring {
   value: number;
   target: number;
@@ -82,6 +84,8 @@ export class Spring {
   }
 }
 
+/** openSpring when growing, closeEase 340 ms when shrinking — same as IslandContainer. */
+export class Tracked {
   private spring: Spring;
   private curveFrom = 0;
   private curveTo = 0;

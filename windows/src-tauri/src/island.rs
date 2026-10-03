@@ -1,3 +1,5 @@
+// Island window: the black, borderless, always-on-top shape at the top centre of
+// the display. Placement, window sizes, click-through and the cursor poll.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -25,11 +27,14 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW,
 };
 
+/// Logical size of the panel. The window is always this size: click-through keeps
+/// the island out of the way while it stays large.
 pub const PANEL_W: f64 = 720.0;
 pub const PANEL_H: f64 = 320.0;
 
 pub const WINDOW_LABEL: &str = "island";
 
+/// Cursor poll rate while the cursor is on the island: react now.
 const POLL_HZ_ACTIVE: u64 = 16;
 /// Island on screen, cursor somewhere else. 30 Hz is more than a hover test
 /// needs, and on a slow machine this is a thread that runs all day.
@@ -39,13 +44,13 @@ const POLL_HZ_IDLE: u64 = 125;
 /// How close counts as "about to reach the island".
 const NEAR_PX: f64 = 260.0;
 
-/// Id of our global hotkey (Ctrl+Alt+C), and the mods it is registered with.
+/// Id of our global hotkey (Ctrl+Alt+M by default), and the mods it is registered with.
 const HOTKEY_ID: i32 = 0xC0CC;
-/// Ctrl+Alt+S, the same thing as clicking the eye.
+/// Ctrl+Alt+Shift+S, the same thing as clicking the eye.
 const HOTKEY_SNIP_ID: i32 = 0xC0CD;
 
 /// Margin around the island that still counts as "on the island", in logical px.
-/// Wider than the macOS 6 pt because a click must never be swallowed.
+/// Same margin as the front end's HIT_MARGIN.
 const HIT_MARGIN: f64 = 14.0;
 
 #[derive(Serialize, Clone)]
@@ -134,7 +139,8 @@ pub fn show(app: &AppHandle) {
     focus(app);
 }
 
-// Takes the foreground, for the one moment where the user is expected to type.
+/// Takes the foreground for typing. Windows refuses SetForegroundWindow to a
+/// process not already in front, so tap Alt first (skipped when we already are).
 pub fn focus(app: &AppHandle) {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         keybd_event, KEYEVENTF_KEYUP, VK_MENU,
@@ -161,7 +167,8 @@ fn cursor_physical() -> Option<(f64, f64)> {
     Some((p.x as f64, p.y as f64))
 }
 
-// Makes the island a place Windows hands dropped files to.
+/// Makes the island a place Windows hands dropped files to: WebView2 puts its own
+/// target on the render widget, so re-register ours on every child with RegisterDragDrop.
 pub fn own_file_drops(app: &AppHandle) {
     let _ = APP.set(app.clone());
     let Some(win) = window(app) else { return };
@@ -183,6 +190,8 @@ pub fn own_file_drops(app: &AppHandle) {
 unsafe fn install_target(hwnd: HWND, target_raw: *mut core::ffi::c_void) {
     unsafe {
         let _ = RevokeDragDrop(hwnd);
+        // `from_raw` rebuilds the owning interface pointer (a plain cast would read
+        // the vtable instead); `forget` leaks it for the app's lifetime.
         let target = IDropTarget::from_raw(target_raw);
         let _ = RegisterDragDrop(hwnd, &target);
         std::mem::forget(target);
@@ -208,6 +217,8 @@ fn drop_target() -> *mut core::ffi::c_void {
     raw
 }
 
+/// Our COM drop target: accepts only file payloads (copy cursor, not "no entry") and
+/// drives the drop-box animation from OLE's enter/leave.
 #[implement(IDropTarget)]
 struct DropTarget {
     valid: UnsafeCell<bool>,
@@ -489,7 +500,8 @@ fn current_screen_key(app: &AppHandle) -> Option<(i32, i32, u32, u32, u64)> {
     Some((p.x, p.y, size.width, size.height, m.scale_factor().to_bits()))
 }
 
-// Emits `cursor` (window-logical coordinates) and owns the click-through flag.
+/// Emits `cursor` (window-logical coordinates) and owns the click-through flag.
+/// Never parks: a hidden island still polls, only slower, so it stays summonable.
 pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
     std::thread::spawn(move || {
         let mut was_down = false;
@@ -513,6 +525,8 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
             }));
             ticks = ticks.wrapping_add(1);
 
+            // Monitors get rearranged and rescaled; an island pinned to gone
+            // coordinates is unreachable, so re-check about twice a second.
             let check_every = if idle { 8 } else { 30 };
             if ticks % check_every == 0 {
                 if let Some(win) = window(&app) {
@@ -540,6 +554,8 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                 Err(_) => (PANEL_W, PANEL_H),
             };
 
+            // Click-through: the window takes the mouse only over the island
+            // shape; a hidden island is the wake band, top HIT_MARGIN px of centre.
             let r = *gate.rect.lock().unwrap();
             let on_island = r.w > 0.0
                 && x >= r.x - HIT_MARGIN
@@ -547,10 +563,14 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                 && y >= r.y - HIT_MARGIN
                 && y <= r.y + r.h + HIT_MARGIN;
 
+            // WS_EX_TRANSPARENT hides the window from WindowFromPoint, so OLE would
+            // find no target: while a button is held the whole panel takes the mouse.
             let down = left_button_down();
             if down && !was_down {
                 let handle = app.clone();
                 let _ = app.run_on_main_thread(move || own_file_drops(&handle));
+                // A click outside dismisses the island, only while it is on screen
+                // (a click on the island belongs to the webview).
                 if !on_island && !idle {
                     let _ = app.emit_to(WINDOW_LABEL, "click-outside", ());
                 }
@@ -600,7 +620,8 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
     });
 }
 
-// The summon hotkey (Ctrl+Alt+M by default) and the snip hotkey (Ctrl+Alt+Shift+S, fixed).
+/// Summon hotkey thread: RegisterHotKey posts WM_HOTKEY to the calling thread, so
+/// this runs its own PeekMessage loop. Chords avoid Ctrl+Alt (AltGr on Polish).
 pub fn spawn_hotkey(app: AppHandle, initial: String) {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, VK_S,

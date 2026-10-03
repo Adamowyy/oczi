@@ -1,4 +1,5 @@
-// Region screenshots, taken by the app itself.
+// Region screenshots taken by the app itself. The Windows snipping tool never puts
+// its snip on the clipboard here, so we freeze the desktop with GDI and crop ourselves.
 
 use std::os::raw::c_void;
 use std::path::{Path, PathBuf};

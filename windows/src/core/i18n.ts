@@ -1,3 +1,5 @@
+// UI text: English default, Polish a setting. A missing key falls back to English,
+// then to the key. Add a language: copy EN, update LANGUAGES, settings.rs, check:i18n.
 
 export type Lang = "en" | "pl";
 

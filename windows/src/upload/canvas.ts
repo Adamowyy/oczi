@@ -1,4 +1,5 @@
-// The upload canvas.
+// The upload canvas. While the sequence engine is active it draws the whole island
+// body; the island hides its own character for the duration, since this canvas draws one.
 
 import { State } from "../core/state";
 import { ISKRA } from "../bot/skin";
@@ -480,6 +481,8 @@ function drawEye(ctx: CanvasRenderingContext2D, shape: UploadEyeShape, w: number
 
 // ── Document icon ───────────────────────────────────────────────────────────
 
+/** Generic sheet with a folded corner. Windows has no NSWorkspace-equivalent
+ *  reachable from the webview, so this is the shape in every case. */
 function drawDoc(ctx: CanvasRenderingContext2D, cx: number, cy: number, wsc: number, hsc: number) {
   const w = 34 * wsc;
   const h = 42 * hsc;
