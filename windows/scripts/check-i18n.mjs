@@ -43,7 +43,8 @@ const POLISH = new RegExp(
     "mo[żz]esz|musisz|nale[żz]y|dost[ęe]p|zapisano|usuni[ęe]to|u[żz]yw|zaplanowan|ostatni|nast[ęe]pn|" +
     "poprzedn|przez|je[żz]eli|kt[óo]r|si[ęe]|powinien|zamiast|prosz[ęe]|u[żz]ytkownik|zapytaj|" +
     "odpowiedz|plik|dzia[łl]a|wracam|chwil[ęe]|spos[óo]b|razie|potrzeb|wymaga|wyspa|zrzut|obszar|ekran|" +
-    "przed chwil|wdro[żz]|p[łl]atno[śs][ćc]|przep[łl]yw|gwiazdek|tytu[łl]u|szczeg[óo][łl]y|wczytywanie)\\b",
+    "przed chwil|wdro[żz]|p[łl]atno[śs][ćc]|przep[łl]yw|gwiazdek|tytu[łl]u|szczeg[óo][łl]y|wczytywanie|" +
+    "szuk|wynik|gotowe|zapis|pobierz|ustaw|wklej|kopiuj|wys[łl]ij|odrzu[ćc]|obraz|folder|nazw|nazwa)\\b",
   "i",
 );
 

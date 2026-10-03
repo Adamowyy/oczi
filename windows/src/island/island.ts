@@ -298,6 +298,10 @@ export class Island {
   }
 
   collapse() {
+    if (State.view === "note") {
+      State.noteMessage = null;
+      State.view = State.defaultView();
+    }
     State.isPinned = false;
     this.fsm.pinned = false;
     // Drive the state machine, not the mode: setting the mode behind its back desyncs it.

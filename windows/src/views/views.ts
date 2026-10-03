@@ -438,7 +438,7 @@ export function buildViews(
   map.set("choose", buildChoose(actions));
   // Not in the Windows v1: sending a file by email, window attach + web result.
   map.set("mail", buildPlaceholder(t("empty.noEmail"), ""));
-  map.set("searching", buildPlaceholder("Szukam…", ""));
-  map.set("result", buildPlaceholder("Wynik", ""));
+  map.set("searching", buildPlaceholder(t("view.searching"), ""));
+  map.set("result", buildPlaceholder(t("view.result"), ""));
   return map;
 }
