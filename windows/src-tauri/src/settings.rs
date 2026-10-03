@@ -38,6 +38,10 @@ pub struct Settings {
     /// UI language. English unless the user picked Polish in the settings.
     #[serde(default = "default_language")]
     pub language: String,
+    /// Let the chat run commands on this machine. Off unless the user turned it
+    /// on and accepted the warning.
+    #[serde(default)]
+    pub terminal_enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -84,6 +88,7 @@ impl Default for Settings {
             web_search: true,
             search_provider: default_search_provider(),
             language: default_language(),
+            terminal_enabled: false,
         }
     }
 }

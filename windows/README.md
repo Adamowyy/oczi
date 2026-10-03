@@ -47,6 +47,26 @@ The UI is English by default; **Settings… → Language** switches it to Polish
 the island follows. Adding another language is one table in `src/core/i18n.ts` —
 `npm run check:i18n` keeps the tables in step.
 
+## Terminal
+
+**Settings… → Terminal** gives the chat hands on this machine: `run_terminal`
+runs a command through `cmd.exe` and waits for it, `terminal_job` starts a long
+one (a server, a build, a download) whose output goes to a log,
+`terminal_output` reads that log and `terminal_kill` stops it.
+
+It is **off by default**, and turning it on takes two clicks: the switch shows
+what the model would be able to do — read and change files, install and remove
+software, start servers, send data out — and only the second click turns it on.
+Once it is on, Oczi can run anything your account can run; a bad guess by the
+model is a real change to your machine.
+
+What keeps it honest: every command is written to
+`%LOCALAPPDATA%\Oczi\oczi.log` before it runs, commands are killed when they
+overrun their timeout (default 30 s, max 300 s), output handed to the model is
+clipped, and background jobs keep running until you stop them or quit the app.
+The prompt tells the model to prefer read-only commands and to ask before
+anything destructive — that is a strong hint, not a sandbox. No sandbox.
+
 ## Chat
 
 **Settings… → DeepSeek** takes your API key and picks the model — `deepseek-flash`

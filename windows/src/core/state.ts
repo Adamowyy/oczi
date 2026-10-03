@@ -88,6 +88,8 @@ export interface Settings {
   searchProvider: string;
   /** UI language. English unless the user picked Polish. */
   language: Lang;
+  /** Let the chat run commands on this PC. Off unless the user turned it on. */
+  terminalEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -106,6 +108,7 @@ export const DEFAULT_SETTINGS: Settings = {
   webSearch: true,
   searchProvider: "duckduckgo",
   language: "en",
+  terminalEnabled: false,
 };
 
 type Listener = () => void;

@@ -197,6 +197,73 @@ function webSection(present: Record<string, boolean>): HTMLElement {
   );
 }
 
+// ── Terminal section ──────────────────────────────────────────────────────────
+
+/** Off by default. Turning it on takes two clicks: the warning is the gate. */
+function terminalSection(): HTMLElement {
+  const body = h("div", { style: "display:flex;flex-direction:column;gap:8px" });
+
+  const warning = () =>
+    h("div", { class: "notice err", style: "padding:10px 12px;line-height:1.45;white-space:normal" },
+      h("b", { text: t("set.terminalWarnTitle") }),
+      h("div", { style: "margin-top:4px", text: t("set.terminalWarn") }),
+      h("div", { style: "margin-top:6px;opacity:.8", text: t("set.terminalLog") }),
+    );
+
+  function render(confirming: boolean) {
+    clear(body);
+    const enabled = settings.terminalEnabled;
+
+    body.append(
+      h("div", { class: "row" },
+        h("label", { text: t("set.terminal") }),
+        toggle(enabled, () => (enabled ? render(false) : render(true))),
+        h("span", { class: "hint", text: enabled ? t("set.terminalOn") : t("set.terminalOff") }),
+      ),
+      h("div", { class: "hint", text: t("set.terminalHint") }),
+    );
+
+    if (enabled) {
+      body.append(
+        warning(),
+        h("div", { class: "row" },
+          h("button", {
+            class: "danger",
+            text: t("set.terminalDisable"),
+            onclick: () => {
+              settings.terminalEnabled = false;
+              void save();
+              render(false);
+            },
+          }),
+        ),
+      );
+      return;
+    }
+
+    if (confirming) {
+      body.append(
+        warning(),
+        h("div", { class: "row" },
+          h("button", {
+            class: "danger",
+            text: t("set.terminalEnable"),
+            onclick: () => {
+              settings.terminalEnabled = true;
+              void save();
+              render(false);
+            },
+          }),
+          h("button", { text: t("set.terminalCancel"), onclick: () => render(false) }),
+        ),
+      );
+    }
+  }
+
+  render(false);
+  return h("section", {}, h("h2", {}, h("span", { text: t("set.terminal") })), body);
+}
+
 // ── Integrations section ──────────────────────────────────────────────────────
 
 interface IntegrationDef {
@@ -367,6 +434,7 @@ async function main() {
     h("h1", {}, h("span", { text: "Oczi" }), h("span", { class: "version", text: version })),
     apiSection(hasKey),
     webSection(present),
+    terminalSection(),
     integrationsSection(present),
     generalSection(),
     h("div", { class: "hint", text: t("set.privacy") }),

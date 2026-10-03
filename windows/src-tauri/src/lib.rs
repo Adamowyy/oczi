@@ -7,6 +7,7 @@ mod island;
 mod log;
 mod secrets;
 mod settings;
+mod shell;
 mod snip;
 mod tray;
 mod util;
@@ -158,13 +159,14 @@ async fn chat_send(
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
-    let (model, thinking, web_search, provider) = {
+    let (model, thinking, web_search, provider, terminal) = {
         let settings = shared.settings.lock().unwrap();
         (
             settings.model.clone(),
             settings.thinking,
             settings.web_search,
             settings.search_provider.clone(),
+            settings.terminal_enabled,
         )
     };
     // A pending screenshot is read off disk here, once, and only for the turn it was
@@ -189,6 +191,7 @@ async fn chat_send(
             thinking,
             web: web_search,
             provider: &provider,
+            terminal,
         },
         query,
         context,
