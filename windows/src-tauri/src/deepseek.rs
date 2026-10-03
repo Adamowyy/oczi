@@ -45,14 +45,15 @@ Finish with the sources you used, each as a bare URL on its own line.";
 /// Appended when the user turned terminal access on. The machine is the user's,
 /// so the text spends most of its length on when not to touch it.
 const TERMINAL_PROMPT: &str = "\nYou can also run commands on this machine — Windows, cmd.exe — with the terminal tools: run_terminal for anything short, terminal_job for servers, builds and downloads, then terminal_output and terminal_kill for those. \
-Use them whenever the answer needs the real machine — files, installed versions, processes, git state, a build or a script — instead of guessing or telling the user to do it themselves. \
+On this machine the usual folders are not always where they look: ask Windows for one — in PowerShell, [Environment]::GetFolderPath(\"Desktop\") — or use the %USERPROFILE% variable, instead of assuming a path. \nUse them whenever the answer needs the real machine — files, installed versions, processes, git state, a build or a script — instead of guessing or telling the user to do it themselves. \
 Prefer read-only commands. Before anything that deletes, overwrites, installs or changes the system, say exactly what you are about to run and wait for the user to agree. \
 Never run something destructive as a side effect of a guess. \
-Every command is written to the app log, so report the command you ran and what it printed, and never claim a result you did not see.";
+Every command is written to the app log, so report the command you ran and what it printed, and never claim a result you did not see. \nCall the tools the normal way: never write the call out as text or XML, because that does nothing at all.";
 
-/// Rounds of tool calls allowed in one turn. Three is enough for search → read
-/// → answer, and it keeps a confused model from looping forever.
-const MAX_TOOL_ROUNDS: u32 = 3;
+/// Rounds of tool calls allowed in one turn. Terminal work is a chain, look,
+/// look again, act, so this is the budget for a whole task, not one lookup.
+/// Two more rounds run without tools, which is where the answer comes from.
+const MAX_TOOL_ROUNDS: u32 = 6;
 
 /// Everything a turn needs besides the conversation itself.
 pub struct Options<'a> {
@@ -64,6 +65,24 @@ pub struct Options<'a> {
     pub provider: &'a str,
     /// Offer the terminal tools (off by default; the user has to turn them on).
     pub terminal: bool,
+}
+
+/// The names of the tools offered this turn, so a call the model writes into
+/// the text is only taken when it names a real one.
+fn tool_names(web: bool, terminal: bool) -> Vec<&'static str> {
+    let mut names = Vec::new();
+    if web {
+        names.extend(["web_search", "fetch_url"]);
+    }
+    if terminal {
+        names.extend([
+            "run_terminal",
+            "terminal_job",
+            "terminal_output",
+            "terminal_kill",
+        ]);
+    }
+    names
 }
 
 /// The tools the model may call. Every one of them is executed in the app, never
@@ -321,7 +340,7 @@ pub async fn send(
     screenshot: Option<String>,
 ) -> Result<ChatReply, String> {
     let key = secrets::get("deepseek-api-key")
-        .ok_or_else(|| "Brak klucza API. Otwórz ustawienia.".to_string())?;
+        .ok_or_else(|| "No API key — open the settings.".to_string())?;
 
     let first_turn = chat.is_empty();
     let opener: Option<Value> = match &context {
@@ -361,8 +380,9 @@ pub async fn send(
     messages.push(asked.clone());
     turn.push(asked);
 
+    let known = tool_names(options.web, options.terminal);
     let mut answer: Option<String> = None;
-    for round in 1..=MAX_TOOL_ROUNDS + 1 {
+    for round in 1..=MAX_TOOL_ROUNDS + 2 {
         // The last round is a plain completion: whatever the lookups returned
         // has to become an answer, so the tools are taken away.
         let with_tools = (options.web || options.terminal) && round <= MAX_TOOL_ROUNDS;
@@ -378,7 +398,7 @@ pub async fn send(
             "thinking": { "type": if thinking { "enabled" } else { "disabled" } },
             "messages": messages.clone(),
         });
-        if options.web {
+        if options.web || options.terminal {
             // The tools stay declared on every round so a tool-call message in
             // the history always has its declaration alongside it; on the last
             // round `tool_choice: "none"` is what forces the text answer.
@@ -398,8 +418,13 @@ pub async fn send(
         let message = response
             .pointer("/choices/0/message")
             .cloned()
-            .ok_or_else(|| "Brak tekstu odpowiedzi.".to_string())?;
-        let calls = message
+            .ok_or_else(|| "The model sent no message.".to_string())?;
+        let mut visible = message
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let mut calls = message
             .get("tool_calls")
             .and_then(Value::as_array)
             .filter(|calls| !calls.is_empty())
@@ -407,20 +432,45 @@ pub async fn send(
             .unwrap_or_default();
 
         if calls.is_empty() {
-            answer = message
-                .get("content")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|text| !text.is_empty())
-                .map(str::to_string);
+            let found = crate::text_tools::parse(&visible, &known);
+            if !found.is_empty() {
+                visible = crate::text_tools::strip(&visible, &known);
+                crate::log::line(format!(
+                    "chat  call written as text: {}",
+                    found
+                        .iter()
+                        .map(|call| call.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                calls = found
+                    .iter()
+                    .enumerate()
+                    .map(|(i, call)| {
+                        json!({
+                            "id": format!("text_{round}_{i}"),
+                            "type": "function",
+                            "function": {
+                                "name": call.name,
+                                "arguments": call.args.to_string(),
+                            }
+                        })
+                    })
+                    .collect();
+            }
+        }
+
+        if calls.is_empty() {
+            answer = Some(visible.trim().to_string()).filter(|text| !text.is_empty());
             break;
         }
 
         // The assistant's tool-call message has to travel back exactly as it
         // arrived, minus the reasoning trace, which the API rejects on the way in.
+        let said = visible.trim();
         let assistant = json!({
             "role": "assistant",
-            "content": message.get("content").cloned().unwrap_or(Value::Null),
+            "content": if said.is_empty() { Value::Null } else { json!(said) },
             "tool_calls": calls,
         });
         messages.push(assistant.clone());
@@ -451,7 +501,7 @@ pub async fn send(
 
     // The history only grows once the turn has actually produced an answer, so a
     // failed turn leaves the conversation exactly as the model last saw it.
-    let text = answer.ok_or_else(|| "Model nie zwrócił odpowiedzi tekstowej.".to_string())?;
+    let text = answer.ok_or_else(|| "The model answered without any text.".to_string())?;
     let stored = turn.len();
     for message in turn {
         chat.push(message);
@@ -487,7 +537,7 @@ async fn call_with_retry(key: &str, body: &Value) -> Result<Value, String> {
                 last = err.message;
             }
             Err(_) => {
-                last = format!("brak odpowiedzi w {ATTEMPT_TIMEOUT_SECS}s");
+                last = format!("no answer within {ATTEMPT_TIMEOUT_SECS}s");
                 crate::log::line(format!("chat  attempt {attempt} stalled: {last}"));
             }
         }
@@ -496,7 +546,7 @@ async fn call_with_retry(key: &str, body: &Value) -> Result<Value, String> {
         }
     }
     crate::log::line(format!("chat  giving up after {MAX_ATTEMPTS} attempts: {last}"));
-    Err(format!("Model nie odpowiedział ({last}). DeepSeek może być przeciążony — spróbuj ponownie."))
+    Err(format!("The model did not answer ({last}). DeepSeek may be overloaded — try again."))
 }
 
 async fn call_once(key: &str, body: &Value) -> Result<Value, CallError> {
@@ -520,7 +570,7 @@ async fn call_once(key: &str, body: &Value) -> Result<Value, CallError> {
             crate::log::line(format!("chat  network error: {e}"));
             CallError {
                 retryable: true,
-                message: format!("Błąd sieci: {e}"),
+                message: format!("Network error: {e}"),
             }
         })?;
 
@@ -553,7 +603,7 @@ async fn call_once(key: &str, body: &Value) -> Result<Value, CallError> {
     }
     serde_json::from_str(&text).map_err(|e| CallError {
         retryable: true,
-        message: format!("Błędna odpowiedź API: {e}"),
+        message: format!("Bad API response: {e}"),
     })
 }
 

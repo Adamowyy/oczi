@@ -170,7 +170,7 @@ fn recover(app: &AppHandle) {
         // The one window that could still show a message is the dead one, so the
         // only place left to say this is the tray tooltip.
         if let Some(tray) = app.tray_by_id("oczi") {
-            let _ = tray.set_tooltip(Some("Oczi — WebView2 ciągle zawodzi, zobacz oczi.log"));
+            let _ = tray.set_tooltip(Some("Oczi — WebView2 keeps failing, see oczi.log"));
         }
         return;
     }

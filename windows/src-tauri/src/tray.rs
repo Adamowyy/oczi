@@ -7,10 +7,10 @@ use tauri::{AppHandle, Emitter};
 use crate::island::WINDOW_LABEL;
 
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Otwórz Oczi", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open Oczi", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Ustawienia…", true, None::<&str>)?;
     let pause = MenuItem::with_id(app, "pause", "Wstrzymaj", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Zakończ", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
 

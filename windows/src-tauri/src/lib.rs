@@ -9,6 +9,7 @@ mod secrets;
 mod settings;
 mod shell;
 mod snip;
+mod text_tools;
 mod tray;
 mod util;
 mod web;

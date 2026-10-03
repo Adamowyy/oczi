@@ -57,15 +57,42 @@ function uiFiles(dir) {
   return out;
 }
 
-const ROOT = join(HERE, "..");
-for (const file of [...uiFiles(join(ROOT, "src")), join(ROOT, "index.html"), join(ROOT, "settings.html"), join(ROOT, "snip.html")]) {
-  const lines = readFileSync(file, "utf8").split("\n");
-  lines.forEach((line, i) => {
-    const code = line.trim();
-    if (code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")) return;
-    if (POLISH.test(code)) problems.push(`${file.replace(ROOT, "").replace(/\\/g, "/")}:${i + 1} looks Polish: ${code.slice(0, 70)}`);
-  });
+function rustFiles(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...rustFiles(path));
+    else if (entry.name.endsWith(".rs")) out.push(path);
+  }
+  return out;
 }
+
+const ROOT = join(HERE, "..");
+// The terminal tests quote a reply the model really sent, Polish and full-width
+// pipes included, that text has to stay exactly as it was.
+const RUST_SKIP = new Set(["text_tools.rs"]);
+
+function scan(files) {
+  for (const file of files) {
+    if (RUST_SKIP.has(file.split(/[\\/]/).pop())) continue;
+    const lines = readFileSync(file, "utf8").split("\n");
+    lines.forEach((line, i) => {
+      const code = line.trim();
+      if (code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")) return;
+      // The HTML entity table maps names to letters like ó, which is not a word.
+      if (/^"[a-z]+"\s*=>/.test(code)) return;
+      if (POLISH.test(code)) problems.push(`${file.replace(ROOT, "").replace(/\\/g, "/")}:${i + 1} looks Polish: ${code.slice(0, 70)}`);
+    });
+  }
+}
+
+scan([
+  ...uiFiles(join(ROOT, "src")),
+  join(ROOT, "index.html"),
+  join(ROOT, "settings.html"),
+  join(ROOT, "snip.html"),
+  ...rustFiles(join(ROOT, "src-tauri", "src")),
+]);
 
 const count = Object.keys(en).length;
 if (problems.length) {

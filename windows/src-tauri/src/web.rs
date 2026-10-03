@@ -69,7 +69,7 @@ pub async fn search(provider: &str, query: &str) -> Result<Vec<Hit>, String> {
     };
 
     if hits.is_empty() {
-        return Err(format!("Brak wyników dla „{query}”."));
+        return Err(format!("No results for “{query}”."));
     }
     crate::log::line(format!("web  search {provider} „{query}” → {} hits", hits.len()));
     Ok(hits)
@@ -81,9 +81,9 @@ pub async fn search(provider: &str, query: &str) -> Result<Vec<Hit>, String> {
 pub async fn fetch(url: &str) -> Result<String, String> {
     let url = url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
-        return Err("Adres musi zaczynać się od http:// lub https://".to_string());
+        return Err("The address must start with http:// or https://".to_string());
     }
-    let host = host_of(url).ok_or_else(|| "Nie mogę odczytać adresu hosta.".to_string())?;
+    let host = host_of(url).ok_or_else(|| "Cannot read the host from that address.".to_string())?;
     if is_private_host(&host) {
         return Err(format!("{host} to adres lokalny — nie czytam go."));
     }
@@ -92,10 +92,10 @@ pub async fn fetch(url: &str) -> Result<String, String> {
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("Nie udało się otworzyć strony: {e}"))?;
+        .map_err(|e| format!("Could not open the page: {e}"))?;
     let status = response.status();
     if !status.is_success() {
-        return Err(format!("Strona odpowiedziała {status}."));
+        return Err(format!("The page answered {status}."));
     }
     let kind = response
         .headers()
@@ -104,7 +104,7 @@ pub async fn fetch(url: &str) -> Result<String, String> {
         .unwrap_or("")
         .to_ascii_lowercase();
     if !kind.is_empty() && !kind.contains("text/html") && !kind.contains("text/plain") {
-        return Err(format!("To nie jest strona tekstowa ({kind})."));
+        return Err(format!("That is not a text page ({kind})."));
     }
     // A page that announces itself as huge is refused before it is downloaded:
     // the text cap below would otherwise only trim what was already in memory.
@@ -115,18 +115,18 @@ pub async fn fetch(url: &str) -> Result<String, String> {
         .and_then(|v| v.parse::<u64>().ok())
     {
         if size > MAX_PAGE_BYTES {
-            return Err(format!("Strona jest za duża ({size} B)."));
+            return Err(format!("The page is too large ({size} B)."));
         }
     }
 
     let bytes = response
         .bytes()
         .await
-        .map_err(|e| format!("Nie udało się wczytać strony: {e}"))?;
+        .map_err(|e| format!("Could not read the page: {e}"))?;
     let body = String::from_utf8_lossy(&bytes[..bytes.len().min(PAGE_BYTES)]).into_owned();
     let text = page_text(&body);
     if text.trim().is_empty() {
-        return Err("Strona nie ma czytelnego tekstu (może wymaga JavaScriptu).".to_string());
+        return Err("The page has no readable text (it may need JavaScript).".to_string());
     }
     crate::log::line(format!("web  fetch {url} → {} chars", text.len()));
     Ok(text)
@@ -170,18 +170,18 @@ async fn duckduckgo(client: &reqwest::Client, query: &str) -> Result<Vec<Hit>, S
         .form(&[("q", query), ("kl", "wt-wt")])
         .send()
         .await
-        .map_err(|e| format!("DuckDuckGo nie odpowiedział: {e}"))?;
+        .map_err(|e| format!("DuckDuckGo did not answer: {e}"))?;
     let status = response.status();
     let html = response
         .text()
         .await
-        .map_err(|e| format!("DuckDuckGo: błąd odczytu: {e}"))?;
+        .map_err(|e| format!("DuckDuckGo: read error: {e}"))?;
     if !status.is_success() {
-        return Err(format!("DuckDuckGo odpowiedział {status}."));
+        return Err(format!("DuckDuckGo answered {status}."));
     }
     let hits = parse_ddg(&html);
     if hits.is_empty() {
-        return Err("DuckDuckGo nie zwrócił wyników (możliwe ograniczenie zapytań).".to_string());
+        return Err("DuckDuckGo returned no results (it may be rate-limiting).".to_string());
     }
     Ok(hits)
 }
@@ -195,12 +195,12 @@ async fn brave(client: &reqwest::Client, key: &str, query: &str) -> Result<Vec<H
         .header("x-subscription-token", key)
         .send()
         .await
-        .map_err(|e| format!("Brave nie odpowiedział: {e}"))?;
+        .map_err(|e| format!("Brave did not answer: {e}"))?;
     let status = response.status();
     let body: Value = response
         .json()
         .await
-        .map_err(|e| format!("Brave: błędna odpowiedź: {e}"))?;
+        .map_err(|e| format!("Brave: bad response: {e}"))?;
     if !status.is_success() {
         return Err(format!("Brave API {status}: {}", api_error(&body)));
     }
@@ -239,12 +239,12 @@ async fn tavily(client: &reqwest::Client, key: &str, query: &str) -> Result<Vec<
         }))
         .send()
         .await
-        .map_err(|e| format!("Tavily nie odpowiedział: {e}"))?;
+        .map_err(|e| format!("Tavily did not answer: {e}"))?;
     let status = response.status();
     let body: Value = response
         .json()
         .await
-        .map_err(|e| format!("Tavily: błędna odpowiedź: {e}"))?;
+        .map_err(|e| format!("Tavily: bad response: {e}"))?;
     if !status.is_success() {
         return Err(format!("Tavily API {status}: {}", api_error(&body)));
     }
@@ -278,7 +278,7 @@ fn api_error(body: &Value) -> String {
     body.get("error")
         .and_then(|e| e.get("message").or(Some(e)))
         .and_then(Value::as_str)
-        .unwrap_or("nieznany błąd")
+        .unwrap_or("unknown error")
         .chars()
         .take(200)
         .collect()
@@ -289,7 +289,7 @@ fn client() -> Result<reqwest::Client, String> {
         .timeout(TIMEOUT)
         .user_agent(USER_AGENT)
         .build()
-        .map_err(|e| format!("Nie udało się utworzyć klienta HTTP: {e}"))
+        .map_err(|e| format!("Could not build the HTTP client: {e}"))
 }
 
 // ── Parsing ───────────────────────────────────────────────────────────────────
@@ -634,7 +634,7 @@ mod tests {
             .build()
             .expect("runtime");
         runtime.block_on(async {
-            let hits = search("duckduckgo", "kurs euro NBP dzisiaj")
+            let hits = search("duckduckgo", "euro exchange rate today")
                 .await
                 .expect("duckduckgo search");
             println!("--- search ---\n{}", format_hits(&hits));
