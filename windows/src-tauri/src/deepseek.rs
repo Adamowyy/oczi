@@ -45,6 +45,7 @@ Finish with the sources you used, each as a bare URL on its own line.";
 /// Appended when the user turned terminal access on. The machine is the user's,
 /// so the text spends most of its length on when not to touch it.
 const TERMINAL_PROMPT: &str = "\nYou can also run commands on this machine — Windows, cmd.exe — with the terminal tools: run_terminal for anything short, terminal_job for servers, builds and downloads, then terminal_output and terminal_kill for those. \
+To open a program or a file use launch_app — it finds things by name — and keep run_terminal for commands. \
 On this machine the usual folders are not always where they look: ask Windows for one — in PowerShell, [Environment]::GetFolderPath(\"Desktop\") — or use the %USERPROFILE% variable, instead of assuming a path. \nUse them whenever the answer needs the real machine — files, installed versions, processes, git state, a build or a script — instead of guessing or telling the user to do it themselves. \
 Prefer read-only commands. Before anything that deletes, overwrites, installs or changes the system, say exactly what you are about to run and wait for the user to agree. \
 Never run something destructive as a side effect of a guess. \
@@ -77,6 +78,7 @@ fn tool_names(web: bool, terminal: bool) -> Vec<&'static str> {
     if terminal {
         names.extend([
             "run_terminal",
+            "launch_app",
             "terminal_job",
             "terminal_output",
             "terminal_kill",
@@ -138,6 +140,20 @@ fn tools(web: bool, terminal: bool) -> Value {
                         "timeoutSeconds": { "type": "integer", "description": "How long to wait before the command is killed. Default 30, maximum 300." }
                     },
                     "required": ["command"]
+                }
+            }
+        }));
+        list.push(json!({
+            "type": "function",
+            "function": {
+                "name": "launch_app",
+                "description": "Open a program or a file, the way double-clicking it would: this is how to start something. Give it a full path, or just part of a name — \"PZUpdater\", \"spotify\" — and it is looked up on the desktop, the public desktop and in the Start menu. Do not use run_terminal with `start` for this.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "A path, or part of the name of the program to open." }
+                    },
+                    "required": ["target"]
                 }
             }
         }));
@@ -247,6 +263,24 @@ async fn run_tool(name: &str, args: &Value, provider: &str, terminal: bool) -> R
                 if out.timed_out { ", timed out" } else { "" }
             ));
             Ok(out.format())
+        }
+        "launch_app" => {
+            if !terminal {
+                return Err("Terminal access is off in the settings.".to_string());
+            }
+            let target = args
+                .get("target")
+                .or_else(|| args.get("path"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            if target.is_empty() {
+                return Err("Nothing to open — pass \"target\".".to_string());
+            }
+            crate::log::line(format!("shell launch: {target}"));
+            let started = crate::shell::launch(target)?;
+            crate::log::line(format!("shell launch: {started}"));
+            Ok(started)
         }
         "terminal_job" => {
             if !terminal {
@@ -382,6 +416,10 @@ pub async fn send(
 
     let known = tool_names(options.web, options.terminal);
     let mut answer: Option<String> = None;
+    // Whatever a tool printed last. It means a turn always has something to show,
+    // even when the model refuses to stop calling tools and never writes prose.
+    let mut last_output: Option<String> = None;
+    let mut nudged = false;
     for round in 1..=MAX_TOOL_ROUNDS + 2 {
         // The last round is a plain completion: whatever the lookups returned
         // has to become an answer, so the tools are taken away.
@@ -398,6 +436,16 @@ pub async fn send(
             "thinking": { "type": if thinking { "enabled" } else { "disabled" } },
             "messages": messages.clone(),
         });
+        // With the tools gone, say so in words as well: a model that keeps
+        // reaching for them otherwise spends the round writing a call it cannot
+        // make instead of the answer that is wanted.
+        if !with_tools && !nudged {
+            messages.push(json!({
+                "role": "user",
+                "content": "Answer now, in plain text, with what you already have. No more tool calls."
+            }));
+            nudged = true;
+        }
         if options.web || options.terminal {
             // The tools stay declared on every round so a tool-call message in
             // the history always has its declaration alongside it; on the last
@@ -493,6 +541,9 @@ pub async fn send(
                 // A failed lookup is information, not a dead end.
                 Err(err) => json!({ "error": err }).to_string(),
             };
+            if !content.starts_with("{\"error\"") {
+                last_output = Some(content.clone());
+            }
             let result = json!({ "role": "tool", "tool_call_id": id, "content": content });
             messages.push(result.clone());
             turn.push(result);
@@ -501,7 +552,15 @@ pub async fn send(
 
     // The history only grows once the turn has actually produced an answer, so a
     // failed turn leaves the conversation exactly as the model last saw it.
-    let text = answer.ok_or_else(|| "The model answered without any text.".to_string())?;
+    let text = match answer {
+        Some(text) => text,
+        // One last try with no tools declared at all, the declarations are what
+        // tempt it into another call, and failing that, the raw output.
+        None => match answer_now(&key, options, &messages).await {
+            Some(text) => text,
+            None => last_resort(last_output.as_deref()),
+        },
+    };
     let stored = turn.len();
     for message in turn {
         chat.push(message);
@@ -509,6 +568,46 @@ pub async fn send(
     crate::log::line(format!("chat  turn stored ({stored} messages)"));
 
     Ok(ChatReply { text })
+}
+
+/// A last completion with the tools taken away entirely. Returns prose, or
+/// nothing when the model still has nothing to say.
+async fn answer_now(key: &str, options: Options<'_>, messages: &[Value]) -> Option<String> {
+    let mut asked = messages.to_vec();
+    asked.push(json!({
+        "role": "user",
+        "content": "Stop and answer in plain text now, in the user's language: say what you found, and what the user should do with it."
+    }));
+    let body = json!({
+        "model": options.model,
+        "max_tokens": MAX_TOKENS,
+        "stream": false,
+        "thinking": { "type": if options.thinking { "enabled" } else { "disabled" } },
+        "messages": asked,
+    });
+    crate::log::line("chat  final answer attempt, no tools".to_string());
+    let response = call_with_retry(key, &body).await.ok()?;
+    let content = response
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let residue = crate::text_tools::strip(content, &[]);
+    Some(residue.trim().to_string()).filter(|text| !text.is_empty())
+}
+
+/// The answer of last resort: the command output itself, rather than an error
+/// the user can do nothing with.
+fn last_resort(output: Option<&str>) -> String {
+    match output {
+        Some(text) => {
+            let text = text.trim();
+            let short: String = text.chars().take(1200).collect();
+            format!(
+                "I ran the commands, but the model did not write up what it found. Last output:\n\n{short}"
+            )
+        }
+        None => "The model did not answer this one. Try again, or ask something shorter.".to_string(),
+    }
 }
 
 struct CallError {

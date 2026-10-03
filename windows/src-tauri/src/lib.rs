@@ -527,10 +527,21 @@ pub fn run() {
             island::spawn_cursor_poll(handle.clone(), gate.clone());
             island::spawn_hotkey(handle.clone(), loaded.hotkey.clone());
 
+            // A previous run may have been killed rather than quit: stop whatever
+            // it left running, and clear the logs that no longer mean anything.
+            shell::kill_orphans();
+            shell::clear_logs();
             log::line(format!("--- Oczi {} started ---", env!("CARGO_PKG_VERSION")));
             integrations::start(handle.clone());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Oczi");
+        .build(tauri::generate_context!())
+        .expect("error while building Oczi")
+        .run(|_app, event| {
+            // Nothing of ours may outlive the app: background jobs are killed and
+            // their logs cleared, so quitting Oczi really stops everything.
+            if let tauri::RunEvent::Exit = event {
+                shell::shutdown();
+            }
+        });
 }

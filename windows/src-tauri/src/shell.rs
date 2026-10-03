@@ -61,8 +61,15 @@ fn clip(text: &str) -> String {
 
 /// `cmd.exe`, no console window, optional working directory.
 fn command_for(cmd: &str, cwd: Option<&str>) -> Result<Command, String> {
+    #[cfg(windows)]
+    use std::os::windows::process::CommandExt;
+
     let mut c = Command::new("cmd");
-    c.arg("/C").arg(cmd);
+    c.arg("/C");
+    #[cfg(windows)]
+    c.raw_arg(cmd);
+    #[cfg(not(windows))]
+    c.arg(cmd);
     c.stdin(Stdio::null());
     if let Some(dir) = cwd {
         let dir = dir.trim();
@@ -75,11 +82,189 @@ fn command_for(cmd: &str, cwd: Option<&str>) -> Result<Command, String> {
     }
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         c.creation_flags(CREATE_NO_WINDOW);
     }
     Ok(c)
+}
+
+pub fn launch(what: &str) -> Result<String, String> {
+    #[cfg(windows)]
+    use std::os::windows::process::CommandExt;
+
+    let what = what.trim();
+    if what.is_empty() {
+        return Err("Nothing to open".to_string());
+    }
+    let target = if Path::new(what).exists() {
+        PathBuf::from(what)
+    } else {
+        find_app(what).ok_or_else(|| format!("Could not find \"{what}\" on the desktop or in the Start menu."))?
+    };
+
+    let dir = target.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    let mut command = Command::new("cmd");
+    command.arg("/C");
+    #[cfg(windows)]
+    command.raw_arg(format!("start \"\" \"{}\"", target.display()));
+    #[cfg(not(windows))]
+    command.arg(format!("start \"\" \"{}\"", target.display()));
+    command.stdin(Stdio::null());
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    if dir.is_dir() {
+        command.current_dir(&dir);
+    }
+    command
+        .spawn()
+        .map_err(|e| format!("Could not start {}: {e}", target.display()))?;
+    Ok(format!("Started {}.", target.display()))
+}
+
+/// Shortcuts beat executables, and the desktop beats the Start menu.
+fn find_app(name: &str) -> Option<PathBuf> {
+    pick_app(&search_dirs(), name)
+}
+
+fn pick_app(dirs: &[PathBuf], name: &str) -> Option<PathBuf> {
+    let needle = name.to_lowercase();
+    let mut best: Option<(u8, PathBuf)> = None;
+    for (rank, dir) in dirs.iter().enumerate() {
+        for path in walk(dir, 3) {
+            let Some(file) = path.file_name().and_then(|f| f.to_str()) else {
+                continue;
+            };
+            let lower = file.to_lowercase();
+            let stem = lower
+                .strip_suffix(".exe")
+                .or_else(|| lower.strip_suffix(".lnk"))
+                .unwrap_or(&lower);
+            if !stem.contains(&needle) {
+                continue;
+            }
+            // An exact name wins, then a shortcut, then the first place found.
+            let score = if stem == needle { 0 } else { 1 } + if lower.ends_with(".lnk") { 0 } else { 1 };
+            let score = score + rank as u8;
+            if best.as_ref().map(|(b, _)| score < *b).unwrap_or(true) {
+                best = Some((score, path.clone()));
+            }
+        }
+    }
+    best.map(|(_, path)| path)
+}
+
+fn search_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = std::env::var_os("USERPROFILE") {
+        let home = PathBuf::from(home);
+        dirs.push(home.join("Desktop"));
+        dirs.push(home.join("OneDrive").join("Desktop"));
+    }
+    if let Some(public) = std::env::var_os("PUBLIC") {
+        dirs.push(PathBuf::from(public).join("Desktop"));
+    }
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        dirs.push(PathBuf::from(appdata).join("Microsoft").join("Windows").join("Start Menu").join("Programs"));
+    }
+    dirs.into_iter().filter(|d| d.is_dir()).collect()
+}
+
+fn walk(dir: &Path, depth: u8) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(entries) = fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if path.is_dir() {
+            if depth > 1 && !name.starts_with('.') {
+                out.extend(walk(&path, depth - 1));
+            }
+            continue;
+        }
+        if name.ends_with(".exe") || name.ends_with(".lnk") || name.ends_with(".bat") {
+            out.push(path);
+        }
+    }
+    out
+}
+
+/// Kills the background jobs and clears their logs. Called when the app quits,
+/// so nothing of ours keeps running behind the user's back.
+pub fn shutdown() {
+    let mut registry = JOBS.lock().unwrap();
+    if let Some(jobs) = registry.as_mut() {
+        for job in jobs.values_mut() {
+            let _ = job.child.kill();
+            let _ = job.child.wait();
+        }
+        jobs.clear();
+    }
+    drop(registry);
+    clear_logs();
+}
+
+/// Job logs from an earlier run are of no use to anyone. Called at startup.
+pub fn clear_logs() {
+    if let Ok(entries) = fs::read_dir(jobs_dir()) {
+        for entry in entries.flatten() {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
+pub fn kill_orphans() {
+    let Ok(entries) = fs::read_dir(jobs_dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("pid") {
+            continue;
+        }
+        if let Ok(text) = fs::read_to_string(&path) {
+            if let Ok(pid) = text.trim().parse::<u32>() {
+                if is_our_shell(pid) {
+                    let mut kill = Command::new("taskkill");
+                    kill.args(["/PID", &pid.to_string(), "/T", "/F"]);
+                    kill.stdin(Stdio::null());
+                    kill.stdout(Stdio::null());
+                    kill.stderr(Stdio::null());
+                    #[cfg(windows)]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                        kill.creation_flags(CREATE_NO_WINDOW);
+                    }
+                    let _ = kill.status();
+                }
+            }
+        }
+        let _ = fs::remove_file(&path);
+    }
+}
+
+fn is_our_shell(pid: u32) -> bool {
+    let mut list = Command::new("tasklist");
+    list.args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]);
+    list.stdin(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        list.creation_flags(CREATE_NO_WINDOW);
+    }
+    list.output()
+        .map(|out| {
+            String::from_utf8_lossy(&out.stdout)
+                .to_lowercase()
+                .contains("cmd.exe")
+        })
+        .unwrap_or(false)
 }
 
 /// Runs a command and waits for it, up to `timeout_s`.
@@ -172,6 +357,12 @@ fn log_path(id: u32) -> PathBuf {
     jobs_dir().join(format!("{id}.log"))
 }
 
+/// The pid of a job, written next to its log. It is what makes it possible to
+/// clean up after the app itself was killed instead of quitting.
+fn pid_path(id: u32) -> PathBuf {
+    jobs_dir().join(format!("{id}.pid"))
+}
+
 /// Starts a command in the background; its output goes to a log file.
 pub fn spawn(cmd: &str, cwd: Option<&str>) -> Result<u32, String> {
     let cmd = cmd.trim();
@@ -200,6 +391,7 @@ pub fn spawn(cmd: &str, cwd: Option<&str>) -> Result<u32, String> {
         .spawn()
         .map_err(|e| format!("Could not start the command: {e}"))?;
 
+    let _ = fs::write(pid_path(id), child.id().to_string());
     jobs.insert(
         id,
         Job {
@@ -328,10 +520,9 @@ mod tests {
     #[test]
     fn a_job_reports_its_output() {
         let id = spawn("echo job-output && exit 0", None).expect("spawn");
-        std::thread::sleep(Duration::from_millis(700));
-        let list = jobs();
-        assert!(list.contains(&format!("#{id}")), "jobs said {list}");
-        assert!(list.contains("finished (exit 0)"), "jobs said {list}");
+        let line = wait_for_job(id, |line| !line.contains("running"));
+        assert!(line.contains(&format!("#{id}")), "jobs said {line}");
+        assert!(line.contains("finished (exit 0)"), "jobs said {line}");
         let text = output(id, 4000).expect("output");
         assert!(text.contains("job-output"), "output was {text}");
     }
@@ -349,8 +540,102 @@ mod tests {
         };
         assert!(line().contains("running"), "job line was {:?}", line());
         assert!(kill(id).expect("kill"));
+        let after = wait_for_job(id, |line| !line.contains("running"));
+        assert!(!after.contains("running"), "job line was {:?}", after);
+    }
+
+    #[test]
+    fn keeps_the_quotes_in_a_command() {
+        // The whole reason `raw_arg` is used: a quoted path must arrive intact.
+        let out = run(
+            r#"if exist "C:\Windows\System32\cmd.exe" (echo FOUND) else (echo MISSING)"#,
+            None,
+            None,
+        )
+        .expect("run");
+        assert!(out.stdout.contains("FOUND"), "stdout was {:?}", out.stdout);
+    }
+
+    #[test]
+    fn lists_a_quoted_directory_with_a_space_in_its_name() {
+        let out = run(r#"dir "C:\Program Files" /b"#, None, None).expect("run");
+        assert_eq!(out.code, Some(0), "stderr was {:?}", out.stderr);
+        assert!(
+            out.stdout.to_lowercase().contains("windows"),
+            "stdout was {:?}",
+            out.stdout
+        );
+    }
+
+    #[test]
+    fn a_command_that_needs_a_double_quoted_subcommand_still_works() {
+        let out = run(
+            r#"powershell -NoProfile -Command "Write-Output 'quoted ok'""#,
+            None,
+            None,
+        )
+        .expect("run");
+        assert!(out.stdout.contains("quoted ok"), "stdout was {:?}", out.stdout);
+    }
+
+    #[test]
+    fn finds_a_program_by_name_before_its_longer_relative() {
+        let dir = std::env::temp_dir().join("oczi-shell-test");
+        let _ = fs::create_dir_all(&dir);
+        let exact = dir.join("PZUpdater.exe");
+        let other = dir.join("PZUpdater Helper.exe");
+        for file in [&exact, &other] {
+            File::create(file).expect("create");
+        }
+        let found = pick_app(&[dir.clone()], "pzupdater").expect("found");
+        assert_eq!(found, exact);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn launching_something_that_is_not_there_says_so() {
+        let err = launch("no-such-program-xyz").unwrap_err();
+        assert!(err.contains("Could not find"), "err was {err}");
+        assert!(launch("   ").is_err());
+    }
+
+    #[test]
+    fn kills_a_job_left_over_from_a_crash() {
+        // Started outside the registry, exactly as if the app had been killed.
+        let mut orphan = command_for("ping -n 30 127.0.0.1", None)
+            .expect("command")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn");
+        let id = 900;
+        fs::write(pid_path(id), orphan.id().to_string()).expect("pid file");
+
+        kill_orphans();
         std::thread::sleep(Duration::from_millis(400));
-        assert!(!line().contains("running"), "job line was {:?}", line());
+        assert!(
+            orphan.try_wait().expect("wait").is_some(),
+            "the orphan should have been killed"
+        );
+        assert!(!pid_path(id).exists(), "the pid file should be gone");
+    }
+
+    /// The one line about a job, once `done` says so, or after five seconds.
+    fn wait_for_job(id: u32, done: impl Fn(&str) -> bool) -> String {
+        let prefix = format!("#{id} ");
+        let mut line = String::new();
+        for _ in 0..100 {
+            line = jobs()
+                .lines()
+                .find(|l| l.starts_with(&prefix))
+                .unwrap_or("")
+                .to_string();
+            if done(&line) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        line
     }
 
     #[test]
