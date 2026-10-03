@@ -30,11 +30,14 @@ pub const PANEL_H: f64 = 320.0;
 
 pub const WINDOW_LABEL: &str = "island";
 
-/// Spin rate of the cursor poll. While the island is hidden there is nothing to
-/// animate, so it drops to a slow tick that is only there to notice a hover or a
-/// file being dragged in, a GetCursorPos every 125 ms is below measurement.
 const POLL_HZ_ACTIVE: u64 = 16;
+/// Island on screen, cursor somewhere else. 30 Hz is more than a hover test
+/// needs, and on a slow machine this is a thread that runs all day.
+const POLL_HZ_NEARBY: u64 = 33;
+/// Island hidden: just watch the wake band and the top edge.
 const POLL_HZ_IDLE: u64 = 125;
+/// How close counts as "about to reach the island".
+const NEAR_PX: f64 = 260.0;
 
 /// Id of our global hotkey (Ctrl+Alt+C), and the mods it is registered with.
 const HOTKEY_ID: i32 = 0xC0CC;
@@ -494,14 +497,19 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
         // moment the island comes back.
         let mut last_screen: Option<(i32, i32, u32, u32, u64)> = None;
         let mut last = (f64::MIN, f64::MIN);
+        // Whether the cursor was near the island last tick, which decides the
+        // rate of the tick that follows.
+        let mut near = true;
         let mut ticks: u32 = 0;
         let mut drag_probe: u32 = 0;
         loop {
             let idle = !gate.is_active() || gate.collapsed.load(Ordering::Relaxed);
             std::thread::sleep(Duration::from_millis(if idle {
                 POLL_HZ_IDLE
-            } else {
+            } else if near {
                 POLL_HZ_ACTIVE
+            } else {
+                POLL_HZ_NEARBY
             }));
             ticks = ticks.wrapping_add(1);
 
@@ -548,6 +556,14 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                 }
             }
             was_down = down;
+
+            // Distance to the island, for the rate of the next tick. A button
+            // held anywhere counts as near: that is a drag looking for us.
+            near = down
+                || (x >= r.x - NEAR_PX
+                    && x <= r.x + r.w + NEAR_PX
+                    && y >= r.y - NEAR_PX
+                    && y <= r.y + r.h + NEAR_PX);
 
             let dragging = down && x >= 0.0 && x <= size.0 && y >= 0.0 && y <= size.1;
 
