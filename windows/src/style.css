@@ -89,7 +89,13 @@ body {
 #bot-canvas,
 #greeting-canvas {
   position: absolute;
+  left: 0;
+  top: 0;
   pointer-events: none;
+}
+
+#bot-canvas {
+  will-change: transform;
 }
 
 /* The drop sequence. Sits under the header and takes over the island body; it
@@ -137,12 +143,18 @@ body {
   transition: opacity 0.22s ease-in-out;
 }
 
+/* Positioned with a transform, never with left/top: the glow is a large soft
+   square that follows the character, and moving it by layout made the GPU
+   process re-rasterise it on every frame of an open card. The radial gradient
+   is already soft, so the blur filter it used to carry was also just weight. */
 #bot-glow {
   position: absolute;
+  left: 0;
+  top: 0;
   pointer-events: none;
   border-radius: 50%;
-  filter: blur(6px);
-  transition: opacity 0.4s ease-in-out, background 0.4s ease-in-out;
+  will-change: transform, opacity;
+  transition: opacity 0.4s ease-in-out;
 }
 
 #countdown {

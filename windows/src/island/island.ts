@@ -27,6 +27,7 @@ const BOT_OVERHANG = 40;
 /** Same margin as the Rust hit test (src-tauri/src/island.rs). */
 const HIT_MARGIN = 14;
 const RESTING_FPS = 15;
+const OPEN_FPS = 30;
 
 /** The three views the drop sequence owns; leaving them stops the engine. */
 const UPLOAD_VIEWS: ReadonlySet<IslandViewName> = new Set(["upload", "uploading", "choose"]);
@@ -46,6 +47,16 @@ export class Island {
   private viewsEl!: HTMLElement;
   private botCanvas!: HTMLCanvasElement;
   private botGlow!: HTMLElement;
+  /** Last glow values written; see updateBotTargets. The glow is blurred, so a
+   *  write that changes nothing is not free. */
+  private glowColor = "";
+  private glowSize = -1;
+  private glowPos = { x: -1, y: -1 };
+  private glowOpacity = "";
+  /** Rounded geometry last written; see applyGeometry. */
+  private geometryKey = "";
+  /** Last canvas position written; see drawBot. */
+  private botPos = { x: -1, y: -1 };
   private greetingCanvas!: HTMLCanvasElement;
   private miniGrid!: HTMLElement;
   private countdown!: HTMLElement;
@@ -552,16 +563,22 @@ export class Island {
     const w = this.width.value;
     const hh = this.height.value;
     const r = this.radius.value;
-    this.islandEl.style.width = `${w}px`;
-    this.islandEl.style.height = `${hh}px`;
-    this.islandEl.style.borderRadius = `0 0 ${r}px ${r}px`;
-    this.islandEl.style.transform = `translateX(-50%)`;
-    // These follow the island as it resizes, so they belong here rather than in
-    // the state-driven DOM sync.
-    this.miniGrid.style.right = "14px";
-    this.miniGrid.style.top = `${hh / 2}px`;
-    this.greetingCanvas.style.left = `${(w - EXPANDED_W) / 2}px`;
-    this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
+    // Written only when the rounded values move: the island is settled for most
+    // of its life, and a style write is never quite free.
+    const key = `${Math.round(w * 2)}|${Math.round(hh * 2)}|${Math.round(r * 2)}`;
+    if (key !== this.geometryKey) {
+      this.geometryKey = key;
+      this.islandEl.style.width = `${w}px`;
+      this.islandEl.style.height = `${hh}px`;
+      this.islandEl.style.borderRadius = `0 0 ${r}px ${r}px`;
+      this.islandEl.style.transform = `translateX(-50%)`;
+      // These follow the island as it resizes, so they belong here rather than
+      // in the state-driven DOM sync.
+      this.miniGrid.style.right = "14px";
+      this.miniGrid.style.top = `${hh / 2}px`;
+      this.greetingCanvas.style.left = `${(w - EXPANDED_W) / 2}px`;
+      this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
+    }
 
     const rect = { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
     const p = this.pushedRect;
@@ -818,15 +835,15 @@ export class Island {
       !this.uploadActive &&
       !UploadSeq.isActive &&
       // The chat is the one card where the extra frames are felt: reading,
-      // scrolling and the caret. Everything else on screen is a small drawing.
+      // scrolling and the caret.
       State.view !== "prompt";
 
-    if (resting) {
+    if (fps > 0) {
       if (this.restTimer !== null) window.clearTimeout(this.restTimer);
       this.restTimer = window.setTimeout(() => {
         this.restTimer = null;
         requestAnimationFrame(this.frame);
-      }, 1000 / RESTING_FPS - 4);
+      }, 1000 / fps - 4);
     } else {
       if (this.restTimer !== null) {
         window.clearTimeout(this.restTimer);
@@ -856,15 +873,31 @@ export class Island {
     if (State.mode === "expanded" && State.view !== "uploading" && !greetingActive && !this.uploadActive) {
       const d = p.diameter;
       const color = botGlowColor(State.effectiveState);
-      this.botGlow.style.display = "block";
-      this.botGlow.style.width = `${d * 2.2}px`;
-      this.botGlow.style.height = `${d * 2.2}px`;
-      this.botGlow.style.left = `${this.botCx.value - d * 1.1}px`;
-      this.botGlow.style.top = `${this.botCy.value - d * 1.1}px`;
-      this.botGlow.style.background = `radial-gradient(circle, ${color} 0%, transparent 62%)`;
-      this.botGlow.style.opacity = String(botGlowOpacity(State.effectiveState));
-    } else {
+      if (this.botGlow.style.display !== "block") this.botGlow.style.display = "block";
+      // Only what actually changed is written. The glow carries a 6 px blur, and
+      // its background is a gradient: re-writing the same gradient every frame
+        this.botGlow.style.background = `radial-gradient(circle, ${color} 0%, transparent 62%)`;
+      }
+      const size = d * 2.2;
+      if (Math.abs(this.glowSize - size) > 0.5) {
+        this.glowSize = size;
+        this.botGlow.style.width = `${size}px`;
+        this.botGlow.style.height = `${size}px`;
+      }
+      const left = this.botCx.value - d * 1.1;
+      const top = this.botCy.value - d * 1.1;
+      if (Math.abs(this.glowPos.x - left) > 0.5 || Math.abs(this.glowPos.y - top) > 0.5) {
+        this.glowPos = { x: left, y: top };
+        this.botGlow.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+      }
+      const opacity = String(botGlowOpacity(State.effectiveState));
+      if (this.glowOpacity !== opacity) {
+        this.glowOpacity = opacity;
+        this.botGlow.style.opacity = opacity;
+      }
+    } else if (this.botGlow.style.display !== "none") {
       this.botGlow.style.display = "none";
+      this.glowColor = "";
     }
   }
 
@@ -880,8 +913,14 @@ export class Island {
       this.botCanvas.style.width = `${w}px`;
       this.botCanvas.style.height = `${hCss}px`;
     }
-    this.botCanvas.style.left = `${this.botCx.value - w / 2}px`;
-    this.botCanvas.style.top = `${this.botCy.value - BOT_OVERHANG / 2 - hCss / 2}px`;
+    // transform, not left/top: the canvas follows the character every frame, and
+    // a layout move invalidates the card around it.
+    const bcx = this.botCx.value - w / 2;
+    const bcy = this.botCy.value - BOT_OVERHANG / 2 - hCss / 2;
+    if (Math.abs(this.botPos.x - bcx) > 0.5 || Math.abs(this.botPos.y - bcy) > 0.5) {
+      this.botPos = { x: bcx, y: bcy };
+      this.botCanvas.style.transform = `translate3d(${bcx}px, ${bcy}px, 0)`;
+    }
 
     const ctx = this.botCanvas.getContext("2d");
     if (!ctx) return;
