@@ -2,6 +2,13 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.1.3 — 2026-10-04
+
+- Coming back after a long idle no longer shows her as a giant square, or as nothing
+  at all: the first frame could arrive carrying the clock of the last frame before the
+  sleep, and the step it produced ran the day backwards. The frame loop now keeps its
+  own clock, so the little Iskras beside the pills keep their shape too.
+
 ## 0.1.2 — 2026-10-03
 
 First release under its own name. Oczi is a Windows fork of Coucou: the code is
@@ -74,10 +81,6 @@ MIT, the name, the character and the icon are not (see LICENSE-ASSETS.md).
 - No more flash of a big stretched square when she wakes: the sizes and places the
   frame loop caches are dropped the moment the island goes to sleep, so the first
   frame back re-asserts them instead of painting what the DOM still carried.
-- Coming back after a long idle no longer shows her as a giant square, or as nothing
-  at all: the first frame could arrive carrying the clock of the last frame before the
-  sleep, and the step it produced ran the day backwards. The frame loop now keeps its
-  own clock, so the little Iskras beside the pills keep their shape too.
 
 - Reading a page no longer takes the app down. Two places cut the page text by
   byte count instead of by character, so a page with an accent in the wrong spot
