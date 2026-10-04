@@ -249,7 +249,7 @@ export class Island {
           break;
         case "greeting":
           this.expand("greeting");
-          this.greeting.start();
+          this.startGreetingWhenSettled();
           break;
       }
       State.notify();
@@ -447,6 +447,18 @@ export class Island {
   /** Ctrl+Alt+S, and the eye in the chat bar. */
   snipStart() {
     void this.snipRegion();
+  }
+
+  /** The greeting opens with a shape that rushes into Iskra, so it starts after the first frame. */
+  private startGreetingWhenSettled() {
+    const started = performance.now();
+    const tick = window.setInterval(() => {
+      const settled = !this.width.animating && !this.height.animating;
+      if (!settled && performance.now() - started < 900) return;
+      window.clearInterval(tick);
+      // Someone answered already: the greeting is not worth interrupting them for.
+      if (this.fsm.state === "greeting") this.greeting.start();
+    }, 30);
   }
 
   /** A click elsewhere in Windows. The island takes the hint, but not while a question
