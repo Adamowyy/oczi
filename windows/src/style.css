@@ -163,9 +163,10 @@ body {
 .reply code {
   font-family: ui-monospace, Consolas, "Courier New", monospace;
   font-size: 12px;
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.09);
+  /* No box: a grey field around every address made a paragraph look scattered. */
+  color: #cfe9ff;
+  background: none;
+  padding: 0;
 }
 
 /* A link in an answer: it used to be plain grey text, easy to miss and impossible
