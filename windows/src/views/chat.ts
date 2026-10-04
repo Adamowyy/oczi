@@ -14,6 +14,30 @@ let nextId = 1;
 /** A conversation left alone for an hour has expired and is dropped on both sides. */
 const SESSION_TTL_MS = 60 * 60 * 1000;
 
+const URL_IN_TEXT = /https?:\/\/[^\s<>()\[\]]+/g;
+
+function replyBody(content: string): HTMLElement {
+  const box = h("div", { class: "reply" });
+  let at = 0;
+  for (const found of content.matchAll(URL_IN_TEXT)) {
+    const raw = found[0];
+    // Trailing punctuation belongs to the sentence, not to the address.
+    const url = raw.replace(/[.,;:!?)\]"']+$/, "");
+    const start = found.index ?? 0;
+    if (start > at) box.append(document.createTextNode(content.slice(at, start)));
+    const link = h("a", { class: "reply-link", text: url });
+    link.href = url;
+    link.addEventListener("click", (e) => {
+      e.preventDefault();
+      void Bridge.openUrl(url);
+    });
+    box.append(link);
+    at = start + url.length;
+  }
+  if (at < content.length) box.append(document.createTextNode(content.slice(at)));
+  return box;
+}
+
 export function bubble(message: ChatMessage): HTMLElement {
   if (message.role === "user") {
     return h(
@@ -22,7 +46,7 @@ export function bubble(message: ChatMessage): HTMLElement {
       h("div", { class: "bubble", text: message.content }),
     );
   }
-  return h("div", { class: "chat-row" }, h("div", { class: "reply", text: message.content }));
+  return h("div", { class: "chat-row" }, replyBody(message.content));
 }
 
 export function typingDots(): HTMLElement {

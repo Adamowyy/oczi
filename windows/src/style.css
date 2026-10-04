@@ -136,6 +136,26 @@ body {
   cursor: pointer;
 }
 
+/* A link in an answer: it used to be plain grey text, easy to miss and impossible
+   to click. */
+.reply-link {
+  color: #7be0ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.reply-link:hover {
+  color: #a8ecff;
+}
+
+/* While the card changes shape, everything drawn outside it is held inside the
+   current silhouette: the character is not clipped otherwise, on purpose. */
+#island.settling {
+  overflow: hidden;
+}
+
 /* The ordinary views step aside while the sequence owns the body. */
 #views.hidden-by-upload {
   opacity: 0;

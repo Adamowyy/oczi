@@ -55,6 +55,8 @@ export class Island {
   /** Set when the layout changed: her springs are jumped to the new place instead of
    *  travelling there, so she is never drawn outside the card on the way. */
   private parkBot = false;
+  /** True while the card is growing or shrinking (see `#island.settling`). */
+  private settling = false;
   private glowColor = "";
   private glowSize = -1;
   private glowPos = { x: -1, y: -1 };
@@ -659,6 +661,12 @@ export class Island {
     }
 
     const settled = this.targetSize();
+    const settling = this.width.animating || this.height.animating;
+    if (settling !== this.settling) {
+      this.settling = settling;
+      this.islandEl.classList.toggle("settling", settling);
+    }
+
     const rect = { x: (PANEL_W - settled.w) / 2, y: 0, w: settled.w, h: settled.h };
     const p = this.pushedRect;
     if (Math.abs(p.x - rect.x) > 0.5 || Math.abs(p.w - rect.w) > 0.5 || Math.abs(p.h - rect.h) > 0.5) {
