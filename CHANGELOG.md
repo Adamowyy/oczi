@@ -59,6 +59,15 @@ MIT, the name, the character and the icon are not (see LICENSE-ASSETS.md).
 - The island can be dragged along the top of the screen: press and hold her body
   (not a control) and she follows, and where she is left is remembered as a
   fraction of the room she has, so it survives a restart and another resolution.
+- A link in an answer is a link: the chat is plain text, so addresses were just grey
+  words you could not click. They are found in the text, underlined in the accent
+  colour, and open in your own browser.
+- Iskra stays inside the card while it changes shape. She is drawn outside the
+  card's clip on purpose — she overhangs the bar — so while a card grew or shrank
+  she hung off its corner; the silhouette holds everything in until it settles.
+- The big light-blue square that flashed past the window edge is gone: it was Iskra
+  travelling from the bar to her place in the card, with her glow lighting up before
+  the card had finished growing.
 - No more flash of a big stretched square when she wakes: the sizes and places the
   frame loop caches are dropped the moment the island goes to sleep, so the first
   frame back re-asserts them instead of painting what the DOM still carried.
