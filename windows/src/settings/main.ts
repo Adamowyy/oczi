@@ -1,4 +1,4 @@
-// Settings window — the place where anything that writes to disk is confirmed.
+// Settings window, the place where anything that writes to disk is confirmed.
 // Covers the general preferences, the DeepSeek chat key and the integrations.
 
 import "./settings.css";
@@ -9,6 +9,8 @@ import { h, clear } from "../views/dom";
 
 let settings: Settings = { ...DEFAULT_SETTINGS };
 let version = "";
+/** The monitor picker, kept so it can be re-read when the window is reopened. */
+let screenSelect: HTMLSelectElement | null = null;
 
 const root = document.getElementById("settings-root")!;
 
@@ -136,7 +138,7 @@ const SEARCH_KEYS: SecretField[] = [
 ];
 
 /** One credential row: input, save button, status dot. Shared by the
- * integrations and the search backends — same rules for every secret. */
+ * integrations and the search backends, same rules for every secret. */
 function secretRow(field: SecretField, present: Record<string, boolean>): HTMLElement {
   const input = h("input", {
     type: field.secret ? "password" : "text",
@@ -346,6 +348,27 @@ function integrationsSection(present: Record<string, boolean>): HTMLElement {
  * Ctrl+Alt is AltGr, so only keys with no AltGr diacritic are offered. */
 const HOTKEY_OPTIONS = ["Ctrl+Alt+M", "Ctrl+Alt+Shift+M", "Ctrl+Shift+M", "Ctrl+Alt+G", "Ctrl+Alt+Space"];
 
+async function listMonitors(select: HTMLSelectElement) {
+  const monitors = (await Bridge.listMonitors()) ?? [];
+  // Read after the await: a pick made while the list was on its way wins.
+  const wanted = settings.screen;
+  // Drop what a previous pass added, every monitor entry, plus the placeholder.
+  for (const opt of Array.from(select.options)) {
+    if (opt.value.startsWith("monitor:")) opt.remove();
+  }
+  monitors.forEach((m, i) => {
+    const parts = [t("set.screenMonitor", m.number ?? i + 1), `${m.width}×${m.height}`];
+    if (m.primary) parts.push(t("set.screenMain"));
+    const option = h("option", { value: `monitor:${m.key}`, text: parts.join(" · ") });
+    if (m.name) option.title = m.name;
+    select.append(option);
+  });
+  if (wanted.startsWith("monitor:") && !monitors.some((m) => `monitor:${m.key}` === wanted)) {
+    select.append(h("option", { value: wanted, text: t("set.screenMissing") }));
+  }
+  select.value = wanted;
+}
+
 function generalSection(): HTMLElement {
   const language = h("select", {}) as HTMLSelectElement;
   for (const { tag, label } of LANGUAGES) language.append(h("option", { value: tag, text: label }));
@@ -385,11 +408,16 @@ function generalSection(): HTMLElement {
     h("option", { value: "primary", text: t("set.screenPrimary") }),
     h("option", { value: "cursor", text: t("set.screenCursor") }),
   );
+  // Set what we can before the list arrives; `listMonitors` settles a pinned
+  // display once it knows the monitors.
   screen.value = settings.screen;
   screen.addEventListener("change", () => {
-    settings.screen = screen.value as Settings["screen"];
+    if (!screen.value) return;
+    settings.screen = screen.value;
     void save();
   });
+  screenSelect = screen;
+  void listMonitors(screen);
 
   const hotkey = h("select", {}) as HTMLSelectElement;
   for (const opt of HOTKEY_OPTIONS) hotkey.append(h("option", { value: opt, text: opt }));
@@ -458,6 +486,12 @@ async function main() {
 
   void onEvent<Settings>("settings-changed", (s) => {
     settings = { ...settings, ...s };
+  });
+
+  // The window is built once at launch and only shown/hidden afterwards, so the
+  // monitor list is re-read each time it comes back to the screen.
+  void onEvent<null>("settings-shown", () => {
+    if (screenSelect) void listMonitors(screenSelect);
   });
 }
 

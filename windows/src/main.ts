@@ -4,7 +4,8 @@ import "./style.css";
 import { Bridge, IS_TAURI, onEvent } from "./core/bridge";
 import { Sound } from "./core/sound";
 import { State, type Settings } from "./core/state";
-import { currentLang, setLang, storedLang } from "./core/i18n";
+import { currentLang, setLang, storedLang, t } from "./core/i18n";
+import { newsKey } from "./core/whats-new";
 import { Island } from "./island/island";
 import { registerIntegrationHandlers, refreshConfigured } from "./island/integrations";
 
@@ -97,6 +98,34 @@ async function main() {
   registerIntegrationHandlers(island);
 
   island.launch();
+
+  async function announce() {
+    const version = boot?.version ?? "";
+    if (!version) return;
+    const seen = State.settings.lastSeenVersion;
+    if (seen !== version) void Bridge.markVersionSeen(version);
+    // A fresh install was never updated, so it has nothing to be told about.
+    const changed = seen !== "" && seen !== version ? newsKey(version) : null;
+    const update = await Bridge.checkUpdate();
+    if (!changed && !update) return;
+    const body = [
+      changed ? t(changed) : null,
+      update ? t("news.updateLine", update.version, update.url) : null,
+    ]
+      .filter((line): line is string => line !== null)
+      .join("\n");
+    State.newsMessage = {
+      title: changed ? t("news.title", version) : t("news.updateTitle"),
+      body,
+    };
+    State.notify();
+    // While the greeting is up, island.ts hands the card over when it folds.
+    // Otherwise open it now, but never over something the user just opened.
+    if (island.fsm.state === "greeting") return;
+    if (State.mode === "expanded" && State.view !== "whatsnew") return;
+    island.alert("whatsnew");
+  }
+  void announce();
 
   // In a plain browser there is no wake strip behind the cursor: make the whole
   // page wake the island so the visuals can be checked with `npm run dev`.

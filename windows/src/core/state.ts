@@ -78,7 +78,9 @@ export interface Settings {
   islandAnchor: number;
   absenceInterval: number;
   activeIntegrations: string[];
-  screen: "primary" | "cursor";
+  /** Where the island lives: "primary", "cursor", or "monitor:<key>" for one
+   *  pinned display — see `monitor_key` in island.rs. */
+  screen: string;
   autostart: boolean;
   /** DeepSeek model used by the chat. */
   model: string;
@@ -94,6 +96,9 @@ export interface Settings {
   language: Lang;
   /** Let the chat run commands on this PC. Off unless the user turned it on. */
   terminalEnabled: boolean;
+  /** The version whose card has been shown. Empty on a fresh install, which is
+   *  how a first run is told apart from an update. Owned by Rust. */
+  lastSeenVersion: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -115,6 +120,7 @@ export const DEFAULT_SETTINGS: Settings = {
   searchProvider: "duckduckgo",
   language: "en",
   terminalEnabled: false,
+  lastSeenVersion: "",
 };
 
 type Listener = () => void;
@@ -144,6 +150,9 @@ class AppState {
   droppedFile: { name: string; path: string } | null = null;
   /** A screenshot waiting to ride along with the next question. */
   snip: { width: number; height: number } | null = null;
+  /** The one-off card about this version: what changed, and any release newer
+   *  than the one running. Set once at boot, shown once, then cleared. */
+  newsMessage: { title: string; body: string } | null = null;
   noteMessage: string | null = null;
   searchResult: SearchResult | null = null;
   chatHistory: ChatMessage[] = [];

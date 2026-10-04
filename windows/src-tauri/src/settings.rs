@@ -49,6 +49,10 @@ pub struct Settings {
     /// on and accepted the warning.
     #[serde(default)]
     pub terminal_enabled: bool,
+    /// The version whose "what's new" card has been shown. Empty on a fresh
+    /// install, which is how a first run is told apart from an update.
+    #[serde(default)]
+    pub last_seen_version: String,
 }
 
 fn default_anchor() -> f64 {
@@ -106,6 +110,7 @@ impl Default for Settings {
             search_provider: default_search_provider(),
             language: default_language(),
             terminal_enabled: false,
+            last_seen_version: String::new(),
         }
     }
 }

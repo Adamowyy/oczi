@@ -256,6 +256,7 @@ export class Island {
           else if (from === "hidden") Sound.play("peek");
           this.setMode("compact");
           if (from === "greeting") State.view = State.defaultView();
+          if (from === "greeting" && State.newsMessage) this.alert("whatsnew");
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
         case "home":
@@ -345,6 +346,12 @@ export class Island {
   collapse() {
     if (State.view === "note") {
       State.noteMessage = null;
+      State.view = State.defaultView();
+    }
+    // The card about this version is the same kind of thing: it has been read
+    // once the island folds, and it must not come back on the next open.
+    if (State.view === "whatsnew") {
+      State.newsMessage = null;
       State.view = State.defaultView();
     }
     State.isPinned = false;

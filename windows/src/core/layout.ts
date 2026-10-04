@@ -15,6 +15,7 @@ export type IslandViewName =
   | "searching"
   | "result"
   | "note"
+  | "whatsnew"
   | "settings"
   | "greeting";
 
@@ -77,6 +78,8 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   searching: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   result: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   note: { height: 160, botX: 60, botY: null, botDiameter: 50, agentMode: "column" },
+  // Taller than a note: the card carries a handful of lines plus its button.
+  whatsnew: { height: 208, botX: 60, botY: null, botDiameter: 50, agentMode: "none" },
   settings: { height: 160, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
 };

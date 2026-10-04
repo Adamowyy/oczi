@@ -24,8 +24,40 @@ export interface BootInfo {
   version: string;
 }
 
+/** One display the monitor picker can pin the island to (Rust: `MonitorInfo`). */
+export interface MonitorOption {
+  /** The value `settings.screen` stores to pin this display. */
+  key: string;
+  /** The number Windows shows for it (1, 2, 3…), when its name carries one. */
+  number: number | null;
+  /** The raw device name, e.g. `\\.\DISPLAY2`. */
+  name: string | null;
+  width: number;
+  height: number;
+  scale: number;
+  /** Windows' own main display. */
+  primary: boolean;
+}
+
+/** A published release newer than the one running (Rust: `update::Release`). */
+export interface UpdateInfo {
+  /** The tag with any leading `v` trimmed: `0.1.4`. */
+  version: string;
+  /** The GitHub release page. */
+  url: string;
+}
+
 export const Bridge = {
   boot: () => call<BootInfo>("boot"),
+
+  /** The connected displays, for the settings window's monitor picker. */
+  listMonitors: () => call<MonitorOption[]>("list_monitors"),
+
+  /** A newer release than the one running, or null, checked once per launch. */
+  checkUpdate: () => call<UpdateInfo>("check_update"),
+
+  /** Records that this version's card has been shown, so it appears once. */
+  markVersionSeen: (version: string) => call<void>("mark_version_seen", { version }),
 
   saveSettings: (settings: Settings) => call<void>("save_settings", { settings }),
 

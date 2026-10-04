@@ -56,6 +56,9 @@ const EN = {
   "set.islandScreen": "Island lives on",
   "set.screenPrimary": "Main display",
   "set.screenCursor": "Display with the cursor",
+  "set.screenMonitor": "Monitor {}",
+  "set.screenMain": "main",
+  "set.screenMissing": "Saved display — not connected",
   "set.hotkey": "Summon hotkey",
   "set.autostart": "Start with Windows",
   "view.searching": "Searching…",
@@ -119,6 +122,14 @@ const EN = {
   "empty.quiet": "Nothing happening right now.",
   "empty.tooMuch": "Too much at once.",
   "empty.noEmail": "Sending by email is not in this version.",
+
+  // The card shown once after an update. One `news.<version>` entry per release
+  // that has something worth saying; see src/core/whats-new.ts.
+  "news.title": "What's new in {}",
+  "news.updateTitle": "A new version is available",
+  "news.updateLine": "Version {} is out — download it from {}",
+  "news.dismiss": "Got it",
+  "news.0.1.4": "- **Settings → Island lives on** now lists every display the way Windows numbers it, so the island can be pinned to one monitor instead of only the main one or the one under the cursor.\n- A short card like this one appears after an update, and once a launch it also says whether a newer release is waiting on GitHub.",
 } as const;
 
 export type TextKey = keyof typeof EN;
@@ -170,6 +181,9 @@ const PL: Record<TextKey, string> = {
   "set.islandScreen": "Wyspa mieszka na",
   "set.screenPrimary": "Monitor główny",
   "set.screenCursor": "Monitor pod kursorem",
+  "set.screenMonitor": "Monitor {}",
+  "set.screenMain": "główny",
+  "set.screenMissing": "Zapisany monitor — niepodłączony",
   "set.hotkey": "Skrót otwierający",
   "set.autostart": "Uruchamiaj przy starcie",
   "view.searching": "Szukam…",
@@ -232,6 +246,12 @@ const PL: Record<TextKey, string> = {
   "empty.quiet": "Na razie nic się nie dzieje.",
   "empty.tooMuch": "Za dużo naraz.",
   "empty.noEmail": "Wysyłanie e-mailem nie jest dostępne w tej wersji.",
+
+  "news.title": "Co nowego w {}",
+  "news.updateTitle": "Dostępna jest nowa wersja",
+  "news.updateLine": "Wersja {} już jest — pobierz ją z {}",
+  "news.dismiss": "Wiem, dzięki",
+  "news.0.1.4": "- **Ustawienia → Wyspa mieszka na** pokazują teraz każdy monitor tak, jak numeruje go Windows — wyspę można przypiąć na stałe do jednego ekranu, a nie tylko do głównego albo tego pod kursorem.\n- Po aktualizacji pojawia się taka krótka karta, a raz na uruchomienie mówi też, czy na GitHubie czeka nowsze wydanie.",
 };
 
 const TABLES: Record<Lang, Record<TextKey, string>> = { en: EN, pl: PL };

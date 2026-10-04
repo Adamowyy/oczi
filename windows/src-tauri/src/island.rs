@@ -398,7 +398,40 @@ fn monitor_contains(m: &Monitor, x: f64, y: f64) -> bool {
         && y < (p.y + s.height as i32) as f64
 }
 
-/// The display the island lives on: the primary one, or the one under the cursor.
+pub fn monitor_key(m: &Monitor) -> String {
+    match m.name() {
+        Some(name) if !name.is_empty() => name.clone(),
+        _ => {
+            let p = m.position();
+            format!("{}x{}", p.x, p.y)
+        }
+    }
+}
+
+/// The trailing number of a device name: `\\.\DISPLAY2` → 2. `None` when the
+/// name carries none, so the settings window falls back to the list position.
+fn number_in_name(name: Option<&str>) -> Option<u32> {
+    let tail: String = name?
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    if tail.is_empty() {
+        return None;
+    }
+    tail.chars().rev().collect::<String>().parse().ok()
+}
+
+/// The number Windows shows for a display (1, 2, 3…). See `number_in_name`.
+fn monitor_number(m: &Monitor) -> Option<u32> {
+    number_in_name(m.name().map(String::as_str))
+}
+
+/// The key inside a `monitor:` preference, when the preference is one.
+fn monitor_pref_key(pref: &str) -> Option<&str> {
+    pref.strip_prefix("monitor:").filter(|k| !k.is_empty())
+}
+
 fn target_monitor(app: &AppHandle, pref: &str) -> Option<Monitor> {
     let monitors = app.available_monitors().ok()?;
     if pref == "cursor" {
@@ -408,10 +441,65 @@ fn target_monitor(app: &AppHandle, pref: &str) -> Option<Monitor> {
             }
         }
     }
+    if let Some(key) = monitor_pref_key(pref) {
+        if let Some(m) = monitors.iter().find(|m| monitor_key(m) == key) {
+            return Some(m.clone());
+        }
+    }
     app.primary_monitor()
         .ok()
         .flatten()
         .or_else(|| monitors.into_iter().next())
+}
+
+/// One entry of the monitor picker in the settings window. `key` is what comes
+/// back in the `screen` setting to pin the island to this display.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorInfo {
+    pub key: String,
+    /// The number Windows shows for it (1, 2, 3…), when its name carries one.
+    pub number: Option<u32>,
+    /// The raw device name, kept for the tooltip and the log.
+    pub name: Option<String>,
+    pub width: u32,
+    pub height: u32,
+    pub scale: f64,
+    /// Windows' own main display.
+    pub primary: bool,
+}
+
+/// The connected displays, in the order the settings window lists them: by the
+/// number Windows gives them, then any unnamed leftover by position, so the
+/// numbering the user sees matches the display control panel.
+pub fn list_monitors(app: &AppHandle) -> Vec<MonitorInfo> {
+    let Ok(mut monitors) = app.available_monitors() else {
+        return Vec::new();
+    };
+    let primary_key = app.primary_monitor().ok().flatten().as_ref().map(monitor_key);
+    monitors.sort_by_key(|m| {
+        let p = m.position();
+        match monitor_number(m) {
+            Some(n) => (0u8, n, p.x, p.y),
+            None => (1u8, 0, p.x, p.y),
+        }
+    });
+    monitors
+        .iter()
+        .map(|m| {
+            let s = m.size();
+            let key = monitor_key(m);
+            MonitorInfo {
+                number: monitor_number(m),
+                name: m.name().cloned(),
+                width: s.width,
+                height: s.height,
+                scale: m.scale_factor(),
+                primary: primary_key.as_deref() == Some(key.as_str()),
+                key,
+            }
+        })
+        .collect()
 }
 
 pub fn screen_info(app: &AppHandle, pref: &str) -> ScreenInfo {
@@ -463,6 +551,32 @@ mod anchor_tests {
     fn a_second_monitor_gets_its_own_origin() {
         // The left-hand display starts at -1920: flush right of it is -720.
         assert_eq!(anchored_x(PhysicalPosition::new(-1920, 0), 1920, 720, 1.0), -720);
+    }
+}
+
+#[cfg(test)]
+mod monitor_tests {
+    use super::{monitor_pref_key, number_in_name};
+
+    #[test]
+    fn the_number_comes_off_the_device_name() {
+        assert_eq!(number_in_name(Some("\\\\.\\DISPLAY1")), Some(1));
+        assert_eq!(number_in_name(Some("\\\\.\\DISPLAY12")), Some(12));
+        // A name with no digits, or none at all, leaves the picker to number by
+        // list position instead.
+        assert_eq!(number_in_name(Some("\\\\.\\DISPLAY")), None);
+        assert_eq!(number_in_name(Some("")), None);
+        assert_eq!(number_in_name(None), None);
+    }
+
+    #[test]
+    fn only_monitor_prefs_carry_a_key() {
+        assert_eq!(monitor_pref_key("monitor:\\\\.\\DISPLAY2"), Some("\\\\.\\DISPLAY2"));
+        assert_eq!(monitor_pref_key("monitor:0x0"), Some("0x0"));
+        // The fixed choices and an empty key are not pins.
+        assert_eq!(monitor_pref_key("primary"), None);
+        assert_eq!(monitor_pref_key("cursor"), None);
+        assert_eq!(monitor_pref_key("monitor:"), None);
     }
 }
 

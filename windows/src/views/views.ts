@@ -7,7 +7,7 @@ import { State, type AgentTask } from "../core/state";
 import { washRGBA, type IslandViewName, type Wash } from "../core/layout";
 import { t } from "../core/i18n";
 import { createMiniBot, pruneMiniBots } from "../bot/minibots";
-import { buildPrompt } from "./chat";
+import { buildPrompt, bubble } from "./chat";
 import { buildChoose, buildUpload, buildUploading } from "./upload";
 import { renderIntegrationCard, type IntegrationCardHooks } from "./integrations";
 
@@ -351,6 +351,43 @@ function buildNote(): ViewHost {
   };
 }
 
+// ── What's new (once, after an update) ────────────────────────────────────────
+
+function buildWhatsNew(actions: ViewActions): ViewHost {
+  const title = h("div", { class: "title" });
+  const body = h("div", {});
+  const el = h(
+    "div",
+    { class: "view" },
+    card(null,
+      h("div", { class: "stack", style: "padding:0 18px 0 98px" },
+        title,
+        body,
+        h("div", { class: "row" },
+          h("div", { class: "grow" }),
+          btn(t("news.dismiss"), "primary", () => {
+            State.newsMessage = null;
+            actions.setView(State.defaultView());
+          }),
+        ),
+      ),
+    ),
+  );
+  let shown: typeof State.newsMessage = null;
+  return {
+    el,
+    sync() {
+      const news = State.newsMessage;
+      if (news === shown) return;
+      shown = news;
+      if (!news) return;
+      title.textContent = news.title;
+      clear(body);
+      body.append(bubble({ id: 0, role: "assistant", content: news.body }));
+    },
+  };
+}
+
 // ── In-island settings ────────────────────────────────────────────────────────
 
 function buildSettings(actions: ViewActions): ViewHost {
@@ -447,6 +484,7 @@ export function buildViews(
   map.set("empty", buildEmpty(actions));
   map.set("confused", buildConfused());
   map.set("note", buildNote());
+  map.set("whatsnew", buildWhatsNew(actions));
   map.set("settings", buildSettings(actions));
   map.set("prompt", buildPrompt(actions, onChatHeightChange));
   map.set("upload", buildUpload());

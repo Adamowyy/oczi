@@ -11,6 +11,7 @@ mod shell;
 mod snip;
 mod text_tools;
 mod tray;
+mod update;
 mod util;
 mod web;
 mod webview_guard;
@@ -57,10 +58,45 @@ fn boot(app: AppHandle, shared: State<Shared>) -> BootInfo {
     }
 }
 
+/// The displays the settings window offers to pin the island to. Read live, so a
+/// display plugged in after launch shows up the next time settings is opened.
 #[tauri::command]
-fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
+fn list_monitors(app: AppHandle) -> Vec<island::MonitorInfo> {
+    island::list_monitors(&app)
+}
+
+/// Is there a newer release than the one running? Called once per launch, see
+/// the module comment for why nothing else ever touches the network.
+#[tauri::command]
+async fn check_update() -> Option<update::Release> {
+    update::latest(env!("CARGO_PKG_VERSION")).await
+}
+
+/// Remembers that this version's card has been shown, so it appears once.
+/// Written here rather than from the front end so the whole settings blob is
+/// not pushed back over a version bump.
+#[tauri::command]
+fn mark_version_seen(shared: State<Shared>, version: String) {
+    let snapshot = {
+        let mut current = shared.settings.lock().unwrap();
+        if current.last_seen_version == version {
+            return;
+        }
+        current.last_seen_version = version;
+        current.clone()
+    };
+    if let Err(err) = settings::save(&snapshot) {
+        log::line(format!("could not save the seen version: {err}"));
+    }
+}
+
+#[tauri::command]
+fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) {
     let (screen_changed, autostart_changed, hotkey_changed, language_changed) = {
         let mut current = shared.settings.lock().unwrap();
+        // The island owns this one: the settings window's copy is as old as the
+        // window is, and writing it back would re-show the card on the next launch.
+        settings.last_seen_version = current.last_seen_version.clone();
         let screen_changed = current.screen != settings.screen;
         let autostart_changed = current.autostart != settings.autostart;
         let hotkey_changed = current.hotkey != settings.hotkey;
@@ -445,6 +481,9 @@ pub fn show_settings_window(app: &AppHandle) {
     let _ = win.unminimize();
     let _ = win.show();
     let _ = win.set_focus();
+    // The page lives on between visits, so tell it to re-read the monitors: one
+    // plugged in since launch would otherwise never appear in the picker.
+    let _ = win.emit("settings-shown", ());
 }
 
 fn snip_page_url(app: &AppHandle) -> WebviewUrl {
@@ -537,6 +576,9 @@ pub fn run() {
         .manage(Snip::default())
         .invoke_handler(tauri::generate_handler![
             boot,
+            list_monitors,
+            check_update,
+            mark_version_seen,
             save_settings,
             set_collapsed,
             set_island_rect,
