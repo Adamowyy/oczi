@@ -62,6 +62,9 @@ MIT, the name, the character and the icon are not (see LICENSE-ASSETS.md).
 - A link in an answer is a link: the chat is plain text, so addresses were just grey
   words you could not click. They are found in the text, underlined in the accent
   colour, and open in your own browser.
+- An answer can carry a little structure: **bold** for key words, `code` for commands
+  and paths, and plain bullet or numbered lists. The model is told to keep it short
+  and to use nothing else — no headings, no tables, the card is too small for them.
 - Iskra stays inside the card while it changes shape. She is drawn outside the
   card's clip on purpose — she overhangs the bar — so while a card grew or shrank
   she hung off its corner; the silhouette holds everything in until it settles.
