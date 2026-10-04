@@ -14,27 +14,56 @@ let nextId = 1;
 /** A conversation left alone for an hour has expired and is dropped on both sides. */
 const SESSION_TTL_MS = 60 * 60 * 1000;
 
-const URL_IN_TEXT = /https?:\/\/[^\s<>()\[\]]+/g;
+/** The little bit of structure the card renders: bold, inline code and lists. */
+const INLINE = /(\*\*[^*]+\*\*|`[^`]+`|https?:\/\/[^\s<>()\[\]]+)/g;
+const BULLET = /^\s*[-*•]\s+(.*)$/;
+const NUMBERED = /^\s*(\d{1,2})[.)]\s+(.*)$/;
+
+function inlineParts(text: string): DocumentFragment {
+  const frag = document.createDocumentFragment();
+  let at = 0;
+  for (const found of text.matchAll(INLINE)) {
+    const raw = found[0];
+    const start = found.index ?? 0;
+    if (start > at) frag.append(document.createTextNode(text.slice(at, start)));
+    if (raw.startsWith("**")) {
+      frag.append(h("b", { text: raw.slice(2, -2) }));
+    } else if (raw.startsWith("`")) {
+      frag.append(h("code", { text: raw.slice(1, -1) }));
+    } else {
+      // Trailing punctuation belongs to the sentence, not to the address.
+      const url = raw.replace(/[.,;:!?)\]]+$/, "");
+      const link = h("a", { class: "reply-link", text: url });
+      link.href = url;
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        void Bridge.openUrl(url);
+      });
+      frag.append(link);
+      if (url.length < raw.length) frag.append(document.createTextNode(raw.slice(url.length)));
+    }
+    at = start + raw.length;
+  }
+  if (at < text.length) frag.append(document.createTextNode(text.slice(at)));
+  return frag;
+}
 
 function replyBody(content: string): HTMLElement {
   const box = h("div", { class: "reply" });
-  let at = 0;
-  for (const found of content.matchAll(URL_IN_TEXT)) {
-    const raw = found[0];
-    // Trailing punctuation belongs to the sentence, not to the address.
-    const url = raw.replace(/[.,;:!?)\]"']+$/, "");
-    const start = found.index ?? 0;
-    if (start > at) box.append(document.createTextNode(content.slice(at, start)));
-    const link = h("a", { class: "reply-link", text: url });
-    link.href = url;
-    link.addEventListener("click", (e) => {
-      e.preventDefault();
-      void Bridge.openUrl(url);
-    });
-    box.append(link);
-    at = start + url.length;
+  for (const line of content.split("\n")) {
+    const bullet = BULLET.exec(line);
+    const numbered = NUMBERED.exec(line);
+    if (bullet || numbered) {
+      const row = h("div", { class: "reply-item" });
+      row.append(h("span", { class: "reply-marker", text: bullet ? "•" : `${numbered![1]}.` }));
+      row.append(inlineParts(bullet ? bullet[1] : numbered![2]));
+      box.append(row);
+    } else if (line.trim()) {
+      const row = h("div", { class: "reply-row" });
+      row.append(inlineParts(line));
+      box.append(row);
+    }
   }
-  if (at < content.length) box.append(document.createTextNode(content.slice(at)));
   return box;
 }
 

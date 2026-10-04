@@ -136,6 +136,38 @@ body {
   cursor: pointer;
 }
 
+/* A little structure in an answer. The card is small, so this stays quiet: a little
+   space between lines, a marker that carries the accent colour, and code set apart. */
+.reply-row + .reply-row,
+.reply-item + .reply-row,
+.reply-row + .reply-item,
+.reply-item + .reply-item {
+  margin-top: 5px;
+}
+
+.reply-item {
+  display: flex;
+  gap: 6px;
+}
+
+.reply-marker {
+  flex: none;
+  color: #7be0ff;
+}
+
+.reply b {
+  color: #f5f6f8;
+  font-weight: 600;
+}
+
+.reply code {
+  font-family: ui-monospace, Consolas, "Courier New", monospace;
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
 /* A link in an answer: it used to be plain grey text, easy to miss and impossible
    to click. */
 .reply-link {
