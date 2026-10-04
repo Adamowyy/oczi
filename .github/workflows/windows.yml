@@ -53,6 +53,13 @@ jobs:
       - name: Check the translations
         run: npm run check:i18n
 
+      # Every unit test in the crate: the island's anchoring arithmetic, the shell
+      # and the tool-call parser. They only run here — on a machine with the GNU
+      # toolchain the test binary refuses to start (STATUS_ENTRYPOINT_NOT_FOUND),
+      # which is why the same tests were checked by hand locally.
+      - name: Run the Rust tests
+        run: cargo test --lib --quiet
+
       # Three files carry the version and they drift silently. Publishing a
       # "0.1.1" that installs a 0.1.0 is the kind of thing nobody notices until
       # a bug report arrives against the wrong build.
