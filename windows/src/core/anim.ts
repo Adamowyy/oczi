@@ -72,6 +72,10 @@ export class Spring {
   }
 
   step(dt: number) {
+    // A spring only integrates forwards: stepped backwards it gains energy instead of
+    // losing it. A non-step is ignored, a long one is cut to a tenth of a second.
+    if (!Number.isFinite(dt) || dt <= 0) return;
+    dt = Math.min(dt, 0.1);
     const steps = Math.max(1, Math.ceil(dt / (1 / 240)));
     const h = dt / steps;
     for (let i = 0; i < steps; i++) {

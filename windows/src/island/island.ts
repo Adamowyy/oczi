@@ -40,6 +40,10 @@ const PRE_PROGRESS = USC.T_PROG_START - USC.T_DROP;
 
 const modeOrder = (m: IslandMode) => (m === "hidden" ? 0 : m === "compact" ? 1 : 2);
 
+/** Whether a value is somewhere the character can be. Anything else is a NaN or a size
+ *  that came out of a bad frame, and there is nothing to animate from. */
+const placed = (v: number, max: number) => Number.isFinite(v) && v >= 0 && v <= max;
+
 export class Island {
   readonly fsm = new IslandStateMachine();
 
@@ -88,6 +92,9 @@ export class Island {
   private lastFrame = 0;
   private dirty = true;
   private canvasPx = 0;
+  /** Smallest dt of this waking: negative proof is what the log is for. */
+  private worstDt = Number.POSITIVE_INFINITY;
+  private staleFrameLogged = false;
 
   // Rust starts the window at full size so the launch greeting has room.
   private collapsed = false;
@@ -872,8 +879,12 @@ export class Island {
     requestAnimationFrame(this.frame);
   }
 
-  private frame = (nowMs: number) => {
-    const dt = Math.min(0.05, (nowMs - this.lastFrame) / 1000);
+  private frame = () => {
+    const nowMs = performance.now();
+    const raw = (nowMs - this.lastFrame) / 1000;
+    if (raw < this.worstDt) this.worstDt = raw;
+    if (raw < 0) this.reportStaleFrame(raw);
+    const dt = clamp(raw, 0, 0.05);
     this.lastFrame = nowMs;
 
     this.width.step(dt, nowMs);
@@ -975,6 +986,8 @@ export class Island {
     if (!awake) this.awake = false;
     else if (!this.awake) {
       this.awake = true;
+      this.worstDt = Number.POSITIVE_INFINITY;
+      this.staleFrameLogged = false;
       this.forgetLaidOutSizes();
       this.reportWake();
     }
@@ -991,11 +1004,18 @@ export class Island {
         return `${id}=${Math.round(r.width)}x${Math.round(r.height)}/${el.width}x${el.height}${off}`;
       };
       const glow = `glow=${this.botGlow.style.display || "-"} ${this.botGlow.style.width || "-"} op=${this.botGlow.style.opacity || "-"}`;
-      return `${tag} mode=${State.mode} view=${State.view} asleep=${document.documentElement.classList.contains("asleep")} upload=${this.uploadActive} ${canvas("bot-canvas")} ${canvas("greeting-canvas")} ${canvas("upload-canvas")} ${glow}`;
+      const dt = this.worstDt === Number.POSITIVE_INFINITY ? "-" : `${this.worstDt.toFixed(3)}s`;
+      return `${tag} mode=${State.mode} view=${State.view} asleep=${document.documentElement.classList.contains("asleep")} upload=${this.uploadActive} dt=${dt} ${canvas("bot-canvas")} ${canvas("greeting-canvas")} ${canvas("upload-canvas")} ${glow}`;
     };
     for (const delay of [120, 600]) {
       window.setTimeout(() => void Bridge.log(shot(`wake@${delay}`)), delay);
     }
+  }
+
+  private reportStaleFrame(raw: number) {
+    if (this.staleFrameLogged) return;
+    this.staleFrameLogged = true;
+    void Bridge.log(`ui  frame dt ${(raw * 1000).toFixed(1)}ms (stale frame clock) clamped to 0`);
   }
 
   private forgetLaidOutSizes() {
@@ -1063,6 +1083,17 @@ export class Island {
 
   private updateBotTargets() {
     const p = botPosition(State.mode, State.view, this.height.value, State.uploadProgress);
+    // A value that is not a size cannot be eased back into one: put her in her place on
+    // this frame instead of flying her in from outside the island.
+    if (
+      !placed(this.botCx.value, PANEL_W) ||
+      !placed(this.botCy.value, PANEL_H) ||
+      !placed(this.botSize.value, PANEL_W)
+    ) {
+      this.botCx.set(p.cx);
+      this.botCy.set(p.cy);
+      this.botSize.set(p.diameter / 0.6);
+    }
     this.botCx.target = p.cx;
     this.botCy.target = p.cy;
     this.botSize.target = p.diameter / 0.6;
@@ -1116,7 +1147,7 @@ export class Island {
 
   private drawBot(dt: number) {
     const size = this.botSize.value;
-    const w = Math.max(1, Math.round(size));
+    const w = clamp(Number.isFinite(size) ? Math.round(size) : 1, 1, PANEL_W);
     const hCss = w + BOT_OVERHANG;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     if (this.canvasPx !== w) {
