@@ -257,6 +257,7 @@ export class Island {
           break;
         case "greeting":
           this.expand("greeting");
+          void Bridge.log("fsm -> greeting");
           this.startGreetingWhenSettled();
           break;
       }
@@ -461,15 +462,24 @@ export class Island {
   private startGreetingWhenSettled() {
     const started = performance.now();
     const tick = window.setInterval(() => {
-      const settled = !this.width.animating && !this.height.animating;
-      if (!settled && performance.now() - started < 900) return;
+      // The greeting view has to be up before the one-run guard latches, not just the shape still.
+      const ready = !this.width.animating && !this.height.animating && this.greetingViewUp();
+      if (!ready && performance.now() - started < 1500) return;
       window.clearInterval(tick);
       // Someone answered already: the greeting is not worth interrupting them for.
-      if (this.fsm.state === "greeting" && !this.greetingStarted) {
+      if (this.greetingViewUp() && !this.greetingStarted) {
         this.greetingStarted = true;
         this.greeting.start();
+        void Bridge.log(`greeting start @${Math.round(performance.now() - started)}ms`);
+      } else {
+        void Bridge.log(`greeting skipped view=${State.view} mode=${State.mode} started=${this.greetingStarted}`);
       }
     }, 30);
+  }
+
+  /** True while the greeting has the island: its canvas is only drawn then. */
+  private greetingViewUp(): boolean {
+    return State.mode === "expanded" && State.view === "greeting";
   }
 
   /** A click elsewhere in Windows. The island takes the hint, but not while a question
@@ -881,7 +891,7 @@ export class Island {
     this.botCy.step(dt);
     this.botSize.step(dt);
 
-    const greetingActive = State.mode === "expanded" && State.view === "greeting";
+    const greetingActive = this.greetingViewUp() && this.greetingStarted;
     if (greetingActive) {
       const gctx = this.greetingCanvas.getContext("2d");
       if (gctx) {
