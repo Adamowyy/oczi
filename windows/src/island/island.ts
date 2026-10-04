@@ -958,7 +958,7 @@ export class Island {
     const shot = (tag: string) => {
       const canvas = (id: string) => {
         const el = document.getElementById(id) as HTMLCanvasElement | null;
-        if (!el) return `${id}=brak`;
+        if (!el) return `${id}=none`;
         const r = el.getBoundingClientRect();
         const off = getComputedStyle(el).display === "none" ? "!" : "";
         return `${id}=${Math.round(r.width)}x${Math.round(r.height)}/${el.width}x${el.height}${off}`;
@@ -1051,6 +1051,10 @@ export class Island {
     this.botCanvas.style.opacity = visible ? String(shown) : "0";
 
     if (State.mode === "expanded" && State.view !== "uploading" && !greetingActive && !this.uploadActive) {
+      if (this.width.animating || this.height.animating) {
+        this.botGlow.style.display = "none";
+        return;
+      }
       const d = p.diameter;
       const color = botGlowColor(State.effectiveState);
       if (this.botGlow.style.display !== "block") this.botGlow.style.display = "block";
