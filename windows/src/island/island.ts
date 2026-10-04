@@ -949,8 +949,26 @@ export class Island {
     else if (!this.awake) {
       this.awake = true;
       this.forgetLaidOutSizes();
+      this.reportWake();
     }
     document.documentElement.classList.toggle("asleep", !awake);
+  }
+
+  private reportWake() {
+    const shot = (tag: string) => {
+      const canvas = (id: string) => {
+        const el = document.getElementById(id) as HTMLCanvasElement | null;
+        if (!el) return `${id}=brak`;
+        const r = el.getBoundingClientRect();
+        const off = getComputedStyle(el).display === "none" ? "!" : "";
+        return `${id}=${Math.round(r.width)}x${Math.round(r.height)}/${el.width}x${el.height}${off}`;
+      };
+      const glow = `glow=${this.botGlow.style.display || "-"} ${this.botGlow.style.width || "-"} op=${this.botGlow.style.opacity || "-"}`;
+      return `${tag} mode=${State.mode} view=${State.view} asleep=${document.documentElement.classList.contains("asleep")} upload=${this.uploadActive} ${canvas("bot-canvas")} ${canvas("greeting-canvas")} ${canvas("upload-canvas")} ${glow}`;
+    };
+    for (const delay of [120, 600]) {
+      window.setTimeout(() => void Bridge.log(shot(`wake@${delay}`)), delay);
+    }
   }
 
   private forgetLaidOutSizes() {
