@@ -52,6 +52,9 @@ export class Island {
   private botGlow!: HTMLElement;
   /** Last glow values written, see updateBotTargets. A blurred rewrite is not free. */
   private awake = true;
+  /** Set when the layout changed: her springs are jumped to the new place instead of
+   *  travelling there, so she is never drawn outside the card on the way. */
+  private parkBot = false;
   private glowColor = "";
   private glowSize = -1;
   private glowPos = { x: -1, y: -1 };
@@ -630,6 +633,7 @@ export class Island {
       this.height.springTo(h);
       this.radius.springTo(r);
     }
+    this.parkBot = true;
     this.ensureRunning();
   }
 
@@ -1039,6 +1043,12 @@ export class Island {
     this.botCx.target = p.cx;
     this.botCy.target = p.cy;
     this.botSize.target = p.diameter / 0.6;
+    if (this.parkBot) {
+      this.parkBot = false;
+      this.botCx.jump(p.cx);
+      this.botCy.jump(p.cy);
+      this.botSize.jump(p.diameter / 0.6);
+    }
 
     const greetingActive = State.mode === "expanded" && State.view === "greeting";
     const grown = clamp(this.height.value / NOTCH_H, 0, 1);
