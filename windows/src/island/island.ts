@@ -52,11 +52,11 @@ export class Island {
   private botGlow!: HTMLElement;
   /** Last glow values written, see updateBotTargets. A blurred rewrite is not free. */
   private awake = true;
-  /** Set when the layout changed: her springs are jumped to the new place instead of
-   *  travelling there, so she is never drawn outside the card on the way. */
-  private parkBot = false;
   /** True while the card is growing or shrinking (see `#island.settling`). */
   private settling = false;
+  /** The greeting is worth exactly one run per waking: the settle it waits for can
+   *  happen twice, and the second call used to start it all over again. */
+  private greetingStarted = false;
   private glowColor = "";
   private glowSize = -1;
   private glowPos = { x: -1, y: -1 };
@@ -123,7 +123,10 @@ export class Island {
     this.wireFsm();
     this.wireInput();
     this.engine.onDizzy = () => this.handleDizzy();
-    this.greeting.onComplete = () => this.fsm.greetComplete();
+    this.greeting.onComplete = () => {
+      this.greetingStarted = false;
+      this.fsm.greetComplete();
+    };
     State.subscribe(() => {
       this.dirty = true;
       this.ensureRunning();
@@ -462,7 +465,10 @@ export class Island {
       if (!settled && performance.now() - started < 900) return;
       window.clearInterval(tick);
       // Someone answered already: the greeting is not worth interrupting them for.
-      if (this.fsm.state === "greeting") this.greeting.start();
+      if (this.fsm.state === "greeting" && !this.greetingStarted) {
+        this.greetingStarted = true;
+        this.greeting.start();
+      }
     }, 30);
   }
 
@@ -635,7 +641,6 @@ export class Island {
       this.height.springTo(h);
       this.radius.springTo(r);
     }
-    this.parkBot = true;
     this.ensureRunning();
   }
 
@@ -1051,12 +1056,6 @@ export class Island {
     this.botCx.target = p.cx;
     this.botCy.target = p.cy;
     this.botSize.target = p.diameter / 0.6;
-    if (this.parkBot) {
-      this.parkBot = false;
-      this.botCx.set(p.cx);
-      this.botCy.set(p.cy);
-      this.botSize.set(p.diameter / 0.6);
-    }
 
     const greetingActive = State.mode === "expanded" && State.view === "greeting";
     const grown = clamp(this.height.value / NOTCH_H, 0, 1);
