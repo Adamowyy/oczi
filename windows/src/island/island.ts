@@ -1045,9 +1045,9 @@ export class Island {
     this.botSize.target = p.diameter / 0.6;
     if (this.parkBot) {
       this.parkBot = false;
-      this.botCx.jump(p.cx);
-      this.botCy.jump(p.cy);
-      this.botSize.jump(p.diameter / 0.6);
+      this.botCx.set(p.cx);
+      this.botCy.set(p.cy);
+      this.botSize.set(p.diameter / 0.6);
     }
 
     const greetingActive = State.mode === "expanded" && State.view === "greeting";
