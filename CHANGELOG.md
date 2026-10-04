@@ -2,6 +2,25 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.1.4 — 2026-10-04
+
+- **Settings → Island lives on** now lists every display, numbered the way Windows
+  numbers it, so the island can be pinned to one specific monitor instead of only
+  the main one or the one under the cursor. The pick is stored under the display's
+  device name, which outlives a restart; a monitor that is unplugged later falls
+  back to the main one, and the picker says so instead of silently moving the
+  island somewhere else. The list is re-read every time the settings window is
+  opened, so a display plugged in after launch still shows up.
+- After an update the island says what changed: a short card with the notable
+  changes for the version that just started, shown once, and only after the
+  greeting has had its turn. A fresh install is not offered one — there is nothing
+  to catch up on.
+- That same card reports a newer release. It costs one anonymous call to the GitHub
+  API per launch, waits at most six seconds for it, and says nothing at all when
+  there is no connection or no release to compare against. It is the only request
+  the app makes on its own, and it does not repeat while Oczi sits in the
+  background.
+
 ## 0.1.3 — 2026-10-04
 
 - Coming back after a long idle no longer shows her as a giant square, or as nothing

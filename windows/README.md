@@ -22,7 +22,7 @@ without leaving what you're doing.
 
 ## Install
 
-Download **`Oczi-Windows-0.1.3-setup.exe`** from
+Download **`Oczi-Windows-0.1.4-setup.exe`** from
 [Releases](https://github.com/Adamowyy/oczi/releases/latest). It installs for the
 current user only — no admin prompt.
 
