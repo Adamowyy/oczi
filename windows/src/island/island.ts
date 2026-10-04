@@ -463,7 +463,7 @@ export class Island {
     const started = performance.now();
     const tick = window.setInterval(() => {
       // The greeting view has to be up before the one-run guard latches, not just the shape still.
-      const ready = !this.width.animating && !this.height.animating && this.greetingViewUp();
+      const ready = this.greetingViewUp() && this.height.value > NOTCH_H * 1.25;
       if (!ready && performance.now() - started < 1500) return;
       window.clearInterval(tick);
       // Someone answered already: the greeting is not worth interrupting them for.
