@@ -75,6 +75,11 @@ MIT, the name, the character and the icon are not (see LICENSE-ASSETS.md).
   frame loop caches are dropped the moment the island goes to sleep, so the first
   frame back re-asserts them instead of painting what the DOM still carried.
 
+- Reading a page no longer takes the app down. Two places cut the page text by
+  byte count instead of by character, so a page with an accent in the wrong spot
+  panicked — and a release build aborts on a panic. A panic now also writes its
+  own line to the log, with the file and line number.
+
 **Removed**
 
 - The macOS/Swift front end and every Linux/macOS build step: the repo is

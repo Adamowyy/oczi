@@ -24,5 +24,8 @@ pub fn line(message: impl AsRef<str>) {
     }
     if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(file, "{stamp} {}", message.as_ref());
+        // Flushed now rather than left to the drop: a panic aborts the process, and
+        // the line just written is the one that explains why it did.
+        let _ = file.flush();
     }
 }

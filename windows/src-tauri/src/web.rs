@@ -465,7 +465,14 @@ fn html_unescape(text: &str) -> String {
     while let Some(pos) = rest.find('&') {
         out.push_str(&rest[..pos]);
         let tail = &rest[pos..];
-        let end = tail[..tail.len().min(12)].find(';');
+        // The window is counted in bytes, so it has to be walked back to a character
+        // boundary: what follows a `&` is not always ASCII, and a slice that splits a
+        // character panics, which in a release build takes the whole app with it.
+        let mut window = tail.len().min(12);
+        while window > 0 && !tail.is_char_boundary(window) {
+            window -= 1;
+        }
+        let end = tail[..window].find(';');
         let entity = end.map(|e| &tail[1..e]);
         let decoded = entity.and_then(|name| match name {
             "amp" => Some('&'),
@@ -507,6 +514,16 @@ fn html_unescape(text: &str) -> String {
     out
 }
 
+/// One hex digit, straight off a byte, no string slicing involved.
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 fn percent_decode(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -514,12 +531,14 @@ fn percent_decode(value: &str) -> String {
     while i < bytes.len() {
         match bytes[i] {
             b'%' if i + 2 < bytes.len() => {
-                match u8::from_str_radix(&value[i + 1..i + 3], 16) {
-                    Ok(byte) => {
-                        out.push(byte);
+                // Read the two digits as bytes. Slicing the string here panicked the
+                // moment an escape sat next to a multi-byte character.
+                match (hex_nibble(bytes[i + 1]), hex_nibble(bytes[i + 2])) {
+                    (Some(hi), Some(lo)) => {
+                        out.push(hi * 16 + lo);
                         i += 3;
                     }
-                    Err(_) => {
+                    _ => {
                         out.push(bytes[i]);
                         i += 1;
                     }
@@ -607,6 +626,17 @@ mod tests {
     #[test]
     fn numeric_entities_decode() {
         assert_eq!(html_unescape("caf&#233; &#x27;x&#x27;"), "café 'x'");
+    }
+
+    /// Both of these panicked before: a byte-counted slice landing inside a
+    /// multi-byte character. In release that is `panic = abort`, so a search result
+    /// with the wrong accent in the wrong place closed the app.
+    #[test]
+    fn entities_and_escapes_survive_multibyte_neighbours() {
+        let text = format!("&{}é", "a".repeat(10)); // byte 12 is inside the é
+        assert_eq!(html_unescape(&text), text);
+        assert_eq!(percent_decode("%aé"), "%aé");
+        assert_eq!(percent_decode("caf%C3%A9%21"), "café!");
     }
 
     #[test]

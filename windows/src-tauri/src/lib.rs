@@ -497,6 +497,17 @@ fn open_settings_window(app: AppHandle) {
 }
 
 pub fn run() {
+    // A panic in the release build aborts the process, so this hook is the only
+    // chance to leave a trace of it. Without it a crash was a log that simply
+    // stopped, and the reason had to be guessed at.
+    std::panic::set_hook(Box::new(|info| {
+        let at = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "unknown".to_string());
+        log::line(format!("PANIC at {at}: {info}"));
+    }));
+
     let loaded = settings::load();
     let gate = Arc::new(PollGate::new());
 
