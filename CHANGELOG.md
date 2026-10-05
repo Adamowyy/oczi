@@ -2,6 +2,11 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.1.6 — 2026-10-06
+
+- The card that appears after an update carries the notes for this build. 0.1.5
+  shipped without them, so updating to it passed in silence; nothing else changed.
+
 ## 0.1.5 — 2026-10-06
 
 - Answers read as prose again. A bullet's text was laid out inside a row of columns:
@@ -17,8 +22,6 @@ All notable changes to **Oczi** are recorded here.
 - The model finally sees its own replies. They were missing from the conversation,
   so it read a stack of its own unanswered questions and answered several at once,
   repeated what it had already said, or took an older question for the current one.
-- A request that is genuinely ambiguous gets one short question back instead of a
-  guess: "play a scene" asks which scene rather than inventing a script.
 
 ## 0.1.4 — 2026-10-04
 

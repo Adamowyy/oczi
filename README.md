@@ -32,7 +32,7 @@ Drop a file, chat through the DeepSeek API, snap a region screenshot — all wit
 
 ## Install
 
-Download **`Oczi-Windows-0.1.5-setup.exe`** from
+Download **`Oczi-Windows-0.1.6-setup.exe`** from
 [Releases](https://github.com/Adamowyy/oczi/releases/latest) and run it. Windows
 10 or 11; WebView2 is already there on a normal install — the installer offers it
 if it is missing.

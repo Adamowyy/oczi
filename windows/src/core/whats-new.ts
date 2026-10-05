@@ -4,6 +4,7 @@ import type { TextKey } from "./i18n";
 
 const NEWS: Record<string, TextKey> = {
   "0.1.4": "news.0.1.4",
+  "0.1.6": "news.0.1.6",
 };
 
 /** The card's body for a version, or null when there is nothing to say. */

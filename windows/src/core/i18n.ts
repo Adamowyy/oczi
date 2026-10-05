@@ -130,6 +130,7 @@ const EN = {
   "news.updateLine": "Version {} is out — download it from {}",
   "news.dismiss": "Got it",
   "news.0.1.4": "- **Settings → Island lives on** now lists every display the way Windows numbers it, so the island can be pinned to one monitor instead of only the main one or the one under the cursor.\n- A short card like this one appears after an update, and once a launch it also says whether a newer release is waiting on GitHub.",
+  "news.0.1.6": "- Answers read as prose again: a list item's text no longer breaks into columns, tables and headings are folded into plain lines, and replies are shorter.\n- The model now sees its own replies, so it stops repeating itself and stops answering two questions at once.",
 } as const;
 
 export type TextKey = keyof typeof EN;
@@ -252,6 +253,7 @@ const PL: Record<TextKey, string> = {
   "news.updateLine": "Wersja {} już jest — pobierz ją z {}",
   "news.dismiss": "Wiem, dzięki",
   "news.0.1.4": "- **Ustawienia → Wyspa mieszka na** pokazują teraz każdy monitor tak, jak numeruje go Windows — wyspę można przypiąć na stałe do jednego ekranu, a nie tylko do głównego albo tego pod kursorem.\n- Po aktualizacji pojawia się taka krótka karta, a raz na uruchomienie mówi też, czy na GitHubie czeka nowsze wydanie.",
+  "news.0.1.6": "- Odpowiedzi znów czyta się jak prozę: tekst punktu nie łamie się na kolumny, tabele i nagłówki zamieniają się w zwykłe linie, a odpowiedzi są krótsze.\n- Model widzi teraz własne odpowiedzi, więc nie powtarza się i nie odpowiada na dwa pytania naraz.",
 };
 
 const TABLES: Record<Lang, Record<TextKey, string>> = { en: EN, pl: PL };
