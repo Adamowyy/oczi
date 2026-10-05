@@ -2,6 +2,24 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.1.5 — 2026-10-06
+
+- Answers read as prose again. A bullet's text was laid out inside a row of columns:
+  every bold word, every fragment of a sentence became its own column, so one line
+  came out scattered across the card, with words flung to the edge and sentences cut
+  in half. The text of a list item is one block now, long paths wrap inside the card
+  instead of widening it, and rows sit a little closer.
+- Markdown the model sends anyway is folded into the few shapes the card shows well:
+  a table becomes one line per row, a heading a bold line, a fenced block a small
+  monospace panel, and rules and quotes are dropped.
+- Answers are shorter: two to four lines, with more only when the question asks for
+  steps or detail, and no preamble, repetition or closing offer of help.
+- The model finally sees its own replies. They were missing from the conversation,
+  so it read a stack of its own unanswered questions and answered several at once,
+  repeated what it had already said, or took an older question for the current one.
+- A request that is genuinely ambiguous gets one short question back instead of a
+  guess: "play a scene" asks which scene rather than inventing a script.
+
 ## 0.1.4 — 2026-10-04
 
 - **Settings → Island lives on** now lists every display, numbered the way Windows

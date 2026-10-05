@@ -3,7 +3,7 @@ members = ["src-tauri"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 
 # Release profile: small and fast startup, since the island appears at logon.
