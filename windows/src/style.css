@@ -137,17 +137,20 @@ body {
 }
 
 /* A little structure in an answer. The card is small, so this stays quiet: a little
-   space between lines, a marker that carries the accent colour, and code set apart. */
-.reply-row + .reply-row,
-.reply-item + .reply-row,
-.reply-row + .reply-item,
-.reply-item + .reply-item {
-  margin-top: 5px;
-}
+   space between lines, a marker that carries the accent colour, and code set apart.
+   Rows are spaced by the column gap on .reply, so no sibling margins here. */
 
 .reply-item {
   display: flex;
   gap: 6px;
+}
+
+/* The text of a bullet or numbered line, and it has to stay ONE box. Left as loose
+   nodes in the flex row, every bold or code run became its own flex item and the
+   sentence was laid out as columns — the scattered, half-unreadable answers. */
+.reply-text {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .reply-marker {
@@ -155,9 +158,23 @@ body {
   color: #7be0ff;
 }
 
-.reply b {
+.reply b,
+.reply-head {
   color: #f5f6f8;
   font-weight: 600;
+}
+
+/* A fenced block the model sent anyway: one quiet monospace panel, scrolled on its
+   own so a long line never widens the card. */
+.reply-code {
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #cfe9ff;
+  font: 400 11.5px ui-monospace, Consolas, "Courier New", monospace;
+  white-space: pre;
+  overflow-x: auto;
 }
 
 .reply code {
@@ -167,6 +184,7 @@ body {
   color: #cfe9ff;
   background: none;
   padding: 0;
+  overflow-wrap: anywhere;
 }
 
 /* A link in an answer: it used to be plain grey text, easy to miss and impossible
@@ -973,6 +991,13 @@ input[type="range"]::-webkit-slider-thumb {
   white-space: pre-wrap;
   padding-right: 8px;
   user-select: text;
+  /* Rows are stacked here rather than spaced with sibling margins, so an empty line
+     the model left in its answer cannot add space the card does not have. */
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  /* A long path or URL wraps instead of pushing the answer out of the card. */
+  overflow-wrap: anywhere;
 }
 
 .typing {

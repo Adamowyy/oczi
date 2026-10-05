@@ -16,8 +16,17 @@ const SESSION_TTL_MS = 60 * 60 * 1000;
 
 /** The little bit of structure the card renders: bold, inline code and lists. */
 const INLINE = /(\*\*[^*]+\*\*|`[^`]+`|https?:\/\/[^\s<>()\[\]]+)/g;
-const BULLET = /^\s*[-*•]\s+(.*)$/;
+const BULLET = /^\s*[-*•+]\s+(.*)$/;
 const NUMBERED = /^\s*(\d{1,2})[.)]\s+(.*)$/;
+/** Things the model still sends despite the system prompt. The card has no room for
+ *  them, so they are folded into the few shapes it can show well. */
+const HEADING = /^\s{0,3}#{1,6}\s+(.*)$/;
+const RULE = /^\s{0,3}(?:[-*_]\s*){3,}$/;
+const QUOTE = /^\s{0,3}>\s?(.*)$/;
+const FENCE = /^\s{0,3}```/;
+/** A markdown table row: `| a | b |`, with the leading and trailing pipe optional. */
+const TABLE_ROW = /^\s*\|.*\|\s*$/;
+const TABLE_SEP = /^\s*\|?[\s:|-]+\|[\s:|-]*$/;
 
 function inlineParts(text: string): DocumentFragment {
   const frag = document.createDocumentFragment();
@@ -50,13 +59,76 @@ function inlineParts(text: string): DocumentFragment {
 
 function replyBody(content: string): HTMLElement {
   const box = h("div", { class: "reply" });
-  for (const line of content.split("\n")) {
+  const lines = content.split("\n");
+  let i = 0;
+
+  while (i < lines.length) {
+    const raw = lines[i];
+    let line = raw;
+
+    // ``` … ```, the model sends fenced blocks even though it was told not to.
+    // They become one monospace block instead of a wall of stray backticks.
+    if (FENCE.test(line)) {
+      const body: string[] = [];
+      i++;
+      while (i < lines.length && !FENCE.test(lines[i])) body.push(lines[i++]);
+      i++; // the closing fence
+      const pre = h("pre", { class: "reply-code" });
+      pre.append(document.createTextNode(body.join("\n").replace(/^\n+|\n+$/g, "")));
+      box.append(pre);
+      continue;
+    }
+
+    // A run of table rows: the card cannot show columns, so every row becomes one
+    // line of `cell, cell`. The `|---|` separator row carries no meaning.
+    if (TABLE_ROW.test(line) && !TABLE_SEP.test(line)) {
+      const rows: string[] = [];
+      while (i < lines.length && TABLE_ROW.test(lines[i])) {
+        const raw = lines[i++];
+        if (TABLE_SEP.test(raw)) continue;
+        rows.push(
+          raw
+            .replace(/^\s*\|/, "")
+            .replace(/\|\s*$/, "")
+            .split("|")
+            .map((cell) => cell.trim())
+            .filter((cell) => cell && !/^-+$/.test(cell))
+            .join(" — "),
+        );
+      }
+      for (const row of rows) {
+        if (!row) continue;
+        const el = h("div", { class: "reply-row" });
+        el.append(inlineParts(row));
+        box.append(el);
+      }
+      continue;
+    }
+
+    i++;
+
+    // A horizontal rule is decoration the card has no room for.
+    if (RULE.test(line)) continue;
+    // A block quote is just emphasis, dropped with its marker.
+    const quote = QUOTE.exec(line);
+    if (quote) line = quote[1];
+    // A heading loses its hashes and reads as a bold line.
+    const heading = HEADING.exec(line);
+    if (heading) {
+      const row = h("div", { class: "reply-row reply-head" });
+      row.append(inlineParts(heading[1]));
+      box.append(row);
+      continue;
+    }
+
     const bullet = BULLET.exec(line);
     const numbered = NUMBERED.exec(line);
     if (bullet || numbered) {
       const row = h("div", { class: "reply-item" });
       row.append(h("span", { class: "reply-marker", text: bullet ? "•" : `${numbered![1]}.` }));
-      row.append(inlineParts(bullet ? bullet[1] : numbered![2]));
+      const text = h("span", { class: "reply-text" });
+      text.append(inlineParts(bullet ? bullet[1] : numbered![2]));
+      row.append(text);
       box.append(row);
     } else if (line.trim()) {
       const row = h("div", { class: "reply-row" });
