@@ -374,6 +374,24 @@ function loadColor(percent: number): string {
 
 const gb = (bytes: unknown) => `${(Number(bytes ?? 0) / 1024 ** 3).toFixed(1)} GB`;
 
+/** The heaviest processes: name on the left, footprint on the right. A long name
+ *  is cut rather than wrapped, because three rows is the whole budget. */
+function procList(procs: Record<string, unknown>[]): HTMLElement {
+  const list = h("div", { class: "int-procs" }, h("span", { class: "int-procs-title", text: t("int.pcTop") }));
+  for (const p of procs) {
+    const name = String(p.name ?? "");
+    list.append(
+      h(
+        "div",
+        { class: "int-proc" },
+        h("b", { text: name.length > 18 ? `${name.slice(0, 17)}…` : name }),
+        h("span", { text: gb(p.bytes) }),
+      ),
+    );
+  }
+  return list;
+}
+
 /** One reading: what it is, how full, and the number itself. The bar carries the
  *  percentage so the value can carry the absolute figure. */
 function gaugeRow(icon: string, label: string, percent: number, value: string): HTMLElement {
@@ -424,6 +442,8 @@ function pcCard(): HTMLElement {
       ),
     );
   }
+  const procs = Array.isArray(d.procs) ? (d.procs as Record<string, unknown>[]) : [];
+  if (procs.length > 0) rows.append(procList(procs));
   return h("div", { class: "int-card" }, header("#4CC2FF", "PC", kind), rows);
 }
 

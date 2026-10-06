@@ -2,17 +2,22 @@
 // request, nothing leaves the computer: the one integration that works out of
 // the box. Numbers only, so the card can show them without anything to load.
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use serde_json::{json, Value};
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::FILETIME;
+use windows::Win32::Foundation::{CloseHandle, FILETIME};
 use windows::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives};
+use windows::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+};
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+use windows::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
 use windows::Win32::System::SystemInformation::{
     GetSystemInfo, GetTickCount64, GlobalMemoryStatusEx, MEMORYSTATUSEX, SYSTEM_INFO,
 };
-use windows::Win32::System::Threading::GetSystemTimes;
+use windows::Win32::System::Threading::{GetSystemTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
 /// `GetDriveTypeW` answers this for a fixed (internal) disk. Win32 only names it
 /// in the C headers, so the number is spelled out here.
@@ -111,6 +116,62 @@ fn battery() -> (Option<u8>, Option<bool>) {
     (percent, plugged)
 }
 
+fn top_processes() -> Vec<Value> {
+    let snapshot = match unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) } {
+        Ok(handle) => handle,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+    let mut totals: HashMap<String, u64> = HashMap::new();
+
+    if unsafe { Process32FirstW(snapshot, &mut entry) }.is_ok() {
+        loop {
+            let end = entry
+                .szExeFile
+                .iter()
+                .position(|c| *c == 0)
+                .unwrap_or(entry.szExeFile.len());
+            let name = String::from_utf16_lossy(&entry.szExeFile[..end]);
+            if !name.is_empty() {
+                if let Ok(process) =
+                    unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, entry.th32ProcessID) }
+                {
+                    let mut counters = PROCESS_MEMORY_COUNTERS {
+                        cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+                        ..Default::default()
+                    };
+                    if unsafe { K32GetProcessMemoryInfo(process, &mut counters, counters.cb) }.as_bool() {
+                        *totals.entry(name).or_insert(0) += counters.WorkingSetSize as u64;
+                    }
+                    let _ = unsafe { CloseHandle(process) };
+                }
+            }
+            if unsafe { Process32NextW(snapshot, &mut entry) }.is_err() {
+                break;
+            }
+        }
+    }
+    let _ = unsafe { CloseHandle(snapshot) };
+
+    let mut rows: Vec<(String, u64)> = totals.into_iter().filter(|(_, bytes)| *bytes > 0).collect();
+    // Sorting by name too keeps the order steady when two processes sit on the same
+    // figure, which a redraw every five seconds would otherwise shuffle.
+    rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    rows.truncate(3);
+    rows.into_iter()
+        .map(|(name, bytes)| {
+            json!({
+                "name": name.trim_end_matches(".exe"),
+                "bytes": bytes,
+            })
+        })
+        .collect()
+}
+
 /// One sample of the machine, as the card's data blob.
 pub fn sample() -> Value {
     let mut info = SYSTEM_INFO::default();
@@ -130,6 +191,7 @@ pub fn sample() -> Value {
             0.0
         },
         "disks": disks(),
+        "procs": top_processes(),
         "battery": battery_percent,
         "plugged": plugged,
         "uptimeSecs": unsafe { GetTickCount64() } / 1000,
