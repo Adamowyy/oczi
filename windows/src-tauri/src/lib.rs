@@ -208,6 +208,22 @@ fn set_island_anchor(app: AppHandle, shared: State<Shared>, anchor: f64, persist
 }
 
 #[tauri::command]
+fn set_intervals(shared: State<Shared>, auto_close: Option<f64>, notch_hide: Option<f64>) {
+    let mut settings = shared.settings.lock().unwrap();
+    if let Some(seconds) = auto_close {
+        settings.auto_close_interval = seconds;
+    }
+    if let Some(seconds) = notch_hide {
+        settings.notch_hide_interval = seconds;
+    }
+    let snapshot = settings.clone();
+    drop(settings);
+    if let Err(err) = settings::save(&snapshot) {
+        log::line(format!("could not save the island intervals: {err}"));
+    }
+}
+
+#[tauri::command]
 fn open_url(url: String) {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return;
@@ -599,6 +615,7 @@ pub fn run() {
             check_update,
             mark_version_seen,
             save_settings,
+            set_intervals,
             set_collapsed,
             set_island_rect,
             set_accept_drops,

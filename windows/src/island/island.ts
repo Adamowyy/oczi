@@ -176,13 +176,13 @@ export class Island {
       setAutoClose: (s) => {
         State.settings.autoCloseInterval = s;
         this.fsm.homeToPetitDelay = s;
-        void Bridge.saveSettings(State.settings);
+        void Bridge.setIntervals({ autoClose: s });
         State.notify();
       },
       setNotchHide: (s) => {
         State.settings.notchHideInterval = s;
         this.fsm.petitToHiddenDelay = s;
-        void Bridge.saveSettings(State.settings);
+        void Bridge.setIntervals({ notchHide: s });
         State.notify();
       },
       openSettingsWindow: () => void Bridge.openSettingsWindow(),

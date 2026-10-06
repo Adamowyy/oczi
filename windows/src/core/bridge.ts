@@ -61,6 +61,11 @@ export const Bridge = {
 
   saveSettings: (settings: Settings) => call<void>("save_settings", { settings }),
 
+  /** The island's own two countdowns: it sends only these, never a whole settings
+   *  object, so a stale page cannot write its defaults over the file. */
+  setIntervals: (intervals: { autoClose?: number; notchHide?: number }) =>
+    call<void>("set_intervals", { autoClose: intervals.autoClose, notchHide: intervals.notchHide }),
+
   /** Shrink the window down to the invisible wake strip (hidden) or back to full. */
   setCollapsed: (collapsed: boolean) => call<void>("set_collapsed", { collapsed }),
 
