@@ -1739,6 +1739,18 @@ html.asleep *::after {
   padding-top: 4px;
 }
 
+/* A card that is a title over one big figure: both are centred, because aligning
+   them against the bot's gutter leaves the right half of the card empty. The list
+   under them keeps its full width — a table centred is unreadable. */
+.int-card.centered > .int-head,
+.int-card.centered > .int-balance {
+  justify-content: center;
+}
+
+.int-card.centered > .int-head {
+  padding-right: 0;
+}
+
 .int-balance span {
   font: 700 20px var(--mono);
   color: var(--ink);

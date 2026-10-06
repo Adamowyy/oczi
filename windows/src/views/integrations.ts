@@ -247,7 +247,7 @@ function stripeCard(): HTMLElement {
   }
   return h(
     "div",
-    { class: "int-card" },
+    { class: "int-card centered" },
     header("#0570DE", "Stripe", t("int.payments")),
     h("div", { class: "int-balance" }, h("span", { text: balance }), h("i", { text: currency })),
     rows,
