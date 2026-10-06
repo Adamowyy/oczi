@@ -114,9 +114,9 @@ export const DEFAULT_SETTINGS: Settings = {
   notchHideInterval: 60,
   islandAnchor: 0.5,
   absenceInterval: 180,
-  // Off on a fresh install: nothing polls, no key is needed and nothing is
-  // pre-picked for the user. Services are opted into in Settings.
-  activeIntegrations: [],
+  // On a fresh install only the two that need no key: PC and Music. Every service
+  // that asks for a key is opted into in Settings.
+  activeIntegrations: ["integration_pc", "integration_music"],
   screen: "primary",
   autostart: false,
   model: "deepseek-flash",

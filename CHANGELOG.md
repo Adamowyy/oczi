@@ -10,6 +10,8 @@ All notable changes to **Oczi** are recorded here.
   everywhere on the desktop.
 - New pill **PC**: processor, memory, disk space and battery, read on your own
   machine. No key, no account, and it says nothing about a battery if you have none.
+  Under the bars it lists the three processes holding the most memory, added up per
+  executable name so a browser with a dozen helpers reads as one row.
 - New pill **Music**: whatever Windows says is playing, so Spotify, a browser tab
   and VLC all work. No login, no key. Track, artist, a progress bar, play/pause and
   skipping.
@@ -17,7 +19,8 @@ All notable changes to **Oczi** are recorded here.
   player and the chat field waits underneath.
 - Clicking the island opens the home screen. The summon shortcut still opens the
   chat, with the cursor in the field.
-- A fresh install has no service switched on, and nothing is polled until one is.
+- A fresh install starts with **PC** and **Music** switched on, the two that need no
+  key and no account. Every service that asks for one stays off until it is picked.
 - The compact bar shows every service that is switched on.
 - A card no longer counts down to close while the cursor is on the island.
 - "New chat" is a labelled button, instead of a plus that looked like adding a file.

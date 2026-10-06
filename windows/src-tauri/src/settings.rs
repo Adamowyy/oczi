@@ -103,9 +103,10 @@ impl Default for Settings {
             notch_hide_interval: default_notch_hide(),
             island_anchor: default_anchor(),
             absence_interval: 180.0,
-            // Nothing is on out of the box: no service polls, no key is asked for,
-            // and the first run shows no pills at all.
-            active_integrations: Vec::new(),
+            // The two that need no key and no account are on for a first run: a
+            // machine's own numbers and whatever is playing are worth seeing
+            // without a visit to Settings. Anything that asks for a key stays off.
+            active_integrations: vec!["integration_pc".into(), "integration_music".into()],
             screen: "primary".into(),
             autostart: false,
             model: default_model(),
