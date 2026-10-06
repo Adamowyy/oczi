@@ -1311,9 +1311,12 @@ html.asleep *::after {
 }
 
 .int-card {
-  padding: 10px 12px 0 108px;
+  /* Centred in the card rather than pinned to its top: the card is taller than a
+     handful of rows, and the leftover space belongs below as much as above. */
+  padding: 10px 12px 10px 108px;
   display: flex;
   flex-direction: column;
+  justify-content: center;
 }
 
 .int-head {
