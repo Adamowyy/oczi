@@ -74,6 +74,35 @@ section > h2 {
   color: var(--dim);
 }
 
+/* The recorder's own refusal: it has to be read, not skimmed past. */
+.hint.strongly {
+  color: #fbc06a;
+  min-height: 15px;
+}
+
+/* A chord field: reads as an input, records like a key catcher. */
+.hotkey-field {
+  font: 500 12px var(--mono);
+  min-width: 150px;
+  padding: 7px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ink);
+  text-align: center;
+}
+
+.hotkey-field:hover:not(.recording) {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.hotkey-field.recording {
+  border-color: var(--amber);
+  background: rgba(245, 165, 36, 0.13);
+  color: #fbc06a;
+  font-family: var(--font);
+}
+
 .row {
   display: flex;
   align-items: center;

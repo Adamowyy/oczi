@@ -98,36 +98,36 @@ export function buildHeader(actions: ViewActions): ViewHost {
 
 // ── Home ──────────────────────────────────────────────────────────────────────
 
-/** The island's home screen: Iskra, the integration pills above the bar, and the bar
- *  as a doorway into the chat. One text input in the app, not two fighting over focus. */
-function buildHome(actions: ViewActions): ViewHost {
-  const pills = h("div", { class: "pills" });
+/** Wipes the conversation on both sides of the IPC, so the model forgets it too. */
+function clearSession(actions: ViewActions) {
+  State.chatHistory = [];
+  State.snip = null;
+  State.droppedFile = null;
+  State.chatLastActivity = Date.now();
+  void Bridge.chatReset();
+  actions.blip();
+  State.notify();
+}
+
+function buildChatBar(actions: ViewActions): { el: HTMLElement; sync(): void } {
   // The eye is the one thing here that must not open the chat: it works on the
   // screen, not in the conversation.
-  const eye = h(
-    "button",
-    { class: "snip-btn", title: t("chat.snipTip") },
-    svg(ICONS.eye, 13),
-  );
+  const eye = h("button", { class: "snip-btn", title: t("chat.snipTip") }, svg(ICONS.eye, 13));
   eye.addEventListener("mousedown", (e) => {
     e.stopPropagation();
     actions.snip();
   });
   const fresh = h(
     "button",
-    { class: "snip-btn", title: t("chat.newTip") },
-    svg(ICONS.plus, 12),
+    { class: "new-chat-btn", title: t("chat.newTip") },
+    svg(ICONS.plus, 11),
+    h("span", { text: t("chat.new") }),
   );
   fresh.addEventListener("mousedown", (e) => {
     e.stopPropagation();
-    State.chatHistory = [];
-    State.snip = null;
-    State.droppedFile = null;
-    State.chatLastActivity = Date.now();
-    void Bridge.chatReset();
-    actions.blip();
-    State.notify();
+    clearSession(actions);
   });
+
   const bar = h(
     "div",
     { class: "chat-bar home-bar", title: t("chat.openBar") },
@@ -141,11 +141,25 @@ function buildHome(actions: ViewActions): ViewHost {
     actions.setView("prompt");
   });
 
-  const shortcuts = h(
-    "div",
-    { class: "home-shortcuts" },
-    h("span", { text: t("chat.snipHint") }),
-  );
+  return {
+    el: bar,
+    sync() {
+      // The new-chat button only means anything once there is a conversation to
+      // clear, and it takes its space with it, so the bar stays centred.
+      const hasSession =
+        State.chatHistory.length > 0 || State.snip != null || State.droppedFile != null;
+      fresh.style.display = hasSession ? "" : "none";
+    },
+  };
+}
+
+/** The island's home screen: Iskra, the integration pills above the bar, and the bar
+ *  as a doorway into the chat. One text input in the app, not two fighting over focus. */
+function buildHome(actions: ViewActions): ViewHost {
+  const pills = h("div", { class: "pills" });
+  const chatBar = buildChatBar(actions);
+
+  const shortcuts = h("div", { class: "home-shortcuts" }, h("span", {}));
 
   const el = h(
     "div",
@@ -154,7 +168,7 @@ function buildHome(actions: ViewActions): ViewHost {
       h("div", { class: "home-body" },
         // Empty on purpose: Iskra is drawn here by the canvas, not by the DOM.
         h("div", { class: "home-left" }),
-        h("div", { class: "home-right" }, pills, shortcuts, bar),
+        h("div", { class: "home-right" }, pills, shortcuts, chatBar.el),
       ),
     ),
   );
@@ -164,11 +178,11 @@ function buildHome(actions: ViewActions): ViewHost {
   return {
     el,
     sync() {
-      // The plus only means anything once there is a conversation to clear.
-      const hasSession =
-        State.chatHistory.length > 0 || State.snip != null || State.droppedFile != null;
-      fresh.style.opacity = hasSession ? "1" : "0";
-      fresh.style.pointerEvents = hasSession ? "auto" : "none";
+      chatBar.sync();
+
+      // The chord is a setting now, so it is read every frame, not once at build.
+      const hint = t("chat.snipHint", State.settings.snipHotkey);
+      if (shortcuts.textContent !== hint) shortcuts.textContent = hint;
 
       const key = State.tasks.map((t) => `${t.id}:${t.pillBadge ?? ""}`).join("|");
       if (key !== pillKey) {
@@ -192,11 +206,14 @@ function buildOverview(actions: ViewActions): ViewHost {
   );
   const left = card(null, leftBody, jump);
   const pills = h("div", { class: "pills" });
-  const right = card(null, pills);
+  const chatBar = buildChatBar(actions);
+  const right = card(null, pills, chatBar.el);
 
   const el = h("div", { class: "view overview" },
     h("div", { class: "left" }, left),
-    h("div", { class: "right" }, right),
+    // `with-bar` sits on the column, not on the card: the pills grid has to give up
+    // its full height for the field to fit inside the card.
+    h("div", { class: "right with-bar" }, right),
   );
 
   let pillIds = "";
@@ -245,7 +262,12 @@ function buildOverview(actions: ViewActions): ViewHost {
         }
       }
 
-      jump.style.display = detailOpen ? "none" : "";
+      // The ↗ button opens whatever the card points at; the player and the machine
+      // have nothing to open, so it stays out of their way.
+      const opensSomething = task != null && !["integration_music", "integration_pc"].includes(task.id);
+      jump.style.display = detailOpen || !opensSomething ? "none" : "";
+
+      chatBar.sync();
 
       const others = State.otherTasks.slice(0, 4);
       const pillKey = others.map((t) => `${t.id}:${t.pillBadge ?? ""}`).join("|");

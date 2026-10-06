@@ -503,6 +503,22 @@ body {
   flex: 1 1 auto;
 }
 
+/* The right column while it carries the chat field: the pills above, the field
+   below. The gap has to sit on the CARD — the column holds one child (the card),
+   so spacing there did nothing and the pills' grid ran straight into the field. */
+.overview > .right.with-bar .card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 10px 12px;
+}
+
+.overview > .right.with-bar .pills {
+  height: auto;
+  flex: 0 0 auto;
+}
+
 .card-body {
   position: relative;
   z-index: 1;
@@ -1102,6 +1118,40 @@ html.asleep *::after {
   transform: scale(0.9);
 }
 
+/* New chat — a labelled little button, not a bare plus: the plus alone read as
+   "add a file", which is what the third tab does. Greyish and raised, the way a
+   secondary button reads everywhere else. */
+.new-chat-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ink-2);
+  font: 500 11.5px var(--font);
+  white-space: nowrap;
+  cursor: default;
+  transition: background 0.12s ease-out, color 0.12s ease-out, transform 0.08s ease-out;
+}
+
+.new-chat-btn svg {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
+.new-chat-btn:hover {
+  background: rgba(255, 255, 255, 0.17);
+  color: var(--ink);
+}
+
+.new-chat-btn:active {
+  transform: scale(0.96);
+}
+
 /* ── Drop zone ──────────────────────────────────────────────────────────── */
 
 .drop-card {
@@ -1431,6 +1481,193 @@ html.asleep *::after {
   font: 600 12px var(--font);
   color: #c5c8cd;
   font-variant-numeric: tabular-nums;
+}
+
+/* This PC: the bar carries the percentage, the value the absolute figure. Labels
+   are a fixed width so the three bars start on the same line. */
+.int-gauge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.int-gauge .int-stat-label {
+  flex: 0 0 52px;
+  white-space: nowrap;
+}
+
+.int-gauge-track {
+  flex: 1 1 auto;
+  min-width: 24px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+
+.int-gauge-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease-out, background 0.3s ease-out;
+}
+
+.int-gauge .int-stat-value {
+  flex: 0 0 auto;
+  min-width: 68px;
+  text-align: right;
+}
+
+/* ── Now playing ─────────────────────────────────────────────────────────────
+   The music card. On the home screen it takes the pills' slot while something is
+   playing, so it is laid out to fill that width. */
+
+.music-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(244, 114, 182, 0.16);
+}
+
+.home .pills.player {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.music-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.music-head b {
+  font: 600 12px var(--font);
+  color: var(--ink);
+  flex: 0 0 auto;
+}
+
+.music-head > span {
+  font: 400 11px var(--font);
+  color: var(--dim-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.music-time {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font: 400 10.5px var(--font);
+  color: var(--dim-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One fact per line: the track gets the whole width, and what is left — the app
+   and the artist — shares the quieter line under it. The track may take two
+   lines: a real title does not fit one at this width, and wrapping beats a
+   truncated mystery. */
+.music-title {
+  font: 600 12.5px/1.25 var(--font);
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.music-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font: 400 11px var(--font);
+  color: var(--dim-2);
+}
+
+.music-meta > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.music-app {
+  flex: 0 1 auto;
+}
+
+.music-sep {
+  flex: 0 0 auto;
+  color: var(--dim-4);
+}
+
+.music-artist {
+  flex: 1 1 auto;
+}
+
+.music-track {
+  height: 5px;
+  margin: 1px 0;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.music-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  background: #f472b6;
+  transition: width 0.25s linear;
+}
+
+.music-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.music-btn {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ink-2);
+  display: grid;
+  place-items: center;
+  cursor: default;
+  transition: background 0.12s ease-out, color 0.12s ease-out, transform 0.08s ease-out;
+}
+
+.music-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--ink);
+}
+
+.music-btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.music-btn.primary {
+  background: #f472b6;
+  border-color: #f472b6;
+  color: #14151a;
+}
+
+.music-btn.primary:hover:not(:disabled) {
+  background: #f88ac4;
+}
+
+.music-btn:disabled {
+  opacity: 0.32;
 }
 
 .int-balance {

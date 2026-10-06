@@ -56,6 +56,10 @@ export const INTEGRATION_AGENTS: AgentTask[] = [
   task("integration_notion", "Notion", "#8C8C8C"),
   task("integration_calcom", "Cal.com", "#C9956A"),
   task("integration_stripe", "Stripe", "#0570DE"),
+  // The machine itself: no account, no key, no request — always available.
+  task("integration_pc", "PC", "#4CC2FF"),
+  // One pill for whatever player Windows says is playing — see src-tauri/media.rs.
+  task("integration_music", "Music", "#F472B6"),
 ];
 
 export const INTEGRATION_IDS = INTEGRATION_AGENTS.map((t) => t.id);
@@ -88,6 +92,8 @@ export interface Settings {
   thinking: boolean;
   /** The chord that summons the island, shown as a hint in compact mode. */
   hotkey: string;
+  /** The chord that starts a snip — the same thing as clicking the eye. */
+  snipHotkey: string;
   /** Whether the chat may search the live web through its tools. */
   webSearch: boolean;
   /** Which search backend backs those tools: "duckduckgo", "brave" or "tavily". */
@@ -108,14 +114,15 @@ export const DEFAULT_SETTINGS: Settings = {
   notchHideInterval: 60,
   islandAnchor: 0.5,
   absenceInterval: 180,
-  activeIntegrations: [
-    "integration_resend", "integration_n8n", "integration_vercel", "integration_github",
-  ],
+  // Off on a fresh install: nothing polls, no key is needed and nothing is
+  // pre-picked for the user. Services are opted into in Settings.
+  activeIntegrations: [],
   screen: "primary",
   autostart: false,
   model: "deepseek-flash",
   thinking: false,
   hotkey: "Ctrl+Alt+M",
+  snipHotkey: "Ctrl+Alt+Shift+S",
   webSearch: true,
   searchProvider: "duckduckgo",
   language: "en",

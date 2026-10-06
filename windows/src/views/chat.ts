@@ -182,11 +182,12 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
   );
   snip.addEventListener("click", () => actions.snip());
   // A fresh conversation: the old one goes away on both sides of the IPC, so the model
-  // stops seeing it either.
+  // stops seeing it either. Labelled, because a bare plus reads as "add a file".
   const fresh = h(
     "button",
-    { class: "snip-btn", title: t("chat.newTip") },
-    svg(ICONS.plus, 12),
+    { class: "new-chat-btn", title: t("chat.newTip") },
+    svg(ICONS.plus, 11),
+    h("span", { text: t("chat.new") }),
   );
   const bar = h("div", { class: "chat-bar" }, fresh, snip, input, send);
 
@@ -302,8 +303,13 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
         ? t("chat.placeholderSnip")
         : State.chatHistory.length === 0
           ? t("chat.placeholder")
-          : "Kontynuuj…";
+          : t("chat.placeholderContinue");
       input.disabled = sending;
+      // Nothing to clear yet, so the button keeps out of the bar and takes its
+      // space with it.
+      const hasSession =
+        State.chatHistory.length > 0 || State.snip != null || State.droppedFile != null;
+      fresh.style.display = hasSession ? "" : "none";
     },
     focus() {
       input.focus();

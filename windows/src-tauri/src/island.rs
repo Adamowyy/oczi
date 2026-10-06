@@ -555,6 +555,56 @@ mod anchor_tests {
 }
 
 #[cfg(test)]
+mod hotkey_tests {
+    use super::{key_code, parse_hotkey};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
+    };
+
+    #[test]
+    fn a_chord_needs_a_modifier_and_exactly_one_known_key() {
+        let (mods, key) = parse_hotkey("Ctrl+Alt+Shift+S").expect("the default screenshot chord");
+        assert_eq!(mods, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT);
+        assert_eq!(key, 'S' as u32);
+        // Win is allowed, and the order the recorder writes is not required.
+        assert!(parse_hotkey("Win+F5").is_some());
+        assert!(parse_hotkey("Shift+Ctrl+Space").is_some());
+        assert!(parse_hotkey("Ctrl+PageDown").is_some());
+        // A bare key would be swallowed everywhere on the desktop.
+        assert!(parse_hotkey("M").is_none());
+        assert!(parse_hotkey("").is_none());
+        // One key per chord, and no key the recorder cannot produce.
+        assert!(parse_hotkey("Ctrl+M+S").is_none());
+        assert!(parse_hotkey("Ctrl+Enter").is_none());
+        assert!(parse_hotkey("Ctrl+").is_none());
+        assert!(parse_hotkey("Ctrl+Alt+").is_none());
+    }
+
+    #[test]
+    fn the_win_modifier_reaches_register_hot_key() {
+        let (mods, _) = parse_hotkey("Win+F1").expect("a Win chord");
+        assert!(mods.contains(MOD_WIN));
+    }
+
+    #[test]
+    fn key_names_map_to_their_virtual_keys() {
+        assert_eq!(key_code("A"), Some('A' as u32));
+        assert_eq!(key_code("a"), Some('A' as u32));
+        assert_eq!(key_code("0"), Some('0' as u32));
+        assert_eq!(key_code("7"), Some('7' as u32));
+        // F1 is 0x70 and the run is unbroken to F24.
+        assert_eq!(key_code("F1"), Some(0x70));
+        assert_eq!(key_code("F24"), Some(0x87));
+        assert_eq!(key_code("F25"), None);
+        assert_eq!(key_code("F0"), None);
+        assert_eq!(key_code("Space"), Some(0x20));
+        assert_eq!(key_code("PageDown"), Some(0x22));
+        assert_eq!(key_code("PageUp"), Some(0x21));
+        assert_eq!(key_code("Nonsense"), None);
+    }
+}
+
+#[cfg(test)]
 mod monitor_tests {
     use super::{monitor_pref_key, number_in_name};
 
@@ -779,45 +829,74 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
     });
 }
 
-/// Summon hotkey thread: RegisterHotKey posts WM_HOTKEY to the calling thread, so
-/// this runs its own PeekMessage loop. Chords avoid Ctrl+Alt (AltGr on Polish).
-pub fn spawn_hotkey(app: AppHandle, initial: String) {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{
-        RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, VK_S,
+/// Which of the two global chords a change applies to.
+#[derive(Clone, Copy)]
+pub enum HotkeySlot {
+    /// Summon the island. Default Ctrl+Alt+M.
+    Summon,
+    /// Start a snip, the same thing as clicking the eye. Default Ctrl+Alt+Shift+S.
+    Snip,
+}
+
+impl HotkeySlot {
+    fn id(self) -> i32 {
+        match self {
+            HotkeySlot::Summon => HOTKEY_ID,
+            HotkeySlot::Snip => HOTKEY_SNIP_ID,
+        }
+    }
+
+    /// Only ever used in the log line, so a change of chord can be traced.
+    fn label(self) -> &'static str {
+        match self {
+            HotkeySlot::Summon => "summon",
+            HotkeySlot::Snip => "screenshot",
+        }
+    }
+}
+
+/// Registers one chord under its own id, replacing whatever that id held before.
+/// Failing to register (another app owns the chord) is not fatal: the other hotkey
+/// keeps working and the log says which one is taken.
+unsafe fn apply_hotkey(slot: HotkeySlot, chord: &str, current: &mut [Option<String>; 2]) {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
+
+    const SUMMON: usize = 0;
+    const SNIP: usize = 1;
+    let idx = match slot {
+        HotkeySlot::Summon => SUMMON,
+        HotkeySlot::Snip => SNIP,
     };
+    if current[idx].as_deref() == Some(chord) {
+        return;
+    }
+    if current[idx].is_some() {
+        let _ = UnregisterHotKey(None, slot.id());
+    }
+    let registered = parse_hotkey(chord)
+        .map(|(mods, vk)| RegisterHotKey(None, slot.id(), mods, vk).is_ok())
+        .unwrap_or(false);
+    current[idx] = Some(chord.to_string());
+    crate::log::line(format!(
+        "hotkey {}: {chord} {}",
+        slot.label(),
+        if registered { "ready" } else { "taken by another app" },
+    ));
+}
+
+/// Hotkey thread: RegisterHotKey posts WM_HOTKEY to the calling thread, so this
+/// runs its own PeekMessage loop. Both chords live here, each has its own id, so
+/// either can be re-registered at any moment through the channel.
+pub fn spawn_hotkey(app: AppHandle, summon: String, snip: String) {
     use windows::Win32::UI::WindowsAndMessaging::{PeekMessageW, MSG, PM_REMOVE, WM_HOTKEY};
 
-    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let (tx, rx) = std::sync::mpsc::channel::<(HotkeySlot, String)>();
     HOTKEY_TX.get_or_init(|| std::sync::Mutex::new(Some(tx)));
 
     std::thread::spawn(move || unsafe {
-        let snip = RegisterHotKey(
-            None,
-            HOTKEY_SNIP_ID,
-            MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
-            VK_S.0 as u32,
-        )
-        .is_ok();
-
-        let mut current: Option<String> = None;
-        let apply = |hotkey: &str, current: &mut Option<String>| {
-            if current.as_deref() == Some(hotkey) {
-                return;
-            }
-            if current.is_some() {
-                let _ = UnregisterHotKey(None, HOTKEY_ID);
-            }
-            let registered = parse_hotkey(hotkey)
-                .map(|(mods, vk)| RegisterHotKey(None, HOTKEY_ID, mods, vk).is_ok())
-                .unwrap_or(false);
-            *current = Some(hotkey.to_string());
-            crate::log::line(format!(
-                "hotkeys — {hotkey} {} · Ctrl+Alt+Shift+S {}",
-                if registered { "ready" } else { "taken" },
-                if snip { "ready" } else { "taken" },
-            ));
-        };
-        apply(&initial, &mut current);
+        let mut current: [Option<String>; 2] = [None, None];
+        apply_hotkey(HotkeySlot::Summon, &summon, &mut current);
+        apply_hotkey(HotkeySlot::Snip, &snip, &mut current);
 
         let mut msg = MSG::default();
         loop {
@@ -829,13 +908,14 @@ pub fn spawn_hotkey(app: AppHandle, initial: String) {
                     HOTKEY_SNIP_ID => {
                         let _ = app.emit_to(WINDOW_LABEL, "hotkey-snip", ());
                     }
-                    _ => {
+                    HOTKEY_ID => {
                         let _ = app.emit_to(WINDOW_LABEL, "hotkey", ());
                     }
+                    _ => {}
                 }
             }
             match rx.try_recv() {
-                Ok(hotkey) => apply(&hotkey, &mut current),
+                Ok((slot, chord)) => apply_hotkey(slot, &chord, &mut current),
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
                 Err(_) => {}
             }
@@ -844,38 +924,98 @@ pub fn spawn_hotkey(app: AppHandle, initial: String) {
     });
 }
 
-/// "Ctrl+Alt+M" → the RegisterHotKey modifiers and virtual key. Unknown chords
-/// are refused, the settings window only offers the ones listed here, and a
-/// hand-edited settings.json with anything else falls back to the default.
 pub fn parse_hotkey(hotkey: &str) -> Option<(HOT_KEY_MODIFIERS, u32)> {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, VK_G, VK_M, VK_SPACE,
+        MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
     };
     let mut mods = MOD_NOREPEAT;
-    let mut vk: Option<u32> = None;
+    let mut key: Option<u32> = None;
+    let mut has_mod = false;
     for part in hotkey.split('+') {
-        match part.trim() {
-            "Ctrl" => mods |= MOD_CONTROL,
-            "Alt" => mods |= MOD_ALT,
-            "Shift" => mods |= MOD_SHIFT,
-            "M" => vk = Some(VK_M.0 as u32),
-            "G" => vk = Some(VK_G.0 as u32),
-            "Space" => vk = Some(VK_SPACE.0 as u32),
-            _ => return None,
+        let name = part.trim();
+        if name.is_empty() {
+            return None;
+        }
+        match name {
+            "Ctrl" | "Control" => {
+                mods |= MOD_CONTROL;
+                has_mod = true;
+            }
+            "Alt" => {
+                mods |= MOD_ALT;
+                has_mod = true;
+            }
+            "Shift" => {
+                mods |= MOD_SHIFT;
+                has_mod = true;
+            }
+            "Win" => {
+                mods |= MOD_WIN;
+                has_mod = true;
+            }
+            _ => {
+                // Exactly one key per chord.
+                if key.is_some() {
+                    return None;
+                }
+                key = Some(key_code(name)?);
+            }
         }
     }
-    Some((mods, vk?))
+    if !has_mod {
+        return None;
+    }
+    Some((mods, key?))
+}
+
+/// A key name, "A", "7", "F5", "Space", "Left", to its Windows virtual-key
+/// code. The settings window's recorder emits exactly these names.
+fn key_code(name: &str) -> Option<u32> {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_HOME, VK_INSERT, VK_LEFT, VK_NEXT, VK_PRIOR,
+        VK_RIGHT, VK_SPACE, VK_UP,
+    };
+    let upper = name.to_ascii_uppercase();
+    // Letters and digits are their own virtual-key codes: VK_A = 'A', VK_0 = '0'.
+    if upper.len() == 1 {
+        let c = upper.as_bytes()[0];
+        if c.is_ascii_alphanumeric() {
+            return Some(c as u32);
+        }
+    }
+    // F1 is 0x70 and the function keys run to F24 without a gap.
+    if let Some(n) = upper.strip_prefix('F').and_then(|n| n.parse::<u32>().ok()) {
+        if (1..=24).contains(&n) {
+            return Some(0x70 + n - 1);
+        }
+    }
+    match upper.as_str() {
+        "SPACE" => Some(VK_SPACE.0 as u32),
+        "LEFT" => Some(VK_LEFT.0 as u32),
+        "RIGHT" => Some(VK_RIGHT.0 as u32),
+        "UP" => Some(VK_UP.0 as u32),
+        "DOWN" => Some(VK_DOWN.0 as u32),
+        "HOME" => Some(VK_HOME.0 as u32),
+        "END" => Some(VK_END.0 as u32),
+        "PAGEUP" | "PGUP" => Some(VK_PRIOR.0 as u32),
+        "PAGEDOWN" | "PGDN" => Some(VK_NEXT.0 as u32),
+        "INSERT" => Some(VK_INSERT.0 as u32),
+        "DELETE" => Some(VK_DELETE.0 as u32),
+        "BACKSPACE" => Some(VK_BACK.0 as u32),
+        _ => None,
+    }
 }
 
 /// Called from `save_settings` so a changed chord takes effect immediately.
-pub fn update_hotkey(hotkey: &str) {
+pub fn update_hotkey(slot: HotkeySlot, hotkey: &str) {
     if let Some(tx) = HOTKEY_TX.get() {
         let tx = tx.lock().unwrap();
         if let Some(tx) = tx.as_ref() {
-            let _ = tx.send(hotkey.to_string());
+            let _ = tx.send((slot, hotkey.to_string()));
         }
     }
 }
 
-static HOTKEY_TX: std::sync::OnceLock<std::sync::Mutex<Option<std::sync::mpsc::Sender<String>>>> =
-    std::sync::OnceLock::new();
+static HOTKEY_TX: std::sync::OnceLock<
+    std::sync::Mutex<Option<std::sync::mpsc::Sender<(HotkeySlot, String)>>>,
+> = std::sync::OnceLock::new();

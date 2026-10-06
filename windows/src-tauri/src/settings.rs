@@ -30,10 +30,14 @@ pub struct Settings {
     /// first and bill the trace as output tokens.
     #[serde(default)]
     pub thinking: bool,
-    /// The chord that summons the island. Only the combinations the settings
-    /// window offers are valid; anything else is replaced on load.
+    /// The chord that summons the island. Any chord the settings window's
+    /// recorder can produce is valid; anything else is replaced on load.
     #[serde(default = "default_hotkey")]
     pub hotkey: String,
+    /// The chord that starts a screenshot snip, the same thing as clicking the
+    /// eye. Recorded in the settings window, validated like `hotkey`.
+    #[serde(default = "default_snip_hotkey")]
+    pub snip_hotkey: String,
     /// Whether the chat may search the live web. On by default: the alternative
     /// is a model answering from a training cut-off that has already passed.
     #[serde(default = "default_true")]
@@ -79,6 +83,10 @@ fn default_hotkey() -> String {
     "Ctrl+Alt+M".to_string()
 }
 
+fn default_snip_hotkey() -> String {
+    "Ctrl+Alt+Shift+S".to_string()
+}
+
 /// Languages the UI ships with. Anything else in settings.json becomes English.
 pub const LANGUAGES: [&str; 2] = ["en", "pl"];
 
@@ -95,17 +103,15 @@ impl Default for Settings {
             notch_hide_interval: default_notch_hide(),
             island_anchor: default_anchor(),
             absence_interval: 180.0,
-            active_integrations: vec![
-                "integration_resend".into(),
-                "integration_n8n".into(),
-                "integration_vercel".into(),
-                "integration_github".into(),
-            ],
+            // Nothing is on out of the box: no service polls, no key is asked for,
+            // and the first run shows no pills at all.
+            active_integrations: Vec::new(),
             screen: "primary".into(),
             autostart: false,
             model: default_model(),
             thinking: false,
             hotkey: default_hotkey(),
+            snip_hotkey: default_snip_hotkey(),
             web_search: true,
             search_provider: default_search_provider(),
             language: default_language(),
@@ -149,6 +155,9 @@ pub fn load() -> Settings {
             }
             if crate::island::parse_hotkey(&settings.hotkey).is_none() {
                 settings.hotkey = default_hotkey();
+            }
+            if crate::island::parse_hotkey(&settings.snip_hotkey).is_none() {
+                settings.snip_hotkey = default_snip_hotkey();
             }
             if !crate::web::PROVIDERS.contains(&settings.search_provider.as_str()) {
                 settings.search_provider = default_search_provider();

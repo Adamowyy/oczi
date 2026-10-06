@@ -40,4 +40,16 @@ export const ICONS = {
   doc: "M6.5 2.6h7l4 4v14.8h-11V2.6zm6.6 1.6v3.3h3.3l-3.3-3.3zM8.6 11h6.8v1.5H8.6V11zm0 3.4h6.8v1.5H8.6v-1.5z",
   // eye — snip a region of the screen
   eye: "M12 5.2c-5 0-9 4.4-9 6.8s4 6.8 9 6.8 9-4.4 9-6.8-4-6.8-9-6.8zm0 11.4a4.6 4.6 0 1 1 0-9.2 4.6 4.6 0 0 1 0 9.2zm0-2.2a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8z",
+  // activity — CPU load. Drawn for the stroke renderer, like check and chevron.
+  cpu: "M2.8 12h3.5l2.7-5.8 4.3 11.6 2.7-5.8h5.2",
+  // memorychip — a stick with its pins.
+  memory: "M3.5 8.5h17v7h-17zM7.2 15.5v2M11.2 15.5v2M15.2 15.5v2M18.4 15.5v2",
+  // internaldrive — a drive with its slot.
+  disk: "M3.5 6.8h17v7.4h-17zM8.6 11.2h6.8",
+  // play.fill / pause.fill — the transport buttons on the now-playing card.
+  play: "M8 5.4v13.2L19.2 12z",
+  pause: "M7.6 5.4h3.5v13.2H7.6zm5.3 0h3.5v13.2h-3.5z",
+  // backward.fill / forward.fill — with their bars, like a skip button.
+  prev: "M6.4 5.6h2.2v12.8H6.4zm12 0v12.8L9.6 12z",
+  next: "M15.4 5.6h2.2v12.8h-2.2zM5.6 5.6v12.8L14.4 12z",
 } as const;

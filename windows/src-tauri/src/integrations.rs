@@ -53,6 +53,18 @@ pub fn set_paused(on: bool) {
     PAUSED.store(on, Ordering::Relaxed);
 }
 
+/// True when this integration is switched on and the app is not paused. Pollers
+/// that live outside this module, the media sampler has its own thread, ask
+/// through here rather than reaching into the settings lock themselves.
+pub fn active(app: &AppHandle, id: &str) -> bool {
+    !PAUSED.load(Ordering::Relaxed) && enabled(app, id)
+}
+
+/// One update to the island, for a poller outside this module.
+pub fn emit_update(app: &AppHandle, id: &'static str, data: Value, event: Option<IntegrationEvent>) {
+    emit(app, IntegrationUpdate { id, data, error: None, event });
+}
+
 /// Spawns every poller with the macOS delays and intervals.
 pub fn start(app: AppHandle) {
     spawn(app.clone(), "integration_n8n", 3, 15, poll_n8n);
@@ -61,7 +73,10 @@ pub fn start(app: AppHandle) {
     spawn(app.clone(), "integration_resend", 6, 60, poll_resend);
     spawn(app.clone(), "integration_github", 7, 300, poll_github);
     spawn(app.clone(), "integration_calcom", 8, 300, poll_calcom);
-    spawn(app, "integration_notion", 9, 300, poll_notion);
+    spawn(app.clone(), "integration_notion", 9, 300, poll_notion);
+    // The machine itself: no key, nothing to reach, so it is the one poller that
+    // is always able to run. Five seconds keeps the numbers live and costs nothing.
+    spawn(app, "integration_pc", 4, 5, poll_pc);
 }
 
 /// True when the user has this integration switched on in settings.
@@ -104,6 +119,7 @@ pub async fn poll_once(app: AppHandle, id: &str) {
         "integration_resend" => poll_resend(app).await,
         "integration_notion" => poll_notion(app).await,
         "integration_calcom" => poll_calcom(app).await,
+        "integration_pc" => poll_pc(app).await,
         _ => {}
     }
 }
@@ -591,6 +607,20 @@ async fn poll_calcom(app: AppHandle) {
     emit(&app, IntegrationUpdate {
         id: "integration_calcom",
         data: json!({ "bookings": bookings }),
+        error: None,
+        event: None,
+    });
+}
+
+// ── This PC ───────────────────────────────────────────────────────────────────
+
+/// The computer Oczi is running on, see `pc::sample`. No key to check and no
+/// request to make, so this one card is always there; `error` stays empty even
+/// when a number is missing (a desktop has no battery, and says so by omission).
+async fn poll_pc(app: AppHandle) {
+    emit(&app, IntegrationUpdate {
+        id: "integration_pc",
+        data: crate::pc::sample(),
         error: None,
         event: None,
     });

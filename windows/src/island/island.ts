@@ -17,6 +17,7 @@ import { createMiniBot, miniBotCount, pruneMiniBots, syncMiniBotStates, tickMini
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
+import { musicPlaying } from "../views/music";
 
 /** What the selection overlay reports back. Zeros mean the user cancelled. */
 type SnipBounds = { width: number; height: number; bytes: number };
@@ -260,7 +261,7 @@ export class Island {
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
         case "home":
-          this.expand(State.defaultView());
+          this.expand(State.newsMessage ? "whatsnew" : State.defaultView());
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
         case "greeting":
@@ -375,8 +376,11 @@ export class Island {
       State.isPinned = false;
       this.fsm.pinned = false;
       // The island stays for the full interval from now, and only after a real mouse leave.
-      this.homeCollapseAt = performance.now() + State.settings.autoCloseInterval * 1000;
-      if (this.fsm.state === "home" && !this.wasInIsland) this.fsm.mouseLeft();
+      const away = !this.hovered;
+      this.homeCollapseAt = away
+        ? performance.now() + State.settings.autoCloseInterval * 1000
+        : null;
+      if (this.fsm.state === "home" && away) this.fsm.mouseLeft();
     }, seconds * 1000);
   }
 
@@ -393,21 +397,20 @@ export class Island {
 
   /** The summon hotkey asks for the chat with the caret in the field, the island opens on the view it shows.
    */
-  revealOrOpen() {
+  revealOrOpen(view: IslandViewName = "prompt") {
     if (State.mode === "expanded") {
-      // Already open: show the chat and take the keyboard. forceHome also settles
-      // the FSM out of "greeting", whose timer would fold the island mid-question.
+      // Already open: settle the FSM out of "greeting", whose timer would fold the
+      // island mid-question, then show the view.
       this.fsm.forceHome();
-      this.expand("prompt");
-      this.focusChat();
-      return;
+      this.expand(view);
+    } else {
+      // A transition into the state the machine already believes it is in is ignored,
+      // so take the long way round; updateWindowCollapsed clears the hidden step.
+      this.fsm.forceHidden();
+      this.fsm.forceHome();
+      this.expand(view);
     }
-    // A transition into the state the machine already believes it is in is ignored,
-    // so take the long way round; updateWindowCollapsed clears the hidden step.
-    this.fsm.forceHidden();
-    this.fsm.forceHome();
-    this.expand("prompt");
-    this.focusChat();
+    if (view === "prompt") this.focusChat();
   }
 
   /** Hands the keyboard to the chat field. Reopening on the same view is not a view
@@ -467,7 +470,7 @@ export class Island {
     waiter?.(info);
   }
 
-  /** Ctrl+Alt+S, and the eye in the chat bar. */
+  /** The screenshot chord, and the eye in the chat bar. */
   snipStart() {
     void this.snipRegion();
   }
@@ -522,12 +525,14 @@ export class Island {
     if (sticky) {
       this.holdOpen(0);
     } else {
-      // Back to a view the user is only looking at: unpin and arm the countdown the
-      // way the cursor leaving the island does.
       State.isPinned = false;
       this.fsm.pinned = false;
-      this.homeCollapseAt = performance.now() + State.settings.autoCloseInterval * 1000;
-      this.fsm.mouseLeft();
+      if (this.hovered) {
+        this.homeCollapseAt = null;
+      } else {
+        this.homeCollapseAt = performance.now() + State.settings.autoCloseInterval * 1000;
+        this.fsm.mouseLeft();
+      }
     }
   }
 
@@ -747,9 +752,8 @@ export class Island {
       Sound.resume();
       State.lastActivity = performance.now();
       if (State.mode !== "expanded") {
-        // A click on the compact island is an intent to type, so it opens the chat
-        // with the caret already in the field.
-        this.revealOrOpen();
+        if (musicPlaying()) State.setFocus("integration_music");
+        this.revealOrOpen(musicPlaying() ? "overview" : State.defaultView());
         return;
       }
       if (this.isBotHit(e.clientX, e.clientY)) {
@@ -1253,19 +1257,18 @@ export class Island {
       }
     }
 
-    // Compact: the summon chord, dimmed, with the mini integration mini characters beside it.
     const showGrid = State.mode === "compact";
     this.miniGrid.style.opacity = showGrid ? "1" : "0";
     if (showGrid) {
       const hotkey = State.settings.hotkey || "Ctrl+Alt+M";
-      const others = State.otherTasks.slice(0, 4);
-      const key = `${hotkey}|${others.map((t) => t.id).join("|")}`;
+      const shown = State.tasks.slice(0, 4);
+      const key = `${hotkey}|${shown.map((t) => t.id).join("|")}`;
       if (this.miniGrid.dataset.key !== key) {
         this.miniGrid.dataset.key = key;
         this.miniGrid.replaceChildren();
         this.miniGrid.append(h("div", { class: "hotkey-hint", text: hotkey }));
         const grid = h("div", { class: "mini-grid-cells" });
-        for (const t of others) grid.append(createMiniBot(t, 13));
+        for (const t of shown) grid.append(createMiniBot(t, 13));
         this.miniGrid.append(grid);
         pruneMiniBots();
       }

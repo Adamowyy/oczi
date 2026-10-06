@@ -294,6 +294,10 @@ const INTEGRATIONS: IntegrationDef[] = [
     fields: [{ key: "notion-api-key", labelKey: "set.integrationToken", placeholder: "ntn_…", secret: true }] },
   { id: "integration_calcom", name: "Cal.com", color: "#C9956A",
     fields: [{ key: "calcom-api-key", labelKey: "set.apiKey", placeholder: "cal_…", secret: true }] },
+  // No key, no account: this one reads the machine Oczi runs on.
+  { id: "integration_pc", name: "PC", color: "#4CC2FF", fields: [] },
+  // Nor this one: Windows itself reports what is playing, whatever the player.
+  { id: "integration_music", name: "Music", color: "#F472B6", fields: [] },
 ];
 
 const MAX_ACTIVE = 4;
@@ -325,6 +329,8 @@ function integrationsSection(present: Record<string, boolean>): HTMLElement {
 
     const rows = h("div", { style: "display:flex;flex-direction:column;gap:6px;flex:1 1 auto;min-width:0" });
     for (const field of def.fields) rows.append(secretRow(field, present));
+    // An integration with nothing to fill in says so rather than leaving a gap.
+    if (def.fields.length === 0) rows.append(h("div", { class: "hint", text: t("set.noKeyNeeded") }));
 
     list.append(
       h("div", { style: "display:flex;gap:12px;align-items:flex-start" },
@@ -344,9 +350,91 @@ function integrationsSection(present: Record<string, boolean>): HTMLElement {
 
 // ── General section ───────────────────────────────────────────────────────────
 
-/** The chords the island can be summoned with. Polish layout is the constraint:
- * Ctrl+Alt is AltGr, so only keys with no AltGr diacritic are offered. */
-const HOTKEY_OPTIONS = ["Ctrl+Alt+M", "Ctrl+Alt+Shift+M", "Ctrl+Shift+M", "Ctrl+Alt+G", "Ctrl+Alt+Space"];
+/** The named keys Rust understands, `key_code` in island.rs is the other half. */
+const NAMED_KEYS: Record<string, string> = {
+  " ": "Space",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+  Home: "Home",
+  End: "End",
+  PageUp: "PageUp",
+  PageDown: "PageDown",
+  Insert: "Insert",
+  Delete: "Delete",
+  Backspace: "Backspace",
+};
+
+const MODIFIER_KEYS = ["Control", "Alt", "Shift", "Meta", "AltGraph"];
+
+type ChordResult = { ok: true; chord: string } | { ok: false; why: "modifier" | "key" };
+
+/** What a keydown means as a chord: the modifiers first, then the key under them. */
+function chordFor(e: KeyboardEvent): ChordResult {
+  // A modifier on its own is half a chord, wait for the key it modifies.
+  if (MODIFIER_KEYS.includes(e.key)) return { ok: false, why: "key" };
+  const mods: string[] = [];
+  if (e.ctrlKey) mods.push("Ctrl");
+  if (e.altKey) mods.push("Alt");
+  if (e.shiftKey) mods.push("Shift");
+  if (e.metaKey) mods.push("Win");
+
+  let key = NAMED_KEYS[e.key];
+  if (!key && /^[a-z0-9]$/i.test(e.key)) key = e.key.toUpperCase();
+  if (!key && /^F([1-9]|1\d|2[0-4])$/i.test(e.key)) key = e.key.toUpperCase();
+  if (!key) return { ok: false, why: "key" };
+  // A bare key would be swallowed everywhere on the desktop, so one modifier is
+  // the least a chord may have.
+  if (mods.length === 0) return { ok: false, why: "modifier" };
+  return { ok: true, chord: [...mods, key].join("+") };
+}
+
+function hotkeyField(
+  initial: string,
+  onChord: (chord: string) => void,
+  onProblem: (why: "modifier" | "key") => void,
+): HTMLButtonElement {
+  const field = h("button", { class: "hotkey-field", text: initial }) as HTMLButtonElement;
+  let chord = initial;
+  let recording = false;
+
+  const stop = () => {
+    recording = false;
+    field.classList.remove("recording");
+    field.textContent = chord;
+  };
+
+  field.addEventListener("click", () => {
+    if (recording) return stop();
+    recording = true;
+    field.classList.add("recording");
+    field.textContent = t("set.hotkeyRecording");
+  });
+
+  // A click anywhere else is "never mind", not a chord.
+  document.addEventListener("pointerdown", (e) => {
+    if (recording && !field.contains(e.target as Node)) stop();
+  });
+
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (!recording) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") return stop();
+      const result = chordFor(e);
+      if (!result.ok) return onProblem(result.why);
+      chord = result.chord;
+      stop();
+      onChord(chord);
+    },
+    true,
+  );
+
+  return field;
+}
 
 async function listMonitors(select: HTMLSelectElement) {
   const monitors = (await Bridge.listMonitors()) ?? [];
@@ -419,13 +507,53 @@ function generalSection(): HTMLElement {
   screenSelect = screen;
   void listMonitors(screen);
 
-  const hotkey = h("select", {}) as HTMLSelectElement;
-  for (const opt of HOTKEY_OPTIONS) hotkey.append(h("option", { value: opt, text: opt }));
-  hotkey.value = HOTKEY_OPTIONS.includes(settings.hotkey) ? settings.hotkey : HOTKEY_OPTIONS[0];
-  hotkey.addEventListener("change", () => {
-    settings.hotkey = hotkey.value;
-    void save();
-  });
+  // Both chords are recorded the same way, and the note under them says what the
+  // pair costs: the same chord twice, or Ctrl+Alt on a Polish layout.
+  const hotkeyNote = h("div", { class: "hint" });
+  const message = h("div", { class: "hint strongly" });
+  let messageTimer = 0;
+
+  function refreshNote() {
+    const same = settings.hotkey === settings.snipHotkey;
+    // Ctrl+Alt is AltGr, so a chord built on it takes a diacritic away from
+    // whichever app has the focus, worth saying out loud, not worth a warning.
+    const altGr = [settings.hotkey, settings.snipHotkey].some((c) => c.includes("Ctrl+Alt"));
+    hotkeyNote.textContent = same
+      ? t("set.hotkeyConflict")
+      : altGr
+        ? t("set.hotkeyAltGr")
+        : t("set.hotkeyHint");
+    hotkeyNote.className = same ? "hint strongly" : "hint";
+  }
+
+  /** The recorder's own refusal, shown where the chord is and taken back again. */
+  function showProblem(why: "modifier" | "key") {
+    message.textContent = t(why === "modifier" ? "set.hotkeyNeedsMod" : "set.hotkeyUnknownKey");
+    window.clearTimeout(messageTimer);
+    messageTimer = window.setTimeout(() => {
+      message.textContent = "";
+    }, 4000);
+  }
+
+  const hotkey = hotkeyField(
+    settings.hotkey,
+    (chord) => {
+      settings.hotkey = chord;
+      void save();
+      refreshNote();
+    },
+    showProblem,
+  );
+  const snipHotkey = hotkeyField(
+    settings.snipHotkey,
+    (chord) => {
+      settings.snipHotkey = chord;
+      void save();
+      refreshNote();
+    },
+    showProblem,
+  );
+  refreshNote();
 
   return h(
     "section",
@@ -444,6 +572,9 @@ function generalSection(): HTMLElement {
     ),
     h("div", { class: "row" }, h("label", { text: t("set.islandScreen") }), screen),
     h("div", { class: "row" }, h("label", { text: t("set.hotkey") }), hotkey),
+    h("div", { class: "row" }, h("label", { text: t("set.hotkeySnip") }), snipHotkey),
+    hotkeyNote,
+    message,
     h("div", { class: "row" },
       h("label", { text: t("set.autostart") }),
       toggle(settings.autostart, (v) => { settings.autostart = v; void save(); }),

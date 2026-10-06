@@ -18,6 +18,12 @@ const KEY_FOR: Record<string, string> = {
 
 const clearTimers = new Map<string, number>();
 
+/** How long a finished/error look holds before the pill goes quiet again. */
+const BADGE_MS = 60_000;
+/** The player is a running thing, not a job that just finished: a moment of joy
+ *  when a new track starts, then back to normal, it is not a task to celebrate. */
+const CELEBRATION_MS: Record<string, number> = { integration_music: 12_000 };
+
 export function registerIntegrationHandlers(island: Island) {
   void onEvent<IntegrationUpdate>("integration", (update) => handle(island, update));
   void refreshConfigured();
@@ -29,6 +35,12 @@ export async function refreshConfigured() {
     const present = (await Bridge.secretPresent(key)) ?? false;
     const info = State.integrations[id] ?? { data: {}, error: null, loaded: false, configured: false };
     State.integrations[id] = { ...info, configured: present };
+  }
+  // This PC and the now-playing pill have no key to look for, they are ready the
+  // moment Oczi is.
+  for (const id of ["integration_pc", "integration_music"]) {
+    const info = State.integrations[id] ?? { data: {}, error: null, loaded: false, configured: false };
+    State.integrations[id] = { ...info, configured: true };
   }
   State.notify();
 }
@@ -46,6 +58,8 @@ function handle(island: Island, update: IntegrationUpdate) {
 
   const event = update.event;
   if (event) {
+    // Music starting also moves the focus, since the player is why the island opens.
+    if (update.id === "integration_music") State.setFocus(update.id);
     const task = State.tasks.find((t) => t.id === update.id);
     if (task) {
       task.state = event.success ? "finished" : "error";
@@ -72,7 +86,7 @@ function handle(island: Island, update: IntegrationUpdate) {
           t.stepIndex = 0;
           t.pillBadge = null;
           State.notify();
-        }, 60_000),
+        }, CELEBRATION_MS[update.id] ?? BADGE_MS),
       );
     }
   }

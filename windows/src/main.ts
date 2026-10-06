@@ -60,13 +60,15 @@ async function main() {
 
   await onEvent<null>("screen-changed", () => void Bridge.reposition());
 
-  // Ctrl+Alt+M, registered by Rust. Same as clicking the island: show it.
+  // The summon chord, registered by Rust (Ctrl+Alt+M unless the user recorded
+  // another one). Same as clicking the island: show it.
   await onEvent<null>("hotkey", () => {
     setPaused(false);
     island.revealOrOpen();
   });
 
-  // Ctrl+Alt+Shift+S, registered by Rust. Same as clicking the eye.
+  // The screenshot chord, registered by Rust (Ctrl+Alt+Shift+S by default). Same
+  // as clicking the eye.
   await onEvent<null>("hotkey-snip", () => {
     setPaused(false);
     island.snipStart();

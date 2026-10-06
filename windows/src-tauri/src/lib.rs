@@ -5,6 +5,8 @@ mod files;
 mod integrations;
 mod island;
 mod log;
+mod media;
+mod pc;
 mod secrets;
 mod settings;
 mod shell;
@@ -92,7 +94,7 @@ fn mark_version_seen(shared: State<Shared>, version: String) {
 
 #[tauri::command]
 fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) {
-    let (screen_changed, autostart_changed, hotkey_changed, language_changed) = {
+    let (screen_changed, autostart_changed, hotkey_changed, snip_hotkey_changed, language_changed) = {
         let mut current = shared.settings.lock().unwrap();
         // The island owns this one: the settings window's copy is as old as the
         // window is, and writing it back would re-show the card on the next launch.
@@ -100,9 +102,16 @@ fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) 
         let screen_changed = current.screen != settings.screen;
         let autostart_changed = current.autostart != settings.autostart;
         let hotkey_changed = current.hotkey != settings.hotkey;
+        let snip_hotkey_changed = current.snip_hotkey != settings.snip_hotkey;
         let language_changed = current.language != settings.language;
         *current = settings.clone();
-        (screen_changed, autostart_changed, hotkey_changed, language_changed)
+        (
+            screen_changed,
+            autostart_changed,
+            hotkey_changed,
+            snip_hotkey_changed,
+            language_changed,
+        )
     };
     if let Err(err) = settings::save(&settings) {
         eprintln!("[oczi] could not save settings: {err}");
@@ -118,7 +127,10 @@ fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) 
         island::apply_geometry(&app, &settings.screen, settings.island_anchor);
     }
     if hotkey_changed {
-        island::update_hotkey(&settings.hotkey);
+        island::update_hotkey(island::HotkeySlot::Summon, &settings.hotkey);
+    }
+    if snip_hotkey_changed {
+        island::update_hotkey(island::HotkeySlot::Snip, &settings.snip_hotkey);
     }
     // The tray and the window frame are drawn by the system, so they take their
     // language from here rather than from the front end.
@@ -411,6 +423,13 @@ async fn refresh_integration(app: AppHandle, id: String) {
     integrations::poll_once(app, &id).await;
 }
 
+/// Transport buttons on the now-playing card. Queued to the media thread, so the
+/// window's own thread never waits on a WinRT call.
+#[tauri::command]
+fn media_control(action: String) {
+    media::control(&action);
+}
+
 /// Lets the island write to the same log as the Rust side.
 #[tauri::command]
 fn log_line(message: String) {
@@ -598,6 +617,7 @@ pub fn run() {
             secret_set,
             secret_clear,
             refresh_integration,
+            media_control,
             open_n8n,
             open_settings_window,
             set_paused,
@@ -625,7 +645,7 @@ pub fn run() {
             gate.collapsed.store(false, Ordering::Relaxed);
             gate.set_active(true);
             island::spawn_cursor_poll(handle.clone(), gate.clone());
-            island::spawn_hotkey(handle.clone(), loaded.hotkey.clone());
+            island::spawn_hotkey(handle.clone(), loaded.hotkey.clone(), loaded.snip_hotkey.clone());
 
             // A previous run may have been killed rather than quit: stop whatever
             // it left running, and clear the logs that no longer mean anything.
@@ -633,6 +653,7 @@ pub fn run() {
             shell::clear_logs();
             log::line(format!("--- Oczi {} started ---", env!("CARGO_PKG_VERSION")));
             integrations::start(handle.clone());
+            media::start(handle.clone());
             Ok(())
         })
         .build(tauri::generate_context!())

@@ -1,4 +1,4 @@
-// Integration cards in the overview's left card — DOM ports from IslandViewContent.swift.
+// Integration cards in the overview's left card, DOM ports from IslandViewContent.swift.
 // Cal.com is the one simplification: here it is a list of upcoming bookings, not a calendar.
 
 import { h, svg, clear, dot } from "./dom";
@@ -6,6 +6,7 @@ import { ICONS } from "./icons";
 import { State, type AgentTask } from "../core/state";
 import { Bridge } from "../core/bridge";
 import { t } from "../core/i18n";
+import { buildMusicCard } from "./music";
 
 /** Same shape as the Swift `timeAgo` computed properties. */
 export function timeAgo(value: unknown): string {
@@ -19,7 +20,10 @@ export function timeAgo(value: unknown): string {
 }
 
 function header(color: string, name: string, kind: string, extra?: Node): HTMLElement {
-  const row = h("div", { class: "int-head" }, dot(color, 7), h("b", { text: name }), h("span", { text: kind }));
+  const row = h("div", { class: "int-head" }, dot(color, 7), h("b", { text: name }));
+  // A card with nothing to say in the kind slot leaves it out rather than
+  // leaving an empty gap beside the name.
+  if (kind) row.append(h("span", { text: kind }));
   if (extra) row.append(extra);
   return row;
 }
@@ -359,6 +363,70 @@ function n8nDetail(task: AgentTask, onBack: () => void): HTMLElement {
   );
 }
 
+// ── This PC ───────────────────────────────────────────────────────────────────
+
+/** A 0–100 number read as a colour: quiet with room to spare, red when there is none. */
+function loadColor(percent: number): string {
+  if (percent >= 85) return "#F4505E";
+  if (percent >= 60) return "#F5A524";
+  return "#22C55E";
+}
+
+const gb = (bytes: unknown) => `${(Number(bytes ?? 0) / 1024 ** 3).toFixed(1)} GB`;
+
+/** One reading: what it is, how full, and the number itself. The bar carries the
+ *  percentage so the value can carry the absolute figure. */
+function gaugeRow(icon: string, label: string, percent: number, value: string): HTMLElement {
+  const color = loadColor(percent);
+  const fill = h("i", { class: "int-gauge-fill" });
+  fill.style.width = `${Math.max(2, Math.min(100, percent)).toFixed(0)}%`;
+  fill.style.background = color;
+  return h(
+    "div",
+    { class: "int-gauge" },
+    h("i", { class: "int-stat-icon", style: `color:${color}` }, svg(icon, 11, { stroke: 1.7 })),
+    h("span", { class: "int-stat-label", text: label }),
+    h("span", { class: "int-gauge-track" }, fill),
+    h("span", { class: "int-stat-value", text: value }),
+  );
+}
+
+function pcCard(): HTMLElement {
+  const d = get("integration_pc");
+  const cpu = Number(d.cpu ?? 0);
+  const memPercent = Number(d.memPercent ?? 0);
+  const disks = Array.isArray(d.disks) ? (d.disks as Record<string, unknown>[]) : [];
+  const disk = disks[0];
+  const battery = d.battery == null ? null : Number(d.battery);
+
+  const kind =
+    battery == null
+      ? ""
+      : `${t("int.battery")} ${battery}%${d.plugged === true ? " · ⚡" : ""}`;
+
+  const rows = h("div", { class: "int-stats" });
+  rows.append(gaugeRow(ICONS.cpu, t("int.cpu"), cpu, d.cpu == null ? "…" : `${Math.round(cpu)}%`));
+  rows.append(
+    gaugeRow(
+      ICONS.memory,
+      t("int.memory"),
+      memPercent,
+      Number(d.memTotalBytes ?? 0) > 0 ? `${gb(d.memUsedBytes)} / ${gb(d.memTotalBytes)}` : "—",
+    ),
+  );
+  if (disk) {
+    rows.append(
+      gaugeRow(
+        ICONS.disk,
+        String(disk.mount ?? "C:"),
+        Number(disk.usedPercent ?? 0),
+        t("int.diskFree", gb(disk.freeBytes)),
+      ),
+    );
+  }
+  return h("div", { class: "int-card" }, header("#4CC2FF", "PC", kind), rows);
+}
+
 // ── Dispatch ──────────────────────────────────────────────────────────────────
 
 export interface IntegrationCardHooks {
@@ -384,6 +452,12 @@ export function hasIntegrationData(id: string): boolean {
     case "integration_notion":
       return arr(id, "pages").length > 0;
     case "integration_calcom":
+      return info.loaded;
+    case "integration_pc":
+      // Always loaded once the first sample lands, there is nothing to configure.
+      return info.loaded;
+    case "integration_music":
+      // Anything the OS reports is worth a card, including "nothing playing".
       return info.loaded;
     default:
       return false;
@@ -413,6 +487,13 @@ export function renderIntegrationCard(task: AgentTask, hooks: IntegrationCardHoo
       return notionCard();
     case "integration_calcom":
       return calcomCard();
+    case "integration_pc":
+      return pcCard();
+    case "integration_music": {
+      // Inside the overview the card keeps the integration padding, which leaves
+      // room for Iskra on the left; on the home screen it takes the pills' slot.
+      return h("div", { class: "int-card" }, buildMusicCard());
+    }
     default:
       return idleCard(task, hooks.openSettings);
   }

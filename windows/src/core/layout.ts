@@ -65,7 +65,9 @@ export const WAKE_STRIP_H = 6;
 export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   // The default screen: Iskra at full size, chat next to it.
   home: { height: 216, botX: 78, botY: null, botDiameter: 64, agentMode: "none" },
-  overview: { height: 160, botX: 68, botY: null, botDiameter: 58, agentMode: "pills" },
+  // Taller than it was: the chat field rides under the pills on this screen too, so
+  // every service is one click from asking a question about what is on the card.
+  overview: { height: 214, botX: 68, botY: null, botDiameter: 58, agentMode: "pills" },
   empty: { height: 160, botX: 70, botY: null, botDiameter: 62, agentMode: "none" },
   confused: { height: 160, botX: 76, botY: null, botDiameter: 66, agentMode: "column" },
   upload: { height: 176, botX: 140, botY: 104, botDiameter: 62, agentMode: "column" },
