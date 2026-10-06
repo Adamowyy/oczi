@@ -12,7 +12,9 @@ All notable changes to **Oczi** are recorded here.
   machine. No key, no account, and it says nothing about a battery if you have none.
   Under the bars it lists the three processes holding the most memory, added up per
   executable name so a browser with a dozen helpers reads as one row. Windows' own
-  plumbing and the WebView2 helpers stay out of that list: nobody can act on them.
+  plumbing — the shell and its hosts, the services, Defender, the update machinery —
+  and the WebView2 helpers stay out of that list: nobody can act on them, and what
+  is left is what a person can actually close.
 - New pill **Music**: whatever Windows says is playing, so Spotify, a browser tab
   and VLC all work. No login, no key. Track, artist, a progress bar, play/pause and
   skipping.
