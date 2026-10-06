@@ -674,6 +674,14 @@ body {
   pointer-events: none;
 }
 
+/* A pill left alone in the last row hangs on the left with a hole beside it: the
+   row is filled and the pill centred, so an odd count reads as deliberate. */
+.pills > .pill:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+  width: calc(50% - 2px);
+  justify-self: center;
+}
+
 .pill:hover {
   transform: scale(1.04);
   filter: brightness(1.06);

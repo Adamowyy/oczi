@@ -116,6 +116,37 @@ fn battery() -> (Option<u8>, Option<bool>) {
     (percent, plugged)
 }
 
+const IGNORED: &[&str] = &[
+    "msedgewebview2",
+    "svchost",
+    "dwm",
+    "csrss",
+    "winlogon",
+    "wininit",
+    "services",
+    "lsass",
+    "smss",
+    "system",
+    "registry",
+    "memory compression",
+    "secure system",
+    "conhost",
+    "audiodg",
+    "dllhost",
+    "taskhostw",
+    "sihost",
+    "ctfmon",
+    "runtimebroker",
+    "searchhost",
+    "shellexperiencehost",
+    "startmenuexperiencehost",
+    "textinputhost",
+    "spoolsv",
+    "wmiprvse",
+    "fontdrvhost",
+    "lsaiso",
+];
+
 fn top_processes() -> Vec<Value> {
     let snapshot = match unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) } {
         Ok(handle) => handle,
@@ -136,7 +167,8 @@ fn top_processes() -> Vec<Value> {
                 .position(|c| *c == 0)
                 .unwrap_or(entry.szExeFile.len());
             let name = String::from_utf16_lossy(&entry.szExeFile[..end]);
-            if !name.is_empty() {
+            let bare = name.trim_end_matches(".exe").to_ascii_lowercase();
+            if !name.is_empty() && !IGNORED.contains(&bare.as_str()) {
                 if let Ok(process) =
                     unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, entry.th32ProcessID) }
                 {

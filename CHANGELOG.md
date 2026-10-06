@@ -11,7 +11,8 @@ All notable changes to **Oczi** are recorded here.
 - New pill **PC**: processor, memory, disk space and battery, read on your own
   machine. No key, no account, and it says nothing about a battery if you have none.
   Under the bars it lists the three processes holding the most memory, added up per
-  executable name so a browser with a dozen helpers reads as one row.
+  executable name so a browser with a dozen helpers reads as one row. Windows' own
+  plumbing and the WebView2 helpers stay out of that list: nobody can act on them.
 - New pill **Music**: whatever Windows says is playing, so Spotify, a browser tab
   and VLC all work. No login, no key. Track, artist, a progress bar, play/pause and
   skipping.
