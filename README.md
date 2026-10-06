@@ -18,17 +18,27 @@ Drop a file, chat through the DeepSeek API, snap a region screenshot — all wit
 
 ## Screenshots
 
+<table>
+<tr>
+<td width="50%" valign="top"><img src="docs/integration-pc.jpg" alt="The PC pill: processor, memory, free disk space and the three processes holding the most memory" width="100%"><br>
+<em>PC — the machine's own numbers, and the three processes holding the most memory. No key, no account, nothing leaving the computer.</em></td>
+<td width="50%" valign="top"><img src="docs/integration-music.jpg" alt="The Music pill: the track Windows is playing, with a progress bar and transport buttons" width="100%"><br>
+<em>Music — whatever Windows says is playing, Spotify or a browser tab, with a progress bar, play/pause and skip.</em></td>
+</tr>
+</table>
+
 <img src="docs/island-drop.jpg" alt="The drop view: Drop files here, with PDF, Images, Code and Docs" width="640">
 
 *Drop a file on her and she takes it — the original is copied into an inbox, never touched.*
 
-<img src="docs/settings-terminal.jpg" alt="Settings — Terminal, on, with the warning it shows" width="430">
-
-*Terminal access is off by default, and says what it will do before it does it.*
-
-<img src="docs/settings-integrations.jpg" alt="Settings — integrations, keys masked" width="430">
-
-*Integrations: each service gets a pill with its own little character. Keys never leave the Credential Manager.*
+<table>
+<tr>
+<td width="50%" valign="top"><img src="docs/settings-integrations.jpg" alt="Settings — integrations, keys masked" width="100%"><br>
+<em>Integrations: each service gets a pill with its own little character. Keys never leave the Credential Manager.</em></td>
+<td width="50%" valign="top"><img src="docs/settings-terminal.jpg" alt="Settings — Terminal, on, with the warning it shows" width="100%"><br>
+<em>Terminal access is off by default, and says what it will do before it does it.</em></td>
+</tr>
+</table>
 
 ## Install
 
