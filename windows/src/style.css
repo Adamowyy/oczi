@@ -1066,6 +1066,7 @@ html.asleep *::after {
   padding: 6px 10px;
   background: rgba(255, 255, 255, 0.07);
   border-radius: 12px;
+  min-width: 0;
 }
 
 .chat-input {
@@ -1300,6 +1301,25 @@ html.asleep *::after {
   background: rgba(110, 231, 183, 0.45);
   filter: blur(5px);
   pointer-events: none;
+}
+
+/* A window that ends up narrower than the 720 px layout must not cut the right-hand
+   column: every panel may shrink, and nothing inside one may claim more room than
+   the panel has (a nowrap flex item without min-width does exactly that). */
+.view,
+.home-body,
+.home-right,
+.overview,
+.overview > .right,
+.overview > .right .card,
+.card-body,
+.left-body,
+.int-card {
+  min-width: 0;
+}
+
+.island {
+  max-width: 100vw;
 }
 
 /* ── Integration cards (overview, left card) ────────────────────────────── */
@@ -1657,9 +1677,18 @@ html.asleep *::after {
 }
 
 .music-meta > span {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The player is the widest thing the card ever holds: nothing inside it may
+   claim more room than the card has, or the pill column beside it is clipped. */
+.music-card > *,
+.music-head > *,
+.music-meta > * {
+  min-width: 0;
 }
 
 .music-app {

@@ -104,6 +104,7 @@ export class Island {
   /** Last shape handed to Rust for the click-through test. */
   private pushedRect = { x: -1, y: -1, w: -1, h: -1 };
   private homeCollapseAt: number | null = null;
+  private windowSize = "";
 
   // Bot hover → love (IslandWindowController.botHoverIn)
   private botHovering = false;
@@ -276,6 +277,14 @@ export class Island {
 
   launch() {
     this.fsm.launch();
+    const note = () => {
+      const size = `${window.innerWidth}x${window.innerHeight}@${window.devicePixelRatio}`;
+      if (size === this.windowSize) return;
+      this.windowSize = size;
+      void Bridge.log(`island window ${size}`);
+    };
+    window.addEventListener("resize", note);
+    note();
   }
 
   // ── Mode / view ─────────────────────────────────────────────────────────────

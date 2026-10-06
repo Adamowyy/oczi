@@ -24,6 +24,8 @@ All notable changes to **Oczi** are recorded here.
   key and no account. Every service that asks for one stays off until it is picked.
 - The compact bar shows every service that is switched on.
 - A card no longer counts down to close while the cursor is on the island.
+- A long track title no longer widens the player until the service column beside it
+  is clipped: the player's rows shrink and ellipsise instead.
 - The countdown buttons inside the island save only the two numbers they change,
   instead of writing the whole settings file back. A page holding an older copy can
   no longer put its own values over the chords you recorded.
