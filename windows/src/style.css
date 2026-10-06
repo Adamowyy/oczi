@@ -1454,8 +1454,8 @@ html.asleep *::after {
 .int-stats {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding-top: 8px;
+  gap: 4px;
+  padding-top: 6px;
   padding-right: 12px;
 }
 
@@ -1518,13 +1518,14 @@ html.asleep *::after {
   text-align: right;
 }
 
-/* The three heaviest processes under the PC bars. Two lines, never three: an
-   ellipsis on one line costs the same height whatever the names are. */
+/* The three heaviest processes under the PC bars: a numbered list, name left and
+   figure right. Three rows of 11px plus the label — the card's spacing is sized
+   around them. */
 .int-procs {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  margin-top: 5px;
+  gap: 2px;
+  margin-top: 4px;
   min-width: 0;
 }
 
@@ -1537,15 +1538,35 @@ html.asleep *::after {
   text-transform: uppercase;
 }
 
-.int-procs-line {
-  display: block;
+.int-proc {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   font-size: 11px;
   line-height: 1.25;
-  color: #c5c8cd;
+}
+
+.int-proc i {
+  flex: 0 0 auto;
+  width: 12px;
+  color: var(--dim-4);
+  font-style: normal;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+}
+
+.int-proc b {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.int-proc span {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Now playing ─────────────────────────────────────────────────────────────

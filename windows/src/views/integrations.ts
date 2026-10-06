@@ -375,17 +375,20 @@ function loadColor(percent: number): string {
 const gb = (bytes: unknown) => `${(Number(bytes ?? 0) / 1024 ** 3).toFixed(1)} GB`;
 
 function procList(procs: Record<string, unknown>[]): HTMLElement {
-  const parts = procs.map((p) => {
+  const list = h("div", { class: "int-procs" }, h("span", { class: "int-procs-title", text: t("int.pcTop") }));
+  procs.forEach((p, i) => {
     const name = String(p.name ?? "");
-    const size = (Number(p.bytes ?? 0) / 1024 ** 3).toFixed(1);
-    return `${name.length > 14 ? `${name.slice(0, 13)}…` : name} ${size}GB`;
+    list.append(
+      h(
+        "div",
+        { class: "int-proc" },
+        h("i", { text: `${i + 1}.` }),
+        h("b", { text: name.length > 17 ? `${name.slice(0, 16)}…` : name }),
+        h("span", { text: gb(p.bytes) }),
+      ),
+    );
   });
-  return h(
-    "div",
-    { class: "int-procs" },
-    h("span", { class: "int-procs-title", text: t("int.pcTop") }),
-    h("span", { class: "int-procs-line", text: parts.join(" · ") }),
-  );
+  return list;
 }
 
 /** One reading: what it is, how full, and the number itself. The bar carries the
