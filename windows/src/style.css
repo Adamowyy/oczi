@@ -1312,7 +1312,10 @@ html.asleep *::after {
 
 .int-card {
   /* Centred in the card rather than pinned to its top: the card is taller than a
-     handful of rows, and the leftover space belongs below as much as above. */
+     handful of rows, and the leftover space belongs below as much as above. The
+     height matters — without it the card is as tall as its content and there is
+     nothing to centre inside. */
+  height: 100%;
   padding: 10px 12px 10px 108px;
   display: flex;
   flex-direction: column;
