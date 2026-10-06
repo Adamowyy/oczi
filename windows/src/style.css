@@ -1518,43 +1518,34 @@ html.asleep *::after {
   text-align: right;
 }
 
-/* The three heaviest processes under the PC bars: name left, figure right, no
-   bar of its own — its row would say less than the number already does. */
+/* The three heaviest processes under the PC bars. Two lines, never three: an
+   ellipsis on one line costs the same height whatever the names are. */
 .int-procs {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  margin-top: 7px;
+  gap: 1px;
+  margin-top: 5px;
+  min-width: 0;
 }
 
 .int-procs-title {
   color: var(--muted-foreground);
   opacity: 0.75;
-  font-size: 10px;
-  letter-spacing: 0.02em;
+  font-size: 9.5px;
+  line-height: 1.2;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
 }
 
-.int-proc {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+.int-procs-line {
+  display: block;
   font-size: 11px;
-  line-height: 1.35;
-}
-
-.int-proc b {
-  min-width: 0;
+  line-height: 1.25;
+  color: #c5c8cd;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-}
-
-.int-proc span {
-  flex: 0 0 auto;
-  color: var(--muted-foreground);
 }
 
 /* ── Now playing ─────────────────────────────────────────────────────────────

@@ -374,22 +374,18 @@ function loadColor(percent: number): string {
 
 const gb = (bytes: unknown) => `${(Number(bytes ?? 0) / 1024 ** 3).toFixed(1)} GB`;
 
-/** The heaviest processes: name on the left, footprint on the right. A long name
- *  is cut rather than wrapped, because three rows is the whole budget. */
 function procList(procs: Record<string, unknown>[]): HTMLElement {
-  const list = h("div", { class: "int-procs" }, h("span", { class: "int-procs-title", text: t("int.pcTop") }));
-  for (const p of procs) {
+  const parts = procs.map((p) => {
     const name = String(p.name ?? "");
-    list.append(
-      h(
-        "div",
-        { class: "int-proc" },
-        h("b", { text: name.length > 18 ? `${name.slice(0, 17)}…` : name }),
-        h("span", { text: gb(p.bytes) }),
-      ),
-    );
-  }
-  return list;
+    const size = (Number(p.bytes ?? 0) / 1024 ** 3).toFixed(1);
+    return `${name.length > 14 ? `${name.slice(0, 13)}…` : name} ${size}GB`;
+  });
+  return h(
+    "div",
+    { class: "int-procs" },
+    h("span", { class: "int-procs-title", text: t("int.pcTop") }),
+    h("span", { class: "int-procs-line", text: parts.join(" · ") }),
+  );
 }
 
 /** One reading: what it is, how full, and the number itself. The bar carries the
