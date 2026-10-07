@@ -25,6 +25,8 @@ All notable changes to **Oczi** are recorded here.
 - A fresh install starts with **PC** and **Music** switched on, the two that need no
   key and no account. Every service that asks for one stays off until it is picked.
 - The compact bar shows every service that is switched on.
+- A new track no longer makes the island peek: the player updates quietly, and the
+  island still opens on the player when it is clicked.
 - A card no longer counts down to close while the cursor is on the island.
 - A long track title no longer widens the player until the service column beside it
   is clipped: the player's rows shrink and ellipsise instead.
