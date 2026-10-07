@@ -167,6 +167,17 @@ const IGNORED: &[&str] = &[
     "msmpeng",
     "nissrv",
     "smartscreen",
+    // NVIDIA's driver helpers. They run on a large share of machines, sit in this
+    // list every time, and nobody closes them on purpose.
+    "nvcontainer",
+    "nvdisplay.container",
+    "nvidia app",
+    "nvbackend",
+    "nvsphelper64",
+    "nvcplui",
+    "nvtelemetrycontainer",
+    "nvprofileupdater64",
+    "nvsmartmaxapp",
     // A browser's WebView2 helpers.
     "msedgewebview2",
 ];
