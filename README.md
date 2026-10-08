@@ -27,6 +27,14 @@ Drop a file, chat through the DeepSeek API, snap a region screenshot — all wit
 </tr>
 </table>
 
+<img src="docs/reminder-card.jpg" alt="A reminder card: Reminder, what to remember, when it is due, and the +10 min and OK buttons" width="640">
+
+*A reminder comes up as a card of its own: what to remember, when it is due, and the two answers.*
+
+<img src="docs/reminder-chat.jpg" alt="The chat: asking which reminder is the closest one, then taking it off the list" width="640">
+
+*Ask what is planned, or take one off again. The chat and the cards are the same list.*
+
 <img src="docs/island-drop.jpg" alt="The drop view: Drop files here, with PDF, Images, Code and Docs" width="640">
 
 *Drop a file on her and she takes it — the original is copied into an inbox, never touched.*
