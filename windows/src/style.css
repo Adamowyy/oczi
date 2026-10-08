@@ -1177,6 +1177,16 @@ html.asleep *::after {
   transition: background 0.12s ease-out, color 0.12s ease-out, transform 0.08s ease-out;
 }
 
+/* In the pills card the bar gets one line and the label ate a third of it, so there the
+   plus stands alone, the size of the eye beside it, with the title carrying the words. */
+.new-chat-btn.bare {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  flex: 0 0 28px;
+  padding: 0;
+}
+
 .new-chat-btn svg {
   flex: 0 0 auto;
   opacity: 0.85;

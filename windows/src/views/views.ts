@@ -117,11 +117,12 @@ function buildChatBar(actions: ViewActions): { el: HTMLElement; sync(): void } {
     e.stopPropagation();
     actions.snip();
   });
+  // The pills card has one line for the bar, so here the plus stands on its own and the
+  // title carries the words.
   const fresh = h(
     "button",
-    { class: "new-chat-btn", title: t("chat.newTip") },
+    { class: "new-chat-btn bare", title: t("chat.newTip") },
     svg(ICONS.plus, 11),
-    h("span", { text: t("chat.new") }),
   );
   fresh.addEventListener("mousedown", (e) => {
     e.stopPropagation();
