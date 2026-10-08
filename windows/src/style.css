@@ -1071,6 +1071,24 @@ html.asleep *::after {
   50% { transform: scale(1.2); }
 }
 
+/* The suggestions an empty chat shows above the bar, until the first message.
+   Laid over the card's free space and centred in it, so it reads as the card's
+   own text rather than as an extra row above the bar. */
+.chat-hints {
+  position: absolute;
+  left: 84px;
+  right: 16px;
+  top: 12px;
+  bottom: 62px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+  font: 400 13.5px var(--font);
+  color: var(--dim-3);
+}
+
 .chat-bar {
   display: flex;
   align-items: center;
