@@ -2,6 +2,21 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.2.0 — 2026-10-08
+
+- Oczi sets reminders itself now: ask for one in the chat and a card comes up at
+  the right moment, with **OK** and **+10 min**. Nothing is installed for it and
+  nothing is written outside `%APPDATA%\Oczi`: no scripts, no scheduled tasks.
+- A reminder can repeat: every day, on working days, or once a week at the same
+  time. The card says which.
+- A reminder that came due while Oczi was closed is shown as **missed**, and it
+  offers no **+10 min**. Ten more minutes of a day that has gone makes no sense.
+- A reminder that was never answered comes back on the next launch, so a card lost
+  to a shutdown or a restart is not lost with it. Asking what is planned in a new
+  conversation lists the same reminders.
+- The model is told to set reminders rather than build them out of scripts, and it
+  is told to set a repeating one when that is what was asked for.
+
 ## 0.1.7 — 2026-10-06
 
 - You can pick both keyboard shortcuts yourself now: in Settings → General, click
