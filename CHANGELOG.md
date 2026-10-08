@@ -14,6 +14,13 @@ All notable changes to **Oczi** are recorded here.
 - A reminder that was never answered comes back on the next launch, so a card lost
   to a shutdown or a restart is not lost with it. Asking what is planned in a new
   conversation lists the same reminders.
+- Clicking somewhere else hides a reminder card without dismissing it: it is still
+  there the next time the island is opened, and only **OK** or **+10 min** end it.
+  The first three seconds ignore that click, so one already on its way when the card
+  appears cannot take it away.
+- An empty chat shows what Oczi can do, one line at a time: set a reminder, ask
+  about a page, snip the screen, ask what is planned today, or turn the terminal on
+  and hand it work on your computer.
 - The model is told to set reminders rather than build them out of scripts, and it
   is told to set a repeating one when that is what was asked for.
 
