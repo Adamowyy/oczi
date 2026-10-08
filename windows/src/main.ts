@@ -94,6 +94,7 @@ async function main() {
       return;
     }
     State.reminder = r;
+    State.reminderShownAt = performance.now();
     State.isPinned = true;
     island.alert("reminder");
     void Bridge.log(`reminder #${r.id} shown view=${State.view} mode=${State.mode}`);

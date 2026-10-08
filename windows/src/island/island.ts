@@ -27,6 +27,9 @@ import { IslandStateMachine } from "./fsm";
 const BOT_OVERHANG = 40;
 /** Same margin as the Rust hit test (src-tauri/src/island.rs). */
 const HIT_MARGIN = 14;
+
+/** How long a reminder card ignores a click that hides the island. */
+const REMINDER_GRACE_MS = 3000;
 /** Frames a second on an untouched island; the engine is clock-driven, so the
  * same character at any rate. Anything the user touches runs full speed. */
 const RESTING_FPS = 15;
@@ -262,18 +265,24 @@ export class Island {
           else if (from === "greeting" && State.newsMessage) this.alert("whatsnew");
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
-        case "home":
+        case "home": {
           // A reminder that is waiting takes the stage at every opening until it is
           // answered; then a news card; then whatever the opening asked for.
-          this.expand(
-            State.reminder
-              ? "reminder"
-              : State.newsMessage
-                ? "whatsnew"
-                : State.defaultView(),
-          );
+          const view: IslandViewName = State.reminder
+            ? "reminder"
+            : State.newsMessage
+              ? "whatsnew"
+              : State.defaultView();
+          this.expand(view);
+          // Coming back to a card that was put away: it is still waiting for an
+          // answer, so the countdown must not fold it away while it is read.
+          if (view === "reminder") {
+            State.isPinned = true;
+            this.fsm.pinned = true;
+          }
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
+        }
         case "greeting":
           this.expand("greeting");
           void Bridge.log("fsm -> greeting");
@@ -374,16 +383,7 @@ export class Island {
       State.view = State.defaultView();
     }
     if (State.view === "reminder") {
-      if (State.reminder) void Bridge.reminderDone(State.reminder.id);
-      const next = State.queuedReminders.shift() ?? null;
-      if (next) {
-        State.reminder = next;
-        State.isPinned = true;
-        this.fsm.pinned = true;
-        this.expand("reminder");
-        return;
-      }
-      State.reminder = null;
+      if (State.reminder && performance.now() - State.reminderShownAt < REMINDER_GRACE_MS) return;
       State.view = State.defaultView();
     }
     State.isPinned = false;

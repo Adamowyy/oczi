@@ -179,6 +179,9 @@ class AppState {
   /** Reminders that came due while another one was on the card. Rust has already
    *  taken them off the list, so this queue is the only place they still exist. */
   queuedReminders: DueReminder[] = [];
+  /** When the card on screen appeared, for the few seconds it ignores a click that
+   *  would hide the island. */
+  reminderShownAt = 0;
   noteMessage: string | null = null;
   searchResult: SearchResult | null = null;
   chatHistory: ChatMessage[] = [];

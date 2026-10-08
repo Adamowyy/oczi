@@ -385,6 +385,7 @@ function answer(actions: ViewActions) {
   );
   if (next) {
     State.isPinned = true;
+    State.reminderShownAt = performance.now();
     actions.setView("reminder");
     return;
   }

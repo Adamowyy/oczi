@@ -6,13 +6,26 @@ import { ICONS } from "./icons";
 import { Bridge, type ChatContext } from "../core/bridge";
 import { Sound } from "../core/sound";
 import { State, type ChatMessage } from "../core/state";
-import { t } from "../core/i18n";
+import { t, type TextKey } from "../core/i18n";
 import type { ViewActions, ViewHost } from "./views";
 
 let nextId = 1;
 
 /** A conversation left alone for an hour has expired and is dropped on both sides. */
 const SESSION_TTL_MS = 60 * 60 * 1000;
+
+/** What a fresh chat says in its empty field, one line at a time, so it shows what
+ *  Oczi can actually do instead of sitting there blank. */
+const HINTS: TextKey[] = [
+  "hint.reminder",
+  "hint.page",
+  "hint.snip",
+  "hint.today",
+  "hint.terminal",
+];
+
+/** How long one hint stays up before the next takes its place. */
+const HINT_SWAP_MS = 4000;
 
 /** The little bit of structure the card renders: bold, inline code and lists. */
 const INLINE = /(\*\*[^*]+\*\*|`[^`]+`|https?:\/\/[^\s<>()\[\]]+)/g;
@@ -200,6 +213,9 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
 
   let sending = false;
   let renderedCount = -1;
+  /** Which hint is up in the empty field, and since when. */
+  let hint = 0;
+  let hintAt = 0;
 
   async function submit() {
     const query = input.value.trim();
@@ -299,11 +315,27 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
         log.scrollTop = log.scrollHeight;
       }
 
-      input.placeholder = State.snip
-        ? t("chat.placeholderSnip")
-        : State.chatHistory.length === 0
-          ? t("chat.placeholder")
-          : t("chat.placeholderContinue");
+      const emptyField =
+        State.chatHistory.length === 0 &&
+        !State.snip &&
+        !State.droppedFile &&
+        input.value === "";
+      if (emptyField) {
+        const now = performance.now();
+        if (hintAt === 0) hintAt = now;
+        else if (now - hintAt >= HINT_SWAP_MS) {
+          hintAt = now;
+          hint = (hint + 1) % HINTS.length;
+        }
+        input.placeholder = t(HINTS[hint]);
+      } else {
+        hintAt = 0;
+        input.placeholder = State.snip
+          ? t("chat.placeholderSnip")
+          : State.chatHistory.length === 0
+            ? t("chat.placeholder")
+            : t("chat.placeholderContinue");
+      }
       input.disabled = sending;
       // Nothing to clear yet, so the button keeps out of the bar and takes its
       // space with it.

@@ -86,6 +86,12 @@ const EN = {
   "chat.placeholder": "Ask me anything…",
   "chat.placeholderSnip": "Ask about this screenshot…",
   "chat.placeholderContinue": "Continue…",
+  // What an empty chat suggests, one line at a time.
+  "hint.reminder": "Remind me every day at 8:00 about a walk",
+  "hint.page": "Summarise this page: <address>",
+  "hint.snip": "Snip the screen with your shortcut, or click the eye, and ask about it.",
+  "hint.today": "What do I have planned today?",
+  "hint.terminal": "Turn the terminal on in the settings and hand Iskra work on your computer.",
   "chat.send": "Send",
   "chat.askButton": "Ask DeepSeek",
   "chat.askSub": "Ask me anything.",
@@ -160,7 +166,7 @@ const EN = {
   "news.0.1.4": "- **Settings → Island lives on** now lists every display the way Windows numbers it, so the island can be pinned to one monitor instead of only the main one or the one under the cursor.\n- A short card like this one appears after an update, and once a launch it also says whether a newer release is waiting on GitHub.",
   "news.0.1.6": "- Answers read as prose again: a list item's text no longer breaks into columns, tables and headings are folded into plain lines, and replies are shorter.\n- The model now sees its own replies, so it stops repeating itself and stops answering two questions at once.",
   "news.0.1.7": "- You can pick both keyboard shortcuts yourself now: in Settings → General, click the field and press the combination you like. One for the island, one for the screenshot.\n- Two new pills: PC, showing your processor, memory and disks, and Music, showing what is playing right now (Spotify, a browser, VLC), with play/pause and skipping.",
-  "news.0.2.0": "- Oczi sets reminders itself now: ask for one and a card comes up at the right moment, with **OK** and **+10 min**. They can repeat every day, on working days or once a week.\n- Reminders live in a file of their own, so a new conversation still sees them. One that was never answered comes back on the next launch.",
+  "news.0.2.0": "- Oczi sets reminders itself now: ask for one and a card comes up at the right moment, with **OK** and **+10 min**. They can repeat every day, on working days or once a week.\n- An empty chat suggests what to ask for, and a reminder you never answered comes back on the next launch.",
 } as const;
 
 export type TextKey = keyof typeof EN;
@@ -241,6 +247,12 @@ const PL: Record<TextKey, string> = {
   "chat.placeholder": "Zapytaj mnie o cokolwiek…",
   "chat.placeholderSnip": "Zapytaj o ten zrzut ekranu…",
   "chat.placeholderContinue": "Kontynuuj…",
+  // Co podpowiada puste pole czatu, jedna linia na raz.
+  "hint.reminder": "Przypomnij mi codziennie o 8:00 o spacerze",
+  "hint.page": "Streść tę stronę: <adres>",
+  "hint.snip": "Zrób zrzut ekranu za pomocą swojego skrótu lub kliknij oczko i zapytaj o niego.",
+  "hint.today": "Co mam zaplanowane na dziś?",
+  "hint.terminal": "Włącz terminal w ustawieniach i zlecaj Iskrze prace na twoim komputerze.",
   "chat.send": "Wyślij",
   "chat.askButton": "Zapytaj DeepSeek",
   "chat.askSub": "Zapytaj mnie o cokolwiek.",
@@ -313,7 +325,7 @@ const PL: Record<TextKey, string> = {
   "news.0.1.4": "- **Ustawienia → Wyspa mieszka na** pokazują teraz każdy monitor tak, jak numeruje go Windows — wyspę można przypiąć na stałe do jednego ekranu, a nie tylko do głównego albo tego pod kursorem.\n- Po aktualizacji pojawia się taka krótka karta, a raz na uruchomienie mówi też, czy na GitHubie czeka nowsze wydanie.",
   "news.0.1.6": "- Odpowiedzi znów czyta się jak prozę: tekst punktu nie łamie się na kolumny, tabele i nagłówki zamieniają się w zwykłe linie, a odpowiedzi są krótsze.\n- Model widzi teraz własne odpowiedzi, więc nie powtarza się i nie odpowiada na dwa pytania naraz.",
   "news.0.1.7": "- Od teraz oba skróty ustawisz sam: w Ustawieniach → Ogólne klikasz pole i wciskasz taką kombinację, jaka Ci pasuje. Osobno dla wyspy, osobno dla zrzutu ekranu.\n- Doszły dwie nowe pigułki: PC, czyli procesor, pamięć i dyski Twojego komputera, oraz Music, czyli to, co teraz gra (Spotify, przeglądarka, VLC), z play/pauzą i przewijaniem.",
-  "news.0.2.0": "- Oczi sam ustawia teraz przypomnienia: poproś o jedno, a karta pojawi się o właściwej porze, z przyciskami **Jasne** i **+10 min**. Mogą się powtarzać codziennie, w dni robocze albo raz w tygodniu.\n- Przypomnienia trzymają się w swoim pliku, więc nowy czat je widzi, a niepotwierdzone wróci przy następnym uruchomieniu.",
+  "news.0.2.0": "- Oczi sam ustawia teraz przypomnienia: poproś o jedno, a karta pojawi się o właściwej porze, z przyciskami **Jasne** i **+10 min**. Mogą się powtarzać codziennie, w dni robocze albo raz w tygodniu.\n- Puste pole czatu podpowiada, o co można zapytać, a niepotwierdzone przypomnienie wróci przy następnym uruchomieniu.",
 };
 
 const TABLES: Record<Lang, Record<TextKey, string>> = { en: EN, pl: PL };
