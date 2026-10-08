@@ -343,6 +343,13 @@ export class Island {
   }
 
   expand(view: IslandViewName) {
+    if (State.reminder && (view === "home" || view === "prompt")) {
+      void Bridge.log(`expand ${view} -> reminder #${State.reminder.id}`);
+      view = "reminder";
+      // The card is back, so it is waiting to be read rather than counted down.
+      State.isPinned = true;
+      this.fsm.pinned = true;
+    }
     this.stopSequenceIfLeaving(view);
     State.view = view;
     this.syncDropPin(view);
@@ -384,6 +391,11 @@ export class Island {
     }
     if (State.view === "reminder") {
       if (State.reminder && performance.now() - State.reminderShownAt < REMINDER_GRACE_MS) return;
+      // Logged because the card is the only thing that can lose a reminder the file
+      // still holds: whether the state survived this is what a report turns on.
+      void Bridge.log(
+        `reminder ${State.reminder ? `#${State.reminder.id} card put away` : "card gone"}`,
+      );
       State.view = State.defaultView();
     }
     State.isPinned = false;
