@@ -1,7 +1,7 @@
 // Entry point: boot the bridge, wire the island, start the greeting.
 
 import "./style.css";
-import { Bridge, IS_TAURI, onEvent } from "./core/bridge";
+import { Bridge, IS_TAURI, onEvent, type ReminderEvent } from "./core/bridge";
 import { Sound } from "./core/sound";
 import { State, type Settings } from "./core/state";
 import { currentLang, setLang, storedLang, t } from "./core/i18n";
@@ -83,6 +83,22 @@ async function main() {
     island.snipDone(info),
   );
 
+  // A reminder has come due. Rust kept the time; this side only shows the card,
+  // pinned so it waits to be answered instead of counting down while it is read.
+  await onEvent<ReminderEvent>("reminder", (r) => {
+    // One card at a time: a second reminder that lands while the first is up waits
+    // its turn rather than taking the card away.
+    if (State.reminder) {
+      State.queuedReminders.push(r);
+      void Bridge.log(`reminder #${r.id} queued (${State.queuedReminders.length})`);
+      return;
+    }
+    State.reminder = r;
+    State.isPinned = true;
+    island.alert("reminder");
+    void Bridge.log(`reminder #${r.id} shown view=${State.view} mode=${State.mode}`);
+  });
+
   // The settings window writes preferences; apply them here without a restart.
   await onEvent<Settings>("settings-changed", (s) => {
     const languageChanged = s.language !== State.settings.language;
@@ -128,6 +144,8 @@ async function main() {
     island.alert("whatsnew");
   }
   void announce();
+
+  await Bridge.remindersReady();
 
   // In a plain browser there is no wake strip behind the cursor: make the whole
   // page wake the island so the visuals can be checked with `npm run dev`.

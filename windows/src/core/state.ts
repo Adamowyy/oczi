@@ -41,6 +41,19 @@ export interface SearchResult {
   note?: string;
 }
 
+/** A reminder that has come due — the payload of Rust's `reminder` event, in the
+ *  shape the card needs. */
+export interface DueReminder {
+  id: number;
+  text: string;
+  atText: string;
+  lateSeconds: number;
+  /** Already due when Oczi started, so it came up while the app was not running. */
+  missed: boolean;
+  /** How it comes back, absent for a one-off. */
+  repeat?: "daily" | "weekdays" | "weekly";
+}
+
 const task = (
   id: string, name: string, color: string,
 ): AgentTask => ({
@@ -160,6 +173,12 @@ class AppState {
   /** The one-off card about this version: what changed, and any release newer
    *  than the one running. Set once at boot, shown once, then cleared. */
   newsMessage: { title: string; body: string } | null = null;
+  /** A reminder that has come due and is on the card right now. Set from Rust's
+   *  event, cleared when it is answered or the card folds away. */
+  reminder: DueReminder | null = null;
+  /** Reminders that came due while another one was on the card. Rust has already
+   *  taken them off the list, so this queue is the only place they still exist. */
+  queuedReminders: DueReminder[] = [];
   noteMessage: string | null = null;
   searchResult: SearchResult | null = null;
   chatHistory: ChatMessage[] = [];

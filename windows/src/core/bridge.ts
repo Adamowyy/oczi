@@ -120,6 +120,15 @@ export const Bridge = {
 
   /** Tray → Pause. Stops the integration pollers, not just the island. */
   setPaused: (paused: boolean) => call<void>("set_paused", { paused }),
+
+  reminderAdd: (text: string, at: string, repeat: string | null = null) =>
+    callOrThrow<{ id: number; text: string; at: number }>("reminder_add", { text, at, repeat }),
+
+  /** Called once the reminder listener is wired. Until this arrives nothing is
+   *  shown: the event would land before this page could hear it. */
+  remindersReady: () => call<void>("reminders_ready"),
+
+  reminderDone: (id: number) => call<number | null>("reminder_done", { id }),
 };
 
 export interface IntegrationUpdate {
@@ -147,6 +156,22 @@ export interface DroppedFile {
   size: number;
 }
 
+/** A reminder that has come due: Rust kept the time, the island shows the card. */
+export interface ReminderEvent {
+  id: number;
+  text: string;
+  at: number;
+  /** The due time, formatted in Rust, one clock, one format on both sides. */
+  atText: string;
+  /** Seconds past due when it was shown, for the log. */
+  lateSeconds: number;
+  /** It was already due when Oczi started: it came up while the app was not there
+   *  to show it, whatever the number of seconds. */
+  missed: boolean;
+  /** `daily`, `weekdays` or `weekly` when it comes back; absent for a one-off. */
+  repeat?: "daily" | "weekdays" | "weekly";
+}
+
 /** Same as `call`, but surfaces the error so the UI can show what went wrong. */
 async function callOrThrow<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!IS_TAURI) throw new Error("not running inside Oczi");
@@ -160,6 +185,7 @@ export type BridgeEvent =
   | { name: "hotkey-snip"; payload: null }
   | { name: "click-outside"; payload: null }
   | { name: "snip-done"; payload: SnipInfo }
+  | { name: "reminder"; payload: ReminderEvent }
   | { name: "screen-changed"; payload: null };
 
 export interface DragDropPayload {

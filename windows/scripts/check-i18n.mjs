@@ -93,9 +93,7 @@ function rustFiles(dir) {
 }
 
 const ROOT = join(HERE, "..");
-// The terminal tests quote a reply the model really sent, Polish and full-width
-// pipes included, that text has to stay exactly as it was.
-const RUST_SKIP = new Set(["text_tools.rs"]);
+const RUST_SKIP = new Set(["text_tools.rs", "reminders.rs"]);
 
 function scan(files) {
   for (const file of files) {

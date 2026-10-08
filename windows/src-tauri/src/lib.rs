@@ -7,6 +7,7 @@ mod island;
 mod log;
 mod media;
 mod pc;
+mod reminders;
 mod secrets;
 mod settings;
 mod shell;
@@ -433,6 +434,49 @@ fn open_n8n() {
     }
 }
 
+// ── Reminders ─────────────────────────────────────────────────────────────────
+
+/// What is still pending. Read from the file every time, so the list is right even
+/// when the file was edited by hand, there is no copy of it held in memory.
+#[tauri::command]
+fn reminders_list() -> Vec<reminders::Reminder> {
+    reminders::all()
+}
+
+/// Set one without a chat turn, the model has its own tools for this; the island
+/// uses it for the "+10 min" button on a card, which is just a new reminder.
+#[tauri::command]
+fn reminder_add(
+    text: String,
+    at: String,
+    repeat: Option<String>,
+) -> Result<reminders::Reminder, String> {
+    let when = reminders::parse_when(&at)?;
+    let repeat = reminders::parse_repeat(repeat.as_deref().unwrap_or(""))?;
+    reminders::add(&text, when, repeat)
+}
+
+#[tauri::command]
+fn reminder_cancel(id: u64) -> Result<bool, String> {
+    reminders::remove(id)
+}
+
+/// A card on screen has been answered. For a one-off that is the end of it; for a
+/// repeating one this moves it to its next occurrence and returns when that is.
+/// Until this arrives, the entry stays and is handed back on the next launch.
+#[tauri::command]
+fn reminder_done(id: u64) -> Result<Option<i64>, String> {
+    reminders::answered(id)
+}
+
+/// The island has wired its listener. Nothing is shown before this arrives: an
+/// event emitted while the page was still loading had nobody to hear it, and the
+/// reminder was already gone from the list by then.
+#[tauri::command]
+fn reminders_ready(app: AppHandle) {
+    reminders::ready(&app);
+}
+
 /// Refresh buttons in the integration cards.
 #[tauri::command]
 async fn refresh_integration(app: AppHandle, id: String) {
@@ -636,6 +680,11 @@ pub fn run() {
             refresh_integration,
             media_control,
             open_n8n,
+            reminders_list,
+            reminder_add,
+            reminder_cancel,
+            reminder_done,
+            reminders_ready,
             open_settings_window,
             set_paused,
             set_island_anchor,
@@ -671,6 +720,9 @@ pub fn run() {
             log::line(format!("--- Oczi {} started ---", env!("CARGO_PKG_VERSION")));
             integrations::start(handle.clone());
             media::start(handle.clone());
+            // Reminders are the app's own promise, so they are watched here rather
+            // than by anything the user has to keep alive separately.
+            reminders::start(handle.clone());
             Ok(())
         })
         .build(tauri::generate_context!())

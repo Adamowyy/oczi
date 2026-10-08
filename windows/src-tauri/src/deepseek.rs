@@ -59,6 +59,13 @@ Never run something destructive as a side effect of a guess. \
 Every command is written to the app log, so report the command you ran and what it printed, and never claim a result you did not see. \nCall the tools the normal way: never write the call out as text or XML, because that does nothing at all. \
 When you have asked whether to do something and the user answers ok, yes, go ahead or anything else that reads as agreement, that is permission: do it, without asking a second time.";
 
+const REMINDER_PROMPT: &str = "\nAnything the user wants to be told about later — \"remind me\", \"przypomnij mi\", \"in 20 minutes\", \"tomorrow at 8\" — is one call to the remind tool. A card Oczi itself shows at that moment; the user needs nothing installed and nothing running for it. \
+Never build a reminder out of a script, a scheduled task, PowerShell, msg or a .ps1 file: the tool is the only thing the user will actually see, and anything else just leaves files behind. \
+Give `when` in one of the forms the tool documents: \"+15m\", \"18:30\", \"tomorrow 08:00\", \"2026-10-12 09:00\". \
+A reminder can repeat: pass `repeat` as \"daily\", \"weekdays\" or \"weekly\" when the user asks for one that comes back, and omit it for a one-off. Never accept \"codziennie\" and then set a one-off — list_reminders says which are repeating, and the user will see the difference. \
+list_reminders shows what is pending, including anything already on screen and waiting to be answered; cancel_reminder removes one by its id. \
+After setting one, say when it will come — and whether it repeats — briefly.";
+
 /// Rounds of tool calls allowed in one turn. Terminal work is a chain, look,
 /// look again, act, so this is the budget for a whole task, not one lookup.
 /// Two more rounds run without tools, which is where the answer comes from.
@@ -91,7 +98,8 @@ fn language_line(language: &str) -> &'static str {
 /// The names of the tools offered this turn, so a call the model writes into
 /// the text is only taken when it names a real one.
 fn tool_names(web: bool, terminal: bool) -> Vec<&'static str> {
-    let mut names = Vec::new();
+    // Reminders first: always offered, whatever the switches say, see REMINDER_PROMPT.
+    let mut names = vec!["remind", "list_reminders", "cancel_reminder"];
     if web {
         names.extend(["web_search", "fetch_url"]);
     }
@@ -110,7 +118,60 @@ fn tool_names(web: bool, terminal: bool) -> Vec<&'static str> {
 /// The tools the model may call. Every one of them is executed in the app, never
 /// by the model, it only decides what is worth doing.
 fn tools(web: bool, terminal: bool) -> Value {
-    let mut list: Vec<Value> = Vec::new();
+    let mut list: Vec<Value> = vec![
+        json!({
+            "type": "function",
+            "function": {
+                "name": "remind",
+                "description": "Set a reminder the user will be shown at the right moment, as a card from Oczi. Use it for anything they want to be told about later. Never build a reminder from a script, a scheduled task or PowerShell — this is the tool that shows one.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "What to remind about, in the user's language, written so it means something on its own — \"buy milk\", not \"that thing we talked about\"."
+                        },
+                        "when": {
+                            "type": "string",
+                            "description": "When it comes due. Either a duration from now — \"+15m\", \"+1h30m\", \"90\" (minutes) — or a local time: \"18:30\", \"tomorrow 08:00\", \"2026-10-12 09:00\", \"24.12.2026 18:00\". A clock time that has already passed today means tomorrow."
+                        },
+                        "repeat": {
+                            "type": "string",
+                            "enum": ["daily", "weekdays", "weekly"],
+                            "description": "Only when the user wants it to come back: \"daily\" every day, \"weekdays\" Monday to Friday, \"weekly\" the same day each week, at the same clock time. Omit it entirely for a one-off. If the user asks for a repeating reminder, set this — never agree to \"codziennie\" and then set a one-off."
+                        }
+                    },
+                    "required": ["text", "when"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "list_reminders",
+                "description": "List the reminders that are still pending, with their ids and due times. Call it when the user asks what is coming up, or before setting one that might already exist.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "cancel_reminder",
+                "description": "Remove a pending reminder by the id list_reminders gave.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "integer", "description": "The reminder's id." }
+                    },
+                    "required": ["id"]
+                }
+            }
+        }),
+    ];
 
     if web {
         list.push(json!({
@@ -236,6 +297,10 @@ fn system_prompt(web: bool, terminal: bool, language: &str) -> String {
         prompt.push_str(&format!("
 Today is {date}."));
     }
+    // The time of day, always: "in twenty minutes" and "tonight at eight" cannot
+    // be turned into a reminder without it, and the reminder tools are always on.
+    prompt.push_str(&format!("\nIt is now {}.", crate::util::now_line()));
+    prompt.push_str(REMINDER_PROMPT);
     if terminal {
         prompt.push_str(TERMINAL_PROMPT);
     }
@@ -246,6 +311,41 @@ Today is {date}."));
 /// tool result, so it can try a different query instead of the turn dying.
 async fn run_tool(name: &str, args: &Value, provider: &str, terminal: bool) -> Result<String, String> {
     match name {
+        "remind" => {
+            let text = args.get("text").and_then(Value::as_str).unwrap_or("").trim();
+            let when = args.get("when").and_then(Value::as_str).unwrap_or("").trim();
+            let repeat_arg = args.get("repeat").and_then(Value::as_str).unwrap_or("");
+            if text.is_empty() {
+                return Err("Puste przypomnienie — podaj „text”.".to_string());
+            }
+            let at = crate::reminders::parse_when(when)?;
+            let repeat = crate::reminders::parse_repeat(repeat_arg)?;
+            let r = crate::reminders::add(text, at, repeat)?;
+            // i18n-ok: the model reads this tool result; the card the user sees is
+            // translated on the island side.
+            Ok(format!(
+                // i18n-ok: model-facing, as above.
+                "Przypomnienie #{} ustawione: {}{} — {}",
+                r.id,
+                crate::reminders::format_local(r.at),
+                match r.repeat {
+                    Some(rep) => format!(" [{}]", crate::reminders::repeat_word(rep)),
+                    None => String::new(),
+                },
+                r.text
+            ))
+        }
+        "list_reminders" => Ok(crate::reminders::describe()),
+        "cancel_reminder" => {
+            let id = args.get("id").and_then(Value::as_u64).unwrap_or(0);
+            if crate::reminders::remove(id)? {
+                // i18n-ok: model-facing, as above.
+                Ok(format!("Przypomnienie #{id} usunięte."))
+            } else {
+                // i18n-ok: model-facing, as above.
+                Ok(format!("Nie ma zaplanowanego przypomnienia o numerze #{id}."))
+            }
+        }
         "web_search" => {
             let query = args.get("query").and_then(Value::as_str).unwrap_or("").trim();
             if query.is_empty() {

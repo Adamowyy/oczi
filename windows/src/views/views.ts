@@ -373,6 +373,73 @@ function buildNote(): ViewHost {
   };
 }
 
+// ── Reminder ──────────────────────────────────────────────────────────────────
+
+function answer(actions: ViewActions) {
+  if (State.reminder) void Bridge.reminderDone(State.reminder.id);
+  const next = State.queuedReminders.shift() ?? null;
+  State.reminder = next;
+  // Logged because the queue is the only place a second reminder exists by then.
+  void Bridge.log(
+    next ? `reminder #${next.id} next (${State.queuedReminders.length} more)` : "reminder answered",
+  );
+  if (next) {
+    State.isPinned = true;
+    actions.setView("reminder");
+    return;
+  }
+  State.isPinned = false;
+  actions.collapse();
+}
+
+/** The i18n key for each repeat, so the card can say what comes back. */
+const CYCLE = { daily: "rem.daily", weekdays: "rem.weekdays", weekly: "rem.weekly" } as const;
+
+function buildReminder(actions: ViewActions): ViewHost {
+  const kind = h("div", { class: "eyebrow" });
+  const text = h("div", { class: "title" });
+  const whenEl = h("div", { class: "sub" });
+  const snooze = btn(t("rem.snooze"), "secondary", () => {
+    const r = State.reminder;
+    if (r) void Bridge.reminderAdd(r.text, "+10m");
+    answer(actions);
+  });
+  const el = h(
+    "div",
+    { class: "view" },
+    card("amber",
+      h("div", { class: "stack", style: "padding:0 18px 0 98px" },
+        kind,
+        text,
+        whenEl,
+        h("div", { class: "actions", style: "margin-top:8px" },
+          h("div", { class: "grow" }),
+          snooze,
+          btn(t("rem.ok"), "primary", () => answer(actions)),
+        ),
+      ),
+    ),
+  );
+  return {
+    el,
+    sync() {
+      const r = State.reminder;
+      if (!r) return;
+      // Missed means it was already due when Oczi started, not "a few minutes
+      // late": a card the app was not running to show has to say so.
+      kind.textContent = r.missed ? t("rem.missedTitle") : t("rem.title");
+      kind.classList.toggle("late", r.missed);
+      snooze.style.display = r.missed ? "none" : "";
+      text.textContent = r.text;
+      // A repeating reminder has to say so on the card: "codziennie o 11:50" and a
+      // one-off at the same hour look identical otherwise.
+      const cycle = r.repeat ? t(CYCLE[r.repeat]) : null;
+      const when = t("rem.at", r.atText);
+      whenEl.textContent = cycle ? `${when} · ${cycle}` : when;
+    },
+  };
+}
+
 // ── What's new (once, after an update) ────────────────────────────────────────
 
 function buildWhatsNew(actions: ViewActions): ViewHost {
@@ -506,6 +573,7 @@ export function buildViews(
   map.set("empty", buildEmpty(actions));
   map.set("confused", buildConfused());
   map.set("note", buildNote());
+  map.set("reminder", buildReminder(actions));
   map.set("whatsnew", buildWhatsNew(actions));
   map.set("settings", buildSettings(actions));
   map.set("prompt", buildPrompt(actions, onChatHeightChange));

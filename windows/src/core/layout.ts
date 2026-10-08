@@ -15,6 +15,7 @@ export type IslandViewName =
   | "searching"
   | "result"
   | "note"
+  | "reminder"
   | "whatsnew"
   | "settings"
   | "greeting";
@@ -79,6 +80,9 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   searching: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   result: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   note: { height: 160, botX: 60, botY: null, botDiameter: 50, agentMode: "column" },
+  // Taller than a note: a reminder carries a line of its own for the kind of card
+  // and another for the time, plus a row with its answers.
+  reminder: { height: 196, botX: 60, botY: null, botDiameter: 50, agentMode: "none" },
   // Taller than a note: the card carries a handful of lines plus its button.
   whatsnew: { height: 208, botX: 60, botY: null, botDiameter: 50, agentMode: "none" },
   settings: { height: 160, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },

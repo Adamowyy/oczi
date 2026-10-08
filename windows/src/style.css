@@ -715,6 +715,18 @@ body {
 
 /* ── Generic text blocks ────────────────────────────────────────────────── */
 
+/* The small line above a card's title — what kind of card this is. */
+.eyebrow {
+  font: 600 11px var(--font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim-2);
+}
+
+.eyebrow.late {
+  color: var(--amber);
+}
+
 .title {
   font: 600 15px var(--font);
 }

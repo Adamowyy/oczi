@@ -258,11 +258,20 @@ export class Island {
           else if (from === "hidden") Sound.play("peek");
           this.setMode("compact");
           if (from === "greeting") State.view = State.defaultView();
-          if (from === "greeting" && State.newsMessage) this.alert("whatsnew");
+          if (from === "greeting" && State.reminder) this.alert("reminder");
+          else if (from === "greeting" && State.newsMessage) this.alert("whatsnew");
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
         case "home":
-          this.expand(State.newsMessage ? "whatsnew" : State.defaultView());
+          // A reminder that is waiting takes the stage at every opening until it is
+          // answered; then a news card; then whatever the opening asked for.
+          this.expand(
+            State.reminder
+              ? "reminder"
+              : State.newsMessage
+                ? "whatsnew"
+                : State.defaultView(),
+          );
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
         case "greeting":
@@ -362,6 +371,19 @@ export class Island {
     // once the island folds, and it must not come back on the next open.
     if (State.view === "whatsnew") {
       State.newsMessage = null;
+      State.view = State.defaultView();
+    }
+    if (State.view === "reminder") {
+      if (State.reminder) void Bridge.reminderDone(State.reminder.id);
+      const next = State.queuedReminders.shift() ?? null;
+      if (next) {
+        State.reminder = next;
+        State.isPinned = true;
+        this.fsm.pinned = true;
+        this.expand("reminder");
+        return;
+      }
+      State.reminder = null;
       State.view = State.defaultView();
     }
     State.isPinned = false;

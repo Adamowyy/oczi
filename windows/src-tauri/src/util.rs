@@ -18,24 +18,48 @@ pub fn base64_for(bytes: &[u8]) -> String {
     out
 }
 
+/// The weekday names Windows' `wDayOfWeek` indexes into.
+const WEEKDAYS: [&str; 7] = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+];
+
 /// Today's local date as `YYYY-MM-DD`, plus the weekday, read from Windows so
 /// the user's time zone and DST are already applied.
 pub fn today() -> String {
-    const WEEKDAYS: [&str; 7] = [
-        "Sunday",
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-    ];
     let now = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
-    let weekday = WEEKDAYS
-        .get(now.wDayOfWeek as usize % 7)
-        .copied()
-        .unwrap_or("");
-    format!("{:04}-{:02}-{:02} ({weekday})", now.wYear, now.wMonth, now.wDay)
+    format!(
+        "{:04}-{:02}-{:02} ({})",
+        now.wYear,
+        now.wMonth,
+        now.wDay,
+        weekday(now.wDayOfWeek)
+    )
+}
+
+/// The same clock with the time of day: `Thursday 2026-10-08 14:03`. The model
+/// needs the time, not just the date, before it can turn "in twenty minutes" or
+/// "tomorrow at eight" into a reminder of its own.
+pub fn now_line() -> String {
+    let now = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    format!(
+        "{} {:04}-{:02}-{:02} {:02}:{:02}",
+        weekday(now.wDayOfWeek),
+        now.wYear,
+        now.wMonth,
+        now.wDay,
+        now.wHour,
+        now.wMinute
+    )
+}
+
+fn weekday(day_of_week: u16) -> &'static str {
+    WEEKDAYS.get(day_of_week as usize % 7).copied().unwrap_or("")
 }
 
 #[cfg(test)]
