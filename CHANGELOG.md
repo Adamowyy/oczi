@@ -10,7 +10,9 @@ All notable changes to **Oczi** are recorded here.
 - A reminder can repeat: every day, on working days, or once a week at the same
   time. The card says which.
 - A reminder that came due while Oczi was closed is shown as **missed**, and it
-  offers no **+10 min**. Ten more minutes of a day that has gone makes no sense.
+  offers no **+10 min**. Ten more minutes of a day that has gone makes no sense. One
+  left unanswered for half an hour turns into **missed** where it stands, even when
+  it came up while Oczi was running.
 - A reminder that was never answered comes back on the next launch, so a card lost
   to a shutdown or a restart is not lost with it. Asking what is planned in a new
   conversation lists the same reminders.

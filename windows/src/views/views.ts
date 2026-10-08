@@ -396,6 +396,8 @@ function answer(actions: ViewActions) {
 /** The i18n key for each repeat, so the card can say what comes back. */
 const CYCLE = { daily: "rem.daily", weekdays: "rem.weekdays", weekly: "rem.weekly" } as const;
 
+const STALE_REMINDER_MS = 30 * 60 * 1000;
+
 function buildReminder(actions: ViewActions): ViewHost {
   const kind = h("div", { class: "eyebrow" });
   const text = h("div", { class: "title" });
@@ -426,11 +428,11 @@ function buildReminder(actions: ViewActions): ViewHost {
     sync() {
       const r = State.reminder;
       if (!r) return;
-      // Missed means it was already due when Oczi started, not "a few minutes
-      // late": a card the app was not running to show has to say so.
-      kind.textContent = r.missed ? t("rem.missedTitle") : t("rem.title");
-      kind.classList.toggle("late", r.missed);
-      snooze.style.display = r.missed ? "none" : "";
+      const waiting = State.reminderShownAt ? performance.now() - State.reminderShownAt : 0;
+      const missed = r.missed || waiting >= STALE_REMINDER_MS;
+      kind.textContent = missed ? t("rem.missedTitle") : t("rem.title");
+      kind.classList.toggle("late", missed);
+      snooze.style.display = missed ? "none" : "";
       text.textContent = r.text;
       // A repeating reminder has to say so on the card: "codziennie o 11:50" and a
       // one-off at the same hour look identical otherwise.
