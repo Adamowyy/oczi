@@ -223,8 +223,16 @@ pub fn clear_logs() {
 }
 
 /// Kills commands a previous run left behind when the app was killed, not quit.
-/// Only a live `cmd.exe` carrying the pid we wrote is touched, so a reused pid is safe.
+/// Only a live `cmd.exe` carrying the pid we wrote is touched, so a reused pid is safe,
+/// and a pid the registry still tracks is skipped: that job is running on purpose.
 pub fn kill_orphans() {
+    let tracked: Vec<u32> = {
+        let mut registry = JOBS.lock().unwrap();
+        match registry.as_mut() {
+            Some(jobs) => jobs.values_mut().map(|job| job.child.id()).collect(),
+            None => Vec::new(),
+        }
+    };
     let Ok(entries) = fs::read_dir(jobs_dir()) else {
         return;
     };
@@ -235,6 +243,9 @@ pub fn kill_orphans() {
         }
         if let Ok(text) = fs::read_to_string(&path) {
             if let Ok(pid) = text.trim().parse::<u32>() {
+                if tracked.contains(&pid) {
+                    continue;
+                }
                 if is_our_shell(pid) {
                     let mut kill = Command::new("taskkill");
                     kill.args(["/PID", &pid.to_string(), "/T", "/F"]);
@@ -481,6 +492,14 @@ pub fn kill(id: u32) -> Result<bool, String> {
 mod tests {
     use super::*;
 
+    /// `JOBS` and the job folder are shared by the whole test binary, so the
+    /// tests that touch them take turns.
+    static JOBS_TESTS: Mutex<()> = Mutex::new(());
+
+    fn jobs_tests() -> std::sync::MutexGuard<'static, ()> {
+        JOBS_TESTS.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn runs_a_command_and_reads_stdout() {
         let out = run("echo hello", None, None).expect("run");
@@ -526,6 +545,7 @@ mod tests {
 
     #[test]
     fn a_job_reports_its_output() {
+        let _guard = jobs_tests();
         let id = spawn("echo job-output && exit 0", None).expect("spawn");
         let line = wait_for_job(id, |line| !line.contains("running"));
         assert!(line.contains(&format!("#{id}")), "jobs said {line}");
@@ -536,8 +556,8 @@ mod tests {
 
     #[test]
     fn a_long_job_can_be_killed() {
+        let _guard = jobs_tests();
         let id = spawn("ping -n 10 127.0.0.1", None).expect("spawn");
-        std::thread::sleep(Duration::from_millis(300));
         let line = || {
             jobs()
                 .lines()
@@ -545,7 +565,10 @@ mod tests {
                 .unwrap_or("")
                 .to_string()
         };
-        assert!(line().contains("running"), "job line was {:?}", line());
+        // Wait for `running` instead of sleeping: a loaded runner may not have
+        // the job registered yet.
+        let running = wait_for_job(id, |l| l.contains("running"));
+        assert!(running.contains("running"), "job line was {:?}", line());
         assert!(kill(id).expect("kill"));
         let after = wait_for_job(id, |line| !line.contains("running"));
         assert!(!after.contains("running"), "job line was {:?}", after);
@@ -608,6 +631,7 @@ mod tests {
 
     #[test]
     fn kills_a_job_left_over_from_a_crash() {
+        let _guard = jobs_tests();
         // Started outside the registry, exactly as if the app had been killed.
         let mut orphan = command_for("ping -n 30 127.0.0.1", None)
             .expect("command")
