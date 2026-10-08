@@ -66,6 +66,8 @@ A reminder can repeat: pass `repeat` as \"daily\", \"weekdays\" or \"weekly\" wh
 list_reminders shows what is pending, including anything already on screen and waiting to be answered; cancel_reminder removes one by its id. \
 After setting one, say when it will come — and whether it repeats — briefly.";
 
+const SELF_PROMPT: &str = "\nOczi itself is `oczi.exe`, and its window is drawn by Edge WebView2: the `msedgewebview2.exe` processes under it are Oczi's own, not junk — closing one closes Oczi's window. Other `msedgewebview2.exe` processes belong to whatever else uses WebView2, and the parent chain tells them apart. Oczi's data is %APPDATA%\\Oczi and its log %LOCALAPPDATA%\\Oczi\\oczi.log; never suggest deleting either. \\\nFor anything about autostart — what starts with Windows, what sits there from logon, what can be turned off — call startup_items and answer from what it prints. A registry entry on its own is not a program that starts: it can outlive the program it points at, and a switched-off one runs nothing at all.";
+
 /// Rounds of tool calls allowed in one turn. Terminal work is a chain, look,
 /// look again, act, so this is the budget for a whole task, not one lookup.
 /// Two more rounds run without tools, which is where the answer comes from.
@@ -99,7 +101,12 @@ fn language_line(language: &str) -> &'static str {
 /// the text is only taken when it names a real one.
 fn tool_names(web: bool, terminal: bool) -> Vec<&'static str> {
     // Reminders first: always offered, whatever the switches say, see REMINDER_PROMPT.
-    let mut names = vec!["remind", "list_reminders", "cancel_reminder"];
+    let mut names = vec![
+        "remind",
+        "list_reminders",
+        "cancel_reminder",
+        "startup_items",
+    ];
     if web {
         names.extend(["web_search", "fetch_url"]);
     }
@@ -119,6 +126,17 @@ fn tool_names(web: bool, terminal: bool) -> Vec<&'static str> {
 /// by the model, it only decides what is worth doing.
 fn tools(web: bool, terminal: bool) -> Value {
     let mut list: Vec<Value> = vec![
+        json!({
+            "type": "function",
+            "function": {
+                "name": "startup_items",
+                "description": "What really starts with this PC, read from Windows: the registry Run entries for the user and the machine, the Startup folders, and the services set to start on their own — each with the Task Manager switch and whether the program is still on the disk. Call it for any question about autostart, startup apps, what loads with Windows, or what can be turned off. Never answer that question from the registry alone: an entry can outlive an uninstalled program, and a switched-off entry starts nothing.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
+        }),
         json!({
             "type": "function",
             "function": {
@@ -301,6 +319,7 @@ Today is {date}."));
     // be turned into a reminder without it, and the reminder tools are always on.
     prompt.push_str(&format!("\nIt is now {}.", crate::util::now_line()));
     prompt.push_str(REMINDER_PROMPT);
+    prompt.push_str(SELF_PROMPT);
     if terminal {
         prompt.push_str(TERMINAL_PROMPT);
     }
@@ -311,6 +330,9 @@ Today is {date}."));
 /// tool result, so it can try a different query instead of the turn dying.
 async fn run_tool(name: &str, args: &Value, provider: &str, terminal: bool) -> Result<String, String> {
     match name {
+        // A read of the machine, never a change: the model gets it as the text it
+        // answers from, with the leftovers already named as leftovers.
+        "startup_items" => Ok(crate::startup::text()),
         "remind" => {
             let text = args.get("text").and_then(Value::as_str).unwrap_or("").trim();
             let when = args.get("when").and_then(Value::as_str).unwrap_or("").trim();

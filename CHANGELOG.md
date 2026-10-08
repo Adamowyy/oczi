@@ -25,6 +25,15 @@ All notable changes to **Oczi** are recorded here.
   and hand it work on your computer.
 - The model is told to set reminders rather than build them out of scripts, and it
   is told to set a repeating one when that is what was asked for.
+- Oczi knows which processes in Task Manager are its own: its windows are drawn by
+  Edge WebView2, so the `msedgewebview2.exe` processes running under Oczi belong to
+  Oczi — closing one closes its window.
+- A question about autostart is answered from a real read of the machine: the Run
+  keys for the user and the machine, the Startup folders, and the services set to
+  start on their own, each with the Task Manager switch and whether the program is
+  still on the disk. An entry an uninstalled program left behind is called a leftover
+  instead of being listed as something that loads at logon. `oczi.exe --startup`
+  prints that same read.
 
 ## 0.1.7 — 2026-10-06
 

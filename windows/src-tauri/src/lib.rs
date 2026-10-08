@@ -12,6 +12,7 @@ mod secrets;
 mod settings;
 mod shell;
 mod snip;
+mod startup;
 mod text_tools;
 mod tray;
 mod update;
@@ -615,6 +616,14 @@ fn open_settings_window(app: AppHandle) {
 }
 
 pub fn run() {
+    // A read-only look at what starts with this PC, the same text the model gets from
+    // startup_items. It is here for support and for checking the reader on a real
+    // machine without opening a window: `oczi.exe --startup` prints it and stops.
+    if std::env::args().any(|arg| arg == "--startup") {
+        println!("{}", startup::text());
+        return;
+    }
+
     // A panic in the release build aborts the process, so this hook is the only
     // chance to leave a trace of it. Without it a crash was a log that simply
     // stopped, and the reason had to be guessed at.
