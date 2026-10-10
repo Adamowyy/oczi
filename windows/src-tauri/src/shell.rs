@@ -285,6 +285,21 @@ fn is_our_shell(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
+/// Launchers hand the work to a new process and exit at once — `start "" chrome.exe` is how
+/// the model opens a browser. That new process inherits our pipes, and holds them open for as
+/// long as it runs, so reading until the pipe closes waits for the *browser to be closed*
+/// rather than for the command to finish. Nothing useful can come back from them either, so
+/// they are run with no pipes at all.
+fn detaches(cmd: &str) -> bool {
+    let lower = cmd.trim_start().to_ascii_lowercase();
+    lower == "start"
+        || lower.starts_with("start ")
+        || lower.starts_with("start\"")
+        || lower.starts_with("explorer ")
+        || lower.starts_with("cmd /c start")
+        || lower.starts_with("cmd.exe /c start")
+}
+
 /// Runs a command and waits for it, up to `timeout_s`.
 pub fn run(cmd: &str, cwd: Option<&str>, timeout_s: Option<u64>) -> Result<Output, String> {
     let cmd = cmd.trim();
@@ -293,29 +308,45 @@ pub fn run(cmd: &str, cwd: Option<&str>, timeout_s: Option<u64>) -> Result<Outpu
     }
     let timeout = timeout_s.unwrap_or(DEFAULT_TIMEOUT).clamp(1, MAX_TIMEOUT);
     let started = Instant::now();
+    let detached = detaches(cmd);
 
-    let mut child = command_for(cmd, cwd)?
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+    let mut command = command_for(cmd, cwd)?;
+    if detached {
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+    } else {
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    }
+    let mut child = command
         .spawn()
         .map_err(|e| format!("Could not start the command: {e}"))?;
 
     // Read both pipes on their own threads: a child that fills a pipe while we
     // wait on the other one would deadlock.
-    let out_handle = child.stdout.take().map(|mut s| {
-        std::thread::spawn(move || {
-            let mut buf = String::new();
-            let _ = s.read_to_string(&mut buf);
-            buf
-        })
-    });
-    let err_handle = child.stderr.take().map(|mut s| {
-        std::thread::spawn(move || {
-            let mut buf = String::new();
-            let _ = s.read_to_string(&mut buf);
-            buf
-        })
-    });
+    let mut out_rx = None;
+    let mut err_rx = None;
+    if !detached {
+        if let Some(mut stream) = child.stdout.take() {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let mut buf = String::new();
+                let _ = stream.read_to_string(&mut buf);
+                let _ = tx.send(buf);
+            });
+            out_rx = Some(rx);
+        }
+        if let Some(mut stream) = child.stderr.take() {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let mut buf = String::new();
+                let _ = stream.read_to_string(&mut buf);
+                let _ = tx.send(buf);
+            });
+            err_rx = Some(rx);
+        }
+    }
 
     let deadline = Instant::now() + Duration::from_secs(timeout);
     let mut timed_out = false;
@@ -335,8 +366,16 @@ pub fn run(cmd: &str, cwd: Option<&str>, timeout_s: Option<u64>) -> Result<Outpu
         }
     };
 
-    let stdout = out_handle.and_then(|h| h.join().ok()).unwrap_or_default();
-    let stderr = err_handle.and_then(|h| h.join().ok()).unwrap_or_default();
+    // Bounded on purpose: a grandchild can hold the pipe open long after the command itself is
+    // gone (a script that starts a daemon, a tool that spawns a helper). Waiting for the pipe
+    // to close in that case means waiting for that program to exit — which is how "open the
+    // browser" left Oczi thinking for ever. Whatever arrived by now is what we report.
+    let drain = |rx: Option<std::sync::mpsc::Receiver<String>>| {
+        rx.and_then(|rx| rx.recv_timeout(Duration::from_millis(1000)).ok())
+            .unwrap_or_default()
+    };
+    let stdout = drain(out_rx);
+    let stderr = drain(err_rx);
 
     Ok(Output {
         code,
