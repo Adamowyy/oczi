@@ -5,8 +5,8 @@ All notable changes to **Oczi** are recorded here.
 ## 0.3.0 — 2026-10-10
 
 - Dictation, in the installer whose name says voice: press its shortcut, speak, and
-  the sentence goes to the chat by itself. The words are written down on this
-  computer, with no key, no account and nothing sent anywhere to be transcribed.
+  the sentence goes to the chat by itself. The speech is turned into text on this
+  computer, so it needs no key and no extra service.
 - Oczi listens again once it has answered, so a conversation can be held by voice:
   speak, read the answer, speak again. The microphone becomes a red circle while it
   is recording, and an amber one while the words are being written.
