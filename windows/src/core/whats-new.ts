@@ -7,6 +7,7 @@ const NEWS: Record<string, TextKey> = {
   "0.1.6": "news.0.1.6",
   "0.1.7": "news.0.1.7",
   "0.2.0": "news.0.2.0",
+  "0.3.0": "news.0.3.0",
 };
 
 /** The card's body for a version, or null when there is nothing to say. */

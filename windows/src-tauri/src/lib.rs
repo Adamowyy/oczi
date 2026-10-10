@@ -17,6 +17,8 @@ mod text_tools;
 mod tray;
 mod update;
 mod util;
+#[cfg(feature = "voice")]
+mod voice;
 mod web;
 mod webview_guard;
 
@@ -27,6 +29,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::webview::{PermissionKind, PermissionResponse};
 use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
 
 use deepseek::{Chat, ChatContext, ChatReply, Options};
@@ -76,9 +79,7 @@ async fn check_update() -> Option<update::Release> {
     update::latest(env!("CARGO_PKG_VERSION")).await
 }
 
-/// Remembers that this version's card has been shown, so it appears once.
-/// Written here rather than from the front end so the whole settings blob is
-/// not pushed back over a version bump.
+// Remembers that this version's card has been shown, so it appears once.
 #[tauri::command]
 fn mark_version_seen(shared: State<Shared>, version: String) {
     let snapshot = {
@@ -96,7 +97,14 @@ fn mark_version_seen(shared: State<Shared>, version: String) {
 
 #[tauri::command]
 fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) {
-    let (screen_changed, autostart_changed, hotkey_changed, snip_hotkey_changed, language_changed) = {
+    let (
+        screen_changed,
+        autostart_changed,
+        hotkey_changed,
+        snip_hotkey_changed,
+        voice_hotkey_changed,
+        language_changed,
+    ) = {
         let mut current = shared.settings.lock().unwrap();
         // The island owns this one: the settings window's copy is as old as the
         // window is, and writing it back would re-show the card on the next launch.
@@ -105,6 +113,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) 
         let autostart_changed = current.autostart != settings.autostart;
         let hotkey_changed = current.hotkey != settings.hotkey;
         let snip_hotkey_changed = current.snip_hotkey != settings.snip_hotkey;
+        let voice_hotkey_changed = current.voice_hotkey != settings.voice_hotkey;
         let language_changed = current.language != settings.language;
         *current = settings.clone();
         (
@@ -112,6 +121,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) 
             autostart_changed,
             hotkey_changed,
             snip_hotkey_changed,
+            voice_hotkey_changed,
             language_changed,
         )
     };
@@ -134,6 +144,14 @@ fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) 
     if snip_hotkey_changed {
         island::update_hotkey(island::HotkeySlot::Snip, &settings.snip_hotkey);
     }
+    // Only the voice build has anything to start, and only it registers the chord: the
+    // ordinary build stores the setting and leaves the keys to whoever had them.
+    #[cfg(feature = "voice")]
+    if voice_hotkey_changed {
+        island::update_hotkey(island::HotkeySlot::Voice, &settings.voice_hotkey);
+    }
+    #[cfg(not(feature = "voice"))]
+    let _ = voice_hotkey_changed;
     // The tray and the window frame are drawn by the system, so they take their
     // language from here rather than from the front end.
     if language_changed {
@@ -325,9 +343,7 @@ fn overlay_metrics(app: &AppHandle) -> (f64, f64, f64) {
     (scale, x, y)
 }
 
-/// The eye, step one: freeze the desktop, then put the selection overlay on screen.
-/// The island comes down first, it is topmost, so it would otherwise be inside its
-/// own screenshot and on top of the overlay.
+// The eye, step one: freeze the desktop, then put the selection overlay on screen.
 #[tauri::command]
 async fn begin_snip(app: AppHandle) -> Result<(), String> {
     if let Some(win) = island::window(&app) {
@@ -615,6 +631,55 @@ fn open_settings_window(app: AppHandle) {
     show_settings_window(&app);
 }
 
+/// The chord the dictation slot should register, or `None` in a build without the engine:
+/// a key combination nobody can act on is worse than no key at all — it would be taken
+/// away from whatever else the user meant it for.
+#[cfg(feature = "voice")]
+fn voice_chord(settings: &Settings) -> Option<String> {
+    Some(settings.voice_hotkey.clone())
+}
+
+#[cfg(not(feature = "voice"))]
+fn voice_chord(_settings: &Settings) -> Option<String> {
+    None
+}
+
+/// One dictation: 16 kHz mono floats as raw bytes in, the transcript out. The island
+/// records and knows what silence means; this only turns a recording into text. The error
+/// is one of `voice::Fault`'s codes — the island has both language tables for the wording.
+///
+/// `async` on purpose. Tauri runs a synchronous command on the main thread, so four seconds
+/// of Whisper in one stopped the whole window: every event, every repaint and every other
+/// call waited behind it, which is what froze Oczi in the middle of a spoken conversation.
+/// The work is blocking by nature, so it goes to a thread of its own.
+#[cfg(feature = "voice")]
+#[tauri::command]
+async fn voice_transcribe(
+    request: tauri::ipc::Request<'_>,
+    shared: State<'_, Shared>,
+) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("bad-audio".to_string());
+    };
+    // Copied out of the request before the wait: the payload borrows, and the thread that
+    // does the work outlives this call.
+    let samples = bytes.clone();
+    let language = shared.settings.lock().unwrap().voice_language.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        voice::transcribe_pcm(&samples, &language).map_err(|fault| fault.code().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Without the engine the command still has to exist — the island calls it from a build
+/// that has one — so it says what is missing instead of failing to compile.
+#[cfg(not(feature = "voice"))]
+#[tauri::command]
+async fn voice_transcribe(_request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    Err("engine".to_string())
+}
+
 pub fn run() {
     // A read-only look at what starts with this PC, the same text the model gets from
     // startup_items. It is here for support and for checking the reader on a real
@@ -622,6 +687,29 @@ pub fn run() {
     if std::env::args().any(|arg| arg == "--startup") {
         println!("{}", startup::text());
         return;
+    }
+
+    // The same idea for dictation, and the only way to check the engine without speaking
+    // into the app: `oczi.exe --transcribe <file.wav>` prints the text for a 16 kHz mono
+    // recording and stops. A windowed build writes stdout when a terminal started it or a
+    // file is redirected into it, which is how the model and the language setting get
+    // compared on real speech.
+    #[cfg(feature = "voice")]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if let Some(at) = args.iter().position(|arg| arg == "--transcribe") {
+            let file = args.get(at + 1).cloned().unwrap_or_default();
+            let language = args.get(at + 2).cloned().unwrap_or_else(|| "auto".into());
+            match std::fs::read(&file)
+                .map_err(|_| voice::Fault::BadAudio)
+                .and_then(|bytes| voice::wav_16k_mono(&bytes))
+                .and_then(|samples| voice::transcribe(&samples, &language))
+            {
+                Ok(text) => println!("{text}"),
+                Err(fault) => println!("voice:{}", fault.code()),
+            }
+            return;
+        }
     }
 
     // A panic in the release build aborts the process, so this hook is the only
@@ -662,6 +750,13 @@ pub fn run() {
         })
         .manage(Chat::default())
         .manage(Snip::default())
+        // The microphone is the only permission the island ever asks for, and only when
+        // dictation is used. Everything else keeps whatever WebView2 would have done
+        // without this handler, so nothing else about the app changes.
+        .on_permission_request(|_webview, kind| match kind {
+            PermissionKind::Microphone => PermissionResponse::Allow,
+            _ => PermissionResponse::Default,
+        })
         .invoke_handler(tauri::generate_handler![
             boot,
             list_monitors,
@@ -697,6 +792,7 @@ pub fn run() {
             open_settings_window,
             set_paused,
             set_island_anchor,
+            voice_transcribe,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -720,7 +816,12 @@ pub fn run() {
             gate.collapsed.store(false, Ordering::Relaxed);
             gate.set_active(true);
             island::spawn_cursor_poll(handle.clone(), gate.clone());
-            island::spawn_hotkey(handle.clone(), loaded.hotkey.clone(), loaded.snip_hotkey.clone());
+            island::spawn_hotkey(
+                handle.clone(),
+                loaded.hotkey.clone(),
+                loaded.snip_hotkey.clone(),
+                voice_chord(&loaded),
+            );
 
             // A previous run may have been killed rather than quit: stop whatever
             // it left running, and clear the logs that no longer mean anything.

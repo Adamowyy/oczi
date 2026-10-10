@@ -17,6 +17,8 @@ export interface ViewActions {
   setFocus(id: string): void;
   /** The eye: snip a region of the screen and ask about it. */
   snip(): void;
+  /** The microphone: start listening, or stop a recording already running. */
+  dictate(): void;
   /** Keep the island open for `seconds` (0 = until released): a chat turn takes as
    *  long as it takes, and the answer must stay readable. */
   holdOpen(seconds: number): void;
@@ -374,6 +376,33 @@ function buildNote(): ViewHost {
   };
 }
 
+// ── Dictation ─────────────────────────────────────────────────────────────────
+
+/** Dictation: Iskra alone with the microphone. No card and no chat — the sentence is not
+ *  there yet, and anything else on screen is something to read instead of to speak. The
+ *  bars follow the voice, so an open microphone is visible rather than assumed. */
+function buildListening(): ViewHost {
+  const bars = Array.from({ length: 5 }, () => h("div", { class: "voice-bar" }));
+  const row = h("div", { class: "voice-bars" }, ...bars);
+  const label = h("div", { class: "voice-label" });
+  const el = h("div", { class: "view" }, h("div", { class: "voice-wrap" }, row, label));
+  // A fan of heights around the middle so the row reads as a waveform rather than a meter.
+  const shape = [0.5, 0.8, 1, 0.8, 0.5];
+  return {
+    el,
+    sync() {
+      const transcribing = State.voice === "transcribing";
+      // While the engine runs there is no level any more; a steady mid-height says "busy"
+      // instead of pretending the microphone is still hearing something.
+      const level = transcribing ? 0.45 : State.voiceLevel;
+      bars.forEach((bar, i) => {
+        bar.style.height = `${6 + Math.round(level * shape[i] * 46)}px`;
+      });
+      label.textContent = transcribing ? t("voice.thinking") : t("voice.listening");
+    },
+  };
+}
+
 // ── Reminder ──────────────────────────────────────────────────────────────────
 
 function answer(actions: ViewActions) {
@@ -577,6 +606,7 @@ export function buildViews(
   map.set("empty", buildEmpty(actions));
   map.set("confused", buildConfused());
   map.set("note", buildNote());
+  map.set("listening", buildListening());
   map.set("reminder", buildReminder(actions));
   map.set("whatsnew", buildWhatsNew(actions));
   map.set("settings", buildSettings(actions));

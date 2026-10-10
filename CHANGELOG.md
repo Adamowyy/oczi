@@ -2,6 +2,27 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.3.0 — 2026-10-10
+
+- Dictation, in the installer whose name says voice: press its shortcut, speak, and
+  the sentence goes to the chat by itself. The words are written down on this
+  computer, with no key, no account and nothing sent anywhere to be transcribed.
+- Oczi listens again once it has answered, so a conversation can be held by voice:
+  speak, read the answer, speak again. The microphone becomes a red circle while it
+  is recording, and an amber one while the words are being written.
+- The dictation shortcut and the language it listens for are in the settings next to
+  the other shortcuts. The ordinary installer shows them too, and says that the
+  engine is not in that one.
+- The model and the libraries the engine needs travel inside the voice installer,
+  which is why that one is a few hundred megabytes instead of two.
+- The terminal tool no longer waits for a program it started, so opening a browser
+  answers instead of leaving the answer stuck.
+- A frame that throws takes nothing with it: the island keeps drawing instead of
+  freezing on the last thing it painted.
+- Clicking elsewhere closes the island while an answer is being written, and a turn
+  that never comes back gives up after two minutes rather than leaving the dots
+  running.
+
 ## 0.2.0 — 2026-10-08
 
 - Oczi sets reminders itself now: ask for one in the chat and a card comes up at

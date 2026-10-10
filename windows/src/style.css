@@ -1148,6 +1148,86 @@ html.asleep *::after {
   transition: color 0.12s ease-out, background 0.12s ease-out, transform 0.08s ease-out;
 }
 
+/* The microphone rides next to the eye and looks like it: a circle in the bar, quiet
+   until it is wanted. */
+.mic-btn {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dim-2);
+  display: grid;
+  place-items: center;
+  cursor: default;
+  transition: color 0.12s ease-out, background 0.12s ease-out, transform 0.08s ease-out;
+}
+
+.mic-btn:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mic-btn:active {
+  transform: scale(0.9);
+}
+
+/* Recording: a red circle, which is the one signal everybody already reads as "it is
+   listening to you". The halo pulses out of it so a glance is enough. */
+.mic-btn.listening {
+  color: #fff;
+  background: #e5484d;
+  animation: mic-live 1.4s ease-in-out infinite;
+}
+
+/* The engine has the audio: same circle, no pulse — the recording is over, the words are
+   being written. */
+.mic-btn.busy {
+  color: #fff;
+  background: #b06a2a;
+  animation: none;
+}
+
+@keyframes mic-live {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.55); }
+  50% { box-shadow: 0 0 0 7px rgba(229, 72, 77, 0); }
+}
+
+/* Dictation: the bars sit right of Iskra and move with the voice, so an open
+   microphone is something you can see rather than something you assume. The
+   label underneath says which of the two things is happening. */
+.voice-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  height: 100%;
+  padding-left: 84px;
+}
+
+.voice-bars {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 60px;
+}
+
+.voice-bar {
+  width: 6px;
+  height: 8px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #7FD7FF 0%, #3B9EFF 100%);
+  transition: height 0.08s linear;
+}
+
+.voice-label {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--dim-2);
+}
+
 .snip-btn:hover {
   color: var(--ink);
   background: rgba(255, 255, 255, 0.08);

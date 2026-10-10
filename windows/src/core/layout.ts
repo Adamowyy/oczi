@@ -15,6 +15,7 @@ export type IslandViewName =
   | "searching"
   | "result"
   | "note"
+  | "listening"
   | "reminder"
   | "whatsnew"
   | "settings"
@@ -80,6 +81,9 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   searching: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   result: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   note: { height: 160, botX: 60, botY: null, botDiameter: 50, agentMode: "column" },
+  // Dictation: Iskra alone with the microphone and the level bars next to her. No agents
+  // and no card — the only thing on screen is the recording.
+  listening: { height: 168, botX: 84, botY: null, botDiameter: 64, agentMode: "none" },
   // Taller than a note: a reminder carries a line of its own for the kind of card
   // and another for the time, plus a row with its answers.
   reminder: { height: 196, botX: 60, botY: null, botDiameter: 50, agentMode: "none" },

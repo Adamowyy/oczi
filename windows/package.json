@@ -1,7 +1,7 @@
 {
   "name": "oczi",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +10,11 @@
     "icons": "node scripts/gen-icons.mjs",
     "tauri": "tauri",
     "pack": "tauri build && node scripts/pack.mjs",
-    "check:i18n": "node scripts/check-i18n.mjs"
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "voice:check": "node scripts/whisper-gnu.mjs check",
+    "voice:build": "node scripts/whisper-gnu.mjs build",
+    "voice:model": "node scripts/whisper-gnu.mjs model",
+    "voice:pack": "node scripts/whisper-gnu.mjs stage && node scripts/whisper-gnu.mjs build && tauri build --features voice --config src-tauri/tauri.voice.conf.json && node scripts/pack.mjs voice"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

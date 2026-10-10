@@ -222,9 +222,7 @@ pub fn clear_logs() {
     }
 }
 
-/// Kills commands a previous run left behind when the app was killed, not quit.
-/// Only a live `cmd.exe` carrying the pid we wrote is touched, so a reused pid is safe,
-/// and a pid the registry still tracks is skipped: that job is running on purpose.
+// Kills commands a previous run left behind when the app was killed, not quit.
 pub fn kill_orphans() {
     let tracked: Vec<u32> = {
         let mut registry = JOBS.lock().unwrap();

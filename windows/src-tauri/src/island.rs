@@ -46,8 +46,11 @@ const NEAR_PX: f64 = 260.0;
 
 /// Id of our global hotkey (Ctrl+Alt+M by default), and the mods it is registered with.
 const HOTKEY_ID: i32 = 0xC0CC;
-/// Ctrl+Alt+Shift+S, the same thing as clicking the eye.
+/// Ctrl+Alt+Shift+S — the same thing as clicking the eye.
 const HOTKEY_SNIP_ID: i32 = 0xC0CD;
+/// Ctrl+Shift+Space — the same thing as clicking the microphone. Only the voice build
+/// registers it: without the engine there is nothing for it to start.
+const HOTKEY_VOICE_ID: i32 = 0xC0CE;
 
 /// Margin around the island that still counts as "on the island", in logical px.
 /// Same margin as the front end's HIT_MARGIN.
@@ -68,9 +71,7 @@ pub struct ScreenInfo {
     pub scale: f64,
 }
 
-/// The island shape in window-logical coordinates, pushed by the front end.
-/// The poll thread owns the click-through decision so it lands in the same 16 ms
-/// tick as the cursor read, an IPC round trip here loses clicks.
+// The island shape in window-logical coordinates, pushed by the front end.
 #[derive(Clone, Copy, Default)]
 pub struct IslandRect {
     pub x: f64,
@@ -174,7 +175,7 @@ pub fn own_file_drops(app: &AppHandle) {
     let Some(win) = window(app) else { return };
     let Some(hwnd) = hwnd_of(&win) else { return };
     // RegisterDragDrop needs the thread in an OLE apartment. WebView2 only initialises
-    // plain COM (STA), so OLE must be turned on here, the call is idempotent and the
+    // plain COM (STA), so OLE must be turned on here — the call is idempotent and the
     // result is deliberately ignored either way.
     unsafe {
         let _ = OleInitialize(None);
@@ -205,7 +206,7 @@ unsafe extern "system" fn install_target_each(hwnd: HWND, _: LPARAM) -> BOOL {
 
 /// The one drop target, created on first use and intentionally leaked for the app's
 /// lifetime. `RegisterDragDrop` keeps its own references per window, so the pointer
-/// only has to stay valid until the windows go away, which is when the process does.
+/// only has to stay valid until the windows go away — which is when the process does.
 fn drop_target() -> *mut core::ffi::c_void {
     let mut raw = DROP_TARGET_PTR.load(Ordering::Relaxed) as *mut core::ffi::c_void;
     if raw.is_null() {
@@ -283,7 +284,7 @@ impl IDropTarget_Impl for DropTarget_Impl {
             *self.effect.get() = value;
             *effect = value;
         }
-        // Only a real file drag turns the island into the drop box, never an
+        // Only a real file drag turns the island into the drop box — never an
         // accidental grab of text, an icon or anything else the shell won't hand us.
         if valid {
             if let Some(app) = APP.get() {
@@ -337,8 +338,8 @@ impl IDropTarget_Impl for DropTarget_Impl {
 static HOME_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static PAGE_LOG: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// A browser inside the island is a liability: anything that navigates it, a dropped
-/// file, a stray link, leaves a page with no way back to the app. If the island is no
+/// A browser inside the island is a liability: anything that navigates it — a dropped
+/// file, a stray link — leaves a page with no way back to the app. If the island is no
 /// longer on its own page, send it home.
 pub fn keep_on_its_own_page(win: &WebviewWindow) {
     let Ok(url) = win.url() else { return };
@@ -383,7 +384,7 @@ static APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
 /// (main) thread that actually registers it.
 static DROP_TARGET_PTR: AtomicUsize = AtomicUsize::new(0);
 
-/// True while the left mouse button is held, the only signal we get that a
+/// True while the left mouse button is held — the only signal we get that a
 /// drag might be in flight before it reaches the window.
 fn left_button_down() -> bool {
     unsafe { (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 }
@@ -398,6 +399,10 @@ fn monitor_contains(m: &Monitor, x: f64, y: f64) -> bool {
         && y < (p.y + s.height as i32) as f64
 }
 
+/// What a `screen` setting has to store to pin the island to `m`. Windows hands
+/// us the device name (`\\.\DISPLAY2`) — the same identity the display control
+/// panel uses, and one that survives a restart. A platform that gives no name
+/// falls back to the top-left corner, which is stable for a fixed layout.
 pub fn monitor_key(m: &Monitor) -> String {
     match m.name() {
         Some(name) if !name.is_empty() => name.clone(),
@@ -432,6 +437,10 @@ fn monitor_pref_key(pref: &str) -> Option<&str> {
     pref.strip_prefix("monitor:").filter(|k| !k.is_empty())
 }
 
+/// The display the island lives on. `pref` is the `screen` setting: `primary`,
+/// `cursor`, or `monitor:<key>` for one pinned display (see `monitor_key`). A
+/// pinned display that is gone — unplugged, rearranged — falls back to the main
+/// one rather than leaving the island off-screen with no way back.
 fn target_monitor(app: &AppHandle, pref: &str) -> Option<Monitor> {
     let monitors = app.available_monitors().ok()?;
     if pref == "cursor" {
@@ -520,6 +529,10 @@ pub fn screen_info(app: &AppHandle, pref: &str) -> ScreenInfo {
     }
 }
 
+/// Places and sizes the window on the chosen display. The size is constant —
+/// see PANEL_W — so this only ever moves it.
+/// Where the island sits for a given anchor: flush left at 0, centred at 0.5,
+/// flush right at 1, always inside the monitor it belongs to.
 fn anchored_x(mp: PhysicalPosition<i32>, mw: u32, pw: u32, anchor: f64) -> i32 {
     let free = (mw as f64 - pw as f64).max(0.0);
     mp.x + (free * anchor.clamp(0.0, 1.0)).round() as i32
@@ -556,7 +569,7 @@ mod anchor_tests {
 
 #[cfg(test)]
 mod hotkey_tests {
-    use super::{key_code, parse_hotkey};
+    use super::{chord_is_usable, key_code, parse_hotkey};
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
     };
@@ -584,6 +597,28 @@ mod hotkey_tests {
     fn the_win_modifier_reaches_register_hot_key() {
         let (mods, _) = parse_hotkey("Win+F1").expect("a Win chord");
         assert!(mods.contains(MOD_WIN));
+    }
+
+    #[test]
+    fn alt_shift_alone_is_refused_but_usable_with_a_third_modifier() {
+        // Alt+Shift is the layout switch: it parses and RegisterHotKey accepts it, and then
+        // Windows hands every press to the layout switcher — the shortcut looks fine in the
+        // settings window and never fires. That is the one chord shape the app must not
+        // leave in settings.json.
+        assert!(parse_hotkey("Alt+Shift+R").is_some());
+        assert!(!chord_is_usable("Alt+Shift+R"));
+        assert!(!chord_is_usable("Shift+Alt+D"));
+        // A third modifier makes it an ordinary chord again.
+        assert!(chord_is_usable("Ctrl+Alt+Shift+R"));
+        assert!(chord_is_usable("Win+Alt+Shift+R"));
+        // And the defaults, including the one dictation ships with, are usable.
+        assert!(chord_is_usable("Ctrl+Shift+D"));
+        assert!(chord_is_usable("Ctrl+Alt+M"));
+        assert!(chord_is_usable("Ctrl+Alt+Shift+S"));
+        assert!(chord_is_usable("Ctrl+Shift+Space"));
+        // Unparseable is unusable, not a panic.
+        assert!(!chord_is_usable("Ctrl+Enter"));
+        assert!(!chord_is_usable(""));
     }
 
     #[test]
@@ -829,13 +864,15 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
     });
 }
 
-/// Which of the two global chords a change applies to.
+/// Which of the three global chords a change applies to.
 #[derive(Clone, Copy)]
 pub enum HotkeySlot {
     /// Summon the island. Default Ctrl+Alt+M.
     Summon,
-    /// Start a snip, the same thing as clicking the eye. Default Ctrl+Alt+Shift+S.
+    /// Start a snip — the same thing as clicking the eye. Default Ctrl+Alt+Shift+S.
     Snip,
+    /// Start dictation — the same thing as clicking the microphone. Default Ctrl+Shift+Space.
+    Voice,
 }
 
 impl HotkeySlot {
@@ -843,6 +880,7 @@ impl HotkeySlot {
         match self {
             HotkeySlot::Summon => HOTKEY_ID,
             HotkeySlot::Snip => HOTKEY_SNIP_ID,
+            HotkeySlot::Voice => HOTKEY_VOICE_ID,
         }
     }
 
@@ -851,21 +889,22 @@ impl HotkeySlot {
         match self {
             HotkeySlot::Summon => "summon",
             HotkeySlot::Snip => "screenshot",
+            HotkeySlot::Voice => "dictation",
         }
     }
 }
 
-/// Registers one chord under its own id, replacing whatever that id held before.
-/// Failing to register (another app owns the chord) is not fatal: the other hotkey
-/// keeps working and the log says which one is taken.
-unsafe fn apply_hotkey(slot: HotkeySlot, chord: &str, current: &mut [Option<String>; 2]) {
+// Registers one chord under its own id, replacing whatever that id held before.
+unsafe fn apply_hotkey(slot: HotkeySlot, chord: &str, current: &mut [Option<String>; 3]) {
     use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
 
     const SUMMON: usize = 0;
     const SNIP: usize = 1;
+    const VOICE: usize = 2;
     let idx = match slot {
         HotkeySlot::Summon => SUMMON,
         HotkeySlot::Snip => SNIP,
+        HotkeySlot::Voice => VOICE,
     };
     if current[idx].as_deref() == Some(chord) {
         return;
@@ -877,26 +916,39 @@ unsafe fn apply_hotkey(slot: HotkeySlot, chord: &str, current: &mut [Option<Stri
         .map(|(mods, vk)| RegisterHotKey(None, slot.id(), mods, vk).is_ok())
         .unwrap_or(false);
     current[idx] = Some(chord.to_string());
-    crate::log::line(format!(
-        "hotkey {}: {chord} {}",
-        slot.label(),
-        if registered { "ready" } else { "taken by another app" },
-    ));
+    // Three outcomes, and they need telling apart: a chord we cannot read at all, one we
+    // read but Windows already owns, and one that is only taken by the layout switch.
+    let outcome = if registered {
+        if parse_hotkey(chord).is_some() && !chord_is_usable(chord) {
+            "ready, but Alt+Shift is the layout switch — presses will not reach us"
+        } else {
+            "ready"
+        }
+    } else if parse_hotkey(chord).is_none() {
+        "unusable — unknown key name"
+    } else {
+        "taken by another app"
+    };
+    crate::log::line(format!("hotkey {}: {chord} {outcome}", slot.label()));
 }
 
 /// Hotkey thread: RegisterHotKey posts WM_HOTKEY to the calling thread, so this
-/// runs its own PeekMessage loop. Both chords live here, each has its own id, so
-/// either can be re-registered at any moment through the channel.
-pub fn spawn_hotkey(app: AppHandle, summon: String, snip: String) {
+/// runs its own PeekMessage loop. Every chord lives here — each has its own id, so
+/// any of them can be re-registered at any moment through the channel. The dictation
+/// chord is only wired up by the voice build; without it the slot stays empty.
+pub fn spawn_hotkey(app: AppHandle, summon: String, snip: String, voice: Option<String>) {
     use windows::Win32::UI::WindowsAndMessaging::{PeekMessageW, MSG, PM_REMOVE, WM_HOTKEY};
 
     let (tx, rx) = std::sync::mpsc::channel::<(HotkeySlot, String)>();
     HOTKEY_TX.get_or_init(|| std::sync::Mutex::new(Some(tx)));
 
     std::thread::spawn(move || unsafe {
-        let mut current: [Option<String>; 2] = [None, None];
+        let mut current: [Option<String>; 3] = [None, None, None];
         apply_hotkey(HotkeySlot::Summon, &summon, &mut current);
         apply_hotkey(HotkeySlot::Snip, &snip, &mut current);
+        if let Some(chord) = voice.as_deref() {
+            apply_hotkey(HotkeySlot::Voice, chord, &mut current);
+        }
 
         let mut msg = MSG::default();
         loop {
@@ -907,6 +959,9 @@ pub fn spawn_hotkey(app: AppHandle, summon: String, snip: String) {
                 match msg.wParam.0 as i32 {
                     HOTKEY_SNIP_ID => {
                         let _ = app.emit_to(WINDOW_LABEL, "hotkey-snip", ());
+                    }
+                    HOTKEY_VOICE_ID => {
+                        let _ = app.emit_to(WINDOW_LABEL, "hotkey-voice", ());
                     }
                     HOTKEY_ID => {
                         let _ = app.emit_to(WINDOW_LABEL, "hotkey", ());
@@ -924,6 +979,31 @@ pub fn spawn_hotkey(app: AppHandle, summon: String, snip: String) {
     });
 }
 
+/// Whether a chord can actually reach us — the half of "is this a good shortcut" that
+/// parsing cannot answer.
+///
+/// Alt+Shift is the Windows layout switch: a chord made of exactly that pair registers
+/// with RegisterHotKey without complaint and is then never delivered, because the input
+/// system eats it first. The failure is invisible — the log says "ready" — which is why
+/// it is refused up front instead. Adding any third modifier takes it out of that case.
+pub fn chord_is_usable(hotkey: &str) -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_SHIFT};
+    // MOD_NOREPEAT is ORed in by parse_hotkey, so it has to come back out before the
+    // modifiers can be compared with the pair the layout switcher owns.
+    const LAYOUT_SWITCH: u32 = MOD_ALT.0 | MOD_SHIFT.0;
+    match parse_hotkey(hotkey) {
+        Some((mods, _)) => (mods.0 & !MOD_NOREPEAT.0) != LAYOUT_SWITCH,
+        None => false,
+    }
+}
+
+/// "Ctrl+Alt+M" → the RegisterHotKey modifiers and virtual key. The settings
+/// window's recorder writes exactly these names; anything else is refused, so a
+/// hand-edited settings.json falls back to the default.
+///
+/// At least one modifier is required: a bare key would be swallowed by Oczi
+/// everywhere on the desktop. Ctrl+Alt is AltGr on a Polish layout — allowed, it
+/// is the user's own choice, and the settings window says what it costs.
 pub fn parse_hotkey(hotkey: &str) -> Option<(HOT_KEY_MODIFIERS, u32)> {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
@@ -968,7 +1048,7 @@ pub fn parse_hotkey(hotkey: &str) -> Option<(HOT_KEY_MODIFIERS, u32)> {
     Some((mods, key?))
 }
 
-/// A key name, "A", "7", "F5", "Space", "Left", to its Windows virtual-key
+/// A key name — "A", "7", "F5", "Space", "Left" — to its Windows virtual-key
 /// code. The settings window's recorder emits exactly these names.
 fn key_code(name: &str) -> Option<u32> {
     use windows::Win32::UI::Input::KeyboardAndMouse::{

@@ -40,6 +40,8 @@ export const ICONS = {
   doc: "M6.5 2.6h7l4 4v14.8h-11V2.6zm6.6 1.6v3.3h3.3l-3.3-3.3zM8.6 11h6.8v1.5H8.6V11zm0 3.4h6.8v1.5H8.6v-1.5z",
   // eye — snip a region of the screen
   eye: "M12 5.2c-5 0-9 4.4-9 6.8s4 6.8 9 6.8 9-4.4 9-6.8-4-6.8-9-6.8zm0 11.4a4.6 4.6 0 1 1 0-9.2 4.6 4.6 0 0 1 0 9.2zm0-2.2a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8z",
+  // microphone — dictation
+  mic: "M12 2.2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0v-6a3 3 0 0 0-3-3zm-6 8.6a1 1 0 0 1 2 0 4 4 0 0 0 8 0 1 1 0 1 1 2 0 6 6 0 0 1-5 5.9V20h3v2H8v-2h3v-3.3a6 6 0 0 1-5-5.9z",
   // activity — CPU load. Drawn for the stroke renderer, like check and chevron.
   cpu: "M2.8 12h3.5l2.7-5.8 4.3 11.6 2.7-5.8h5.2",
   // memorychip — a stick with its pins.

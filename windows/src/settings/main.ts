@@ -368,7 +368,7 @@ const NAMED_KEYS: Record<string, string> = {
 
 const MODIFIER_KEYS = ["Control", "Alt", "Shift", "Meta", "AltGraph"];
 
-type ChordResult = { ok: true; chord: string } | { ok: false; why: "modifier" | "key" };
+type ChordResult = { ok: true; chord: string } | { ok: false; why: "modifier" | "key" | "layout" };
 
 /** What a keydown means as a chord: the modifiers first, then the key under them. */
 function chordFor(e: KeyboardEvent): ChordResult {
@@ -387,13 +387,19 @@ function chordFor(e: KeyboardEvent): ChordResult {
   // A bare key would be swallowed everywhere on the desktop, so one modifier is
   // the least a chord may have.
   if (mods.length === 0) return { ok: false, why: "modifier" };
+  // Alt+Shift on its own is the keyboard-layout switch: Windows registers such a chord
+  // and then hands the presses to the layout switcher, so it would look set up and never
+  // fire. Any third modifier takes it out of that case, so only the bare pair is refused.
+  if (mods.length === 2 && mods.includes("Alt") && mods.includes("Shift")) {
+    return { ok: false, why: "layout" };
+  }
   return { ok: true, chord: [...mods, key].join("+") };
 }
 
 function hotkeyField(
   initial: string,
   onChord: (chord: string) => void,
-  onProblem: (why: "modifier" | "key") => void,
+  onProblem: (why: "modifier" | "key" | "layout") => void,
 ): HTMLButtonElement {
   const field = h("button", { class: "hotkey-field", text: initial }) as HTMLButtonElement;
   let chord = initial;
@@ -527,8 +533,14 @@ function generalSection(): HTMLElement {
   }
 
   /** The recorder's own refusal, shown where the chord is and taken back again. */
-  function showProblem(why: "modifier" | "key") {
-    message.textContent = t(why === "modifier" ? "set.hotkeyNeedsMod" : "set.hotkeyUnknownKey");
+  function showProblem(why: "modifier" | "key" | "layout") {
+      const text =
+        why === "modifier"
+          ? "set.hotkeyNeedsMod"
+          : why === "layout"
+            ? "set.hotkeyLayout"
+            : "set.hotkeyUnknownKey";
+      message.textContent = t(text);
     window.clearTimeout(messageTimer);
     messageTimer = window.setTimeout(() => {
       message.textContent = "";
@@ -553,6 +565,33 @@ function generalSection(): HTMLElement {
     },
     showProblem,
   );
+  // The dictation chord is only useful in the build that has a speech engine; the
+  // ordinary one stores it and registers nothing, which the note under the field says.
+  const voiceHotkey = hotkeyField(
+    settings.voiceHotkey,
+    (chord) => {
+      settings.voiceHotkey = chord;
+      void save();
+      refreshNote();
+    },
+    showProblem,
+  );
+  // What the engine listens for. Auto is the default and costs a second pass over the
+  // audio; pinning the language is faster and better on names, and wrong if he switches
+  // language mid-sentence — so it is his choice, with the trade in the hint.
+  const voiceLanguage = h("select", {}) as HTMLSelectElement;
+  for (const value of ["auto", "pl", "en"] as const) {
+    voiceLanguage.append(
+      h("option", { value, text: t(("set.voiceLang." + value) as TextKey) }),
+    );
+  }
+  voiceLanguage.value = settings.voiceLanguage;
+  voiceLanguage.addEventListener("change", () => {
+    const value = voiceLanguage.value as "auto" | "pl" | "en";
+    if (!["auto", "pl", "en"].includes(value)) return;
+    settings.voiceLanguage = value;
+    void save();
+  });
   refreshNote();
 
   return h(
@@ -573,6 +612,12 @@ function generalSection(): HTMLElement {
     h("div", { class: "row" }, h("label", { text: t("set.islandScreen") }), screen),
     h("div", { class: "row" }, h("label", { text: t("set.hotkey") }), hotkey),
     h("div", { class: "row" }, h("label", { text: t("set.hotkeySnip") }), snipHotkey),
+    h("div", { class: "row" }, h("label", { text: t("set.hotkeyVoice") }), voiceHotkey),
+    h("div", { class: "row" },
+      h("label", { text: t("set.voiceLanguage") }),
+      voiceLanguage,
+      h("span", { class: "hint", text: t("set.voiceLanguageHint") }),
+    ),
     hotkeyNote,
     message,
     h("div", { class: "row" },

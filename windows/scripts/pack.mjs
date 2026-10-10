@@ -1,4 +1,10 @@
-// Copies the installer Tauri builds into windows/release/ under its shipped name.
+// Copies the installer Tauri buries in target/release/bundle/nsis/ into
+// windows/release/, with the name it ships under. Used by `npm run pack` and by
+// the release workflow, so both produce exactly the same file names.
+//
+// A suffix in argv[1] marks the variant: `node scripts/pack.mjs voice` writes
+// `Oczi-Windows-<version>-voice-setup.exe`, so the ordinary installer and the one
+// with dictation in it sit next to each other in a release instead of overwriting.
 
 import { readFileSync, mkdirSync, copyFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -7,6 +13,7 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bundleDir = join(root, "target", "release", "bundle", "nsis");
 const outDir = join(root, "release");
+const suffix = process.argv[2] ? `-${process.argv[2]}` : "";
 
 const { version } = JSON.parse(readFileSync(join(root, "src-tauri", "tauri.conf.json"), "utf8"));
 
@@ -28,8 +35,8 @@ const built = installers
   .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
 
 mkdirSync(outDir, { recursive: true });
-const versioned = join(outDir, `Oczi-Windows-${version}-setup.exe`);
-const rolling = join(outDir, "Oczi-Windows-setup.exe");
+const versioned = join(outDir, `Oczi-Windows-${version}${suffix}-setup.exe`);
+const rolling = join(outDir, `Oczi-Windows${suffix}-setup.exe`);
 copyFileSync(built, versioned);
 copyFileSync(built, rolling);
 

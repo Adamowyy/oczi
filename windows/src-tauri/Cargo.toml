@@ -11,6 +11,13 @@ edition.workspace = true
 name = "oczi_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# The voice installer only. `whisper-rs` builds whisper.cpp into this binary, so turning
+# the feature off keeps the ordinary installer free of a speech engine and the 466 MB
+# model file that goes with it. The build needs cmake, ninja and the mingw g++ that the
+# rest of this project already uses — `npm run voice:build` sets all of it up.
+voice = ["dep:whisper-rs"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -60,3 +67,7 @@ webview2-com = "0.39"
 # line above; to cargo those are two different crates. The guard needs the 0.62
 # `Interface` trait (to query the richer ProcessFailed args) and its `PWSTR`.
 windows-core-062 = { package = "windows-core", version = "0.62" }
+# Dictation only, behind the `voice` feature: whisper.cpp is compiled into this binary by
+# this crate's build script, so the ordinary installer neither downloads nor links it. The
+# Windows/GNU build of it needs a little help — see scripts/whisper-gnu.mjs.
+whisper-rs = { version = "0.16", optional = true }

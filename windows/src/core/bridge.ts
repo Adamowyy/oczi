@@ -98,6 +98,10 @@ export const Bridge = {
   /** One chat turn. The API key and any file bytes never leave Rust. */
   chatSend: (query: string, context: ChatContext | null) =>
     callOrThrow<{ text: string }>("chat_send", { query, context }),
+  /** Dictation: 16 kHz mono floats as raw bytes — the transcript comes back as text.
+   *  Raw and not JSON because two minutes of audio is ~8 MB of floats, and a JSON number
+   *  array of that size is both bigger and slower to parse on both sides. */
+  voiceTranscribe: (pcm: Float32Array) => callRaw<string>("voice_transcribe", pcm.buffer as ArrayBuffer),
   chatReset: () => call<void>("chat_reset"),
   /** The eye, step one: freeze the desktop and show the selection overlay.
    *  The result arrives as the `snip-done` event, not this promise's value. */
@@ -178,11 +182,20 @@ async function callOrThrow<T>(cmd: string, args?: Record<string, unknown>): Prom
   return invoke<T>(cmd, args);
 }
 
+/** A command whose argument is one binary blob rather than a set of fields: Tauri reads
+ *  the bodies of these through `tauri::ipc::Request`, which is how the dictation samples
+ *  cross without being turned into a JSON number array first. */
+async function callRaw<T>(cmd: string, body: ArrayBuffer): Promise<T> {
+  if (!IS_TAURI) throw new Error("not running inside Oczi");
+  return invoke<T>(cmd, body as unknown as Record<string, unknown>);
+}
+
 export type BridgeEvent =
   | { name: "cursor"; payload: { x: number; y: number } }
   | { name: "tray"; payload: string }
   | { name: "hotkey"; payload: null }
   | { name: "hotkey-snip"; payload: null }
+  | { name: "hotkey-voice"; payload: null }
   | { name: "click-outside"; payload: null }
   | { name: "snip-done"; payload: SnipInfo }
   | { name: "reminder"; payload: ReminderEvent }

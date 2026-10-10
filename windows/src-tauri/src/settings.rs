@@ -1,5 +1,5 @@
 // Preferences, stored as plain JSON in %APPDATA%\Oczi\settings.json.
-// No secret ever lands here, API keys live in the Windows Credential Manager.
+// No secret ever lands here — API keys live in the Windows Credential Manager.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -34,15 +34,24 @@ pub struct Settings {
     /// recorder can produce is valid; anything else is replaced on load.
     #[serde(default = "default_hotkey")]
     pub hotkey: String,
-    /// The chord that starts a screenshot snip, the same thing as clicking the
-    /// eye. Recorded in the settings window, validated like `hotkey`.
+    /// The chord that starts a snip — the same thing as clicking the eye. Recorded in
+    /// the settings window, validated like `hotkey`.
     #[serde(default = "default_snip_hotkey")]
     pub snip_hotkey: String,
+    /// The chord that starts dictation — the same thing as clicking the microphone.
+    /// Registered only by the voice build; the ordinary one stores it and ignores it.
+    #[serde(default = "default_voice_hotkey")]
+    pub voice_hotkey: String,
+    /// What the speech engine listens for: "auto", "pl" or "en". Auto is the default
+    /// because a wrong pinned language is worse than detection: Whisper translates the
+    /// sentence into that language instead of transcribing what was said.
+    #[serde(default = "default_voice_language")]
+    pub voice_language: String,
     /// Whether the chat may search the live web. On by default: the alternative
     /// is a model answering from a training cut-off that has already passed.
     #[serde(default = "default_true")]
     pub web_search: bool,
-    /// Which search backend the web tools use, see `crate::web::PROVIDERS`.
+    /// Which search backend the web tools use — see `crate::web::PROVIDERS`.
     /// The keyless one needs no setup, so it is the default.
     #[serde(default = "default_search_provider")]
     pub search_provider: String,
@@ -87,6 +96,22 @@ fn default_snip_hotkey() -> String {
     "Ctrl+Alt+Shift+S".to_string()
 }
 
+/// Ctrl+Shift+D: not Ctrl+Alt, which is AltGr on a Polish layout; not a bare key, which
+/// Oczi would then swallow everywhere; and not Alt+Shift, which is the Windows layout
+/// switch — that pair registers as a hotkey and is then never delivered, so the field
+/// would say "ready" and nothing would ever happen.
+fn default_voice_hotkey() -> String {
+    "Ctrl+Shift+D".to_string()
+}
+
+// What the engine is pinned to, unless the user says otherwise.
+fn default_voice_language() -> String {
+    "pl".to_string()
+}
+
+/// Languages the speech engine may be pinned to, besides detecting it itself.
+pub const VOICE_LANGUAGES: [&str; 3] = ["auto", "pl", "en"];
+
 /// Languages the UI ships with. Anything else in settings.json becomes English.
 pub const LANGUAGES: [&str; 2] = ["en", "pl"];
 
@@ -113,6 +138,8 @@ impl Default for Settings {
             thinking: false,
             hotkey: default_hotkey(),
             snip_hotkey: default_snip_hotkey(),
+            voice_hotkey: default_voice_hotkey(),
+            voice_language: default_voice_language(),
             web_search: true,
             search_provider: default_search_provider(),
             language: default_language(),
@@ -130,7 +157,7 @@ pub fn config_dir() -> PathBuf {
     base.join("Oczi")
 }
 
-/// %LOCALAPPDATA%\Oczi, where the log and the ingested file inbox live.
+/// %LOCALAPPDATA%\Oczi — where the log and the ingested file inbox live.
 pub fn local_dir() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
@@ -142,9 +169,9 @@ fn settings_path() -> PathBuf {
     config_dir().join("settings.json")
 }
 
-/// Model IDs the API currently serves. Anything else in a settings.json, a
+/// Model IDs the API currently serves. Anything else in a settings.json — a
 /// retired alias like `deepseek-chat`, or the Claude model an older build wrote
-///, would 400 on every chat, so it is replaced with the default on load.
+/// — would 400 on every chat, so it is replaced with the default on load.
 pub const KNOWN_MODELS: [&str; 2] = ["deepseek-flash", "deepseek-v4-pro"];
 
 pub fn load() -> Settings {
@@ -159,6 +186,15 @@ pub fn load() -> Settings {
             }
             if crate::island::parse_hotkey(&settings.snip_hotkey).is_none() {
                 settings.snip_hotkey = default_snip_hotkey();
+            }
+            // Not just parseable — reachable. A stored Alt+Shift chord parses and registers
+            // and then never fires, so it is treated as unusable here rather than left to
+            // fail silently.
+            if !crate::island::chord_is_usable(&settings.voice_hotkey) {
+                settings.voice_hotkey = default_voice_hotkey();
+            }
+            if !VOICE_LANGUAGES.contains(&settings.voice_language.as_str()) {
+                settings.voice_language = default_voice_language();
             }
             if !crate::web::PROVIDERS.contains(&settings.search_provider.as_str()) {
                 settings.search_provider = default_search_provider();

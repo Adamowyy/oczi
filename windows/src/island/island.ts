@@ -10,6 +10,8 @@ import {
   type IslandMode, type IslandViewName,
 } from "../core/layout";
 import { Sound } from "../core/sound";
+import { listen, NoMic } from "../core/mic";
+import { t } from "../core/i18n";
 import { State } from "../core/state";
 import { BotEngine, hexToRGB } from "../bot/engine";
 import { Greeting } from "../bot/greeting";
@@ -17,6 +19,7 @@ import { createMiniBot, miniBotCount, pruneMiniBots, syncMiniBotStates, tickMini
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
+import { sendDictated, whenAnswered } from "../views/chat";
 import { musicPlaying } from "../views/music";
 
 /** What the selection overlay reports back. Zeros mean the user cancelled. */
@@ -28,7 +31,9 @@ const BOT_OVERHANG = 40;
 /** Same margin as the Rust hit test (src-tauri/src/island.rs). */
 const HIT_MARGIN = 14;
 
-/** How long a reminder card ignores a click that hides the island. */
+/** How long a reminder card ignores a click that hides the island. Long enough for
+ *  a click already on its way when the card appeared, short enough to not feel
+ *  stuck. */
 const REMINDER_GRACE_MS = 3000;
 /** Frames a second on an untouched island; the engine is clock-driven, so the
  * same character at any rate. Anything the user touches runs full speed. */
@@ -58,7 +63,9 @@ export class Island {
   private viewsEl!: HTMLElement;
   private botCanvas!: HTMLCanvasElement;
   private botGlow!: HTMLElement;
-  /** Last glow values written, see updateBotTargets. A blurred rewrite is not free. */
+  /** Last glow values written; see updateBotTargets. The glow is blurred, so a
+   *  write that changes nothing is not free. */
+  /** False while the island is not drawn (see syncAsleep). */
   private awake = true;
   /** True while the card is growing or shrinking (see `#island.settling`). */
   private settling = false;
@@ -117,6 +124,9 @@ export class Island {
   private hovered = false;
   /** The timer that holds a resting island at RESTING_FPS. */
   private restTimer: number | null = null;
+  /** How many frames have thrown, and when the last one was written to the log. */
+  private frameErrors = 0;
+  private lastFrameError = 0;
   private botHoverTimer: number | null = null;
   private lastLoveTime = 0;
   private botHoverStart = { x: 0, y: 0 };
@@ -139,6 +149,8 @@ export class Island {
       this.greetingStarted = false;
       this.fsm.greetComplete();
     };
+    // A spoken question that has just been answered starts listening again by itself.
+    whenAnswered(() => this.afterDictatedAnswer());
     State.subscribe(() => {
       this.dirty = true;
       this.ensureRunning();
@@ -151,6 +163,8 @@ export class Island {
     const actions: ViewActions = {
       setView: (v) => this.setView(v),
       snip: () => void this.snipRegion(),
+      /** Dictation: the voice chord, or the microphone on a card. */
+      dictate: () => void this.dictate(),
       // Asked for by the chat: hold the island open while a question is in flight and
       // while the answer is being read, even with the mouse nowhere near it.
       holdOpen: (seconds) => this.holdOpen(seconds),
@@ -159,7 +173,7 @@ export class Island {
         State.setFocus(id);
         Sound.play("blip");
       },
-      // The ↗ button, same targets as openAgentTarget() on macOS.
+      // The ↗ button — same targets as openAgentTarget() on macOS.
       openTarget: () => {
         const task = State.focusTask;
         if (!task) return;
@@ -261,6 +275,10 @@ export class Island {
           else if (from === "hidden") Sound.play("peek");
           this.setMode("compact");
           if (from === "greeting") State.view = State.defaultView();
+          // The greeting has had its turn. A reminder comes first, and it has to be
+          // re-asserted here rather than only at the moment it arrived: Rust drops
+          // it from the list as it fires it, so a card the greeting painted over is
+          // a card nobody will ever see again. Then the card about this version.
           if (from === "greeting" && State.reminder) this.alert("reminder");
           else if (from === "greeting" && State.newsMessage) this.alert("whatsnew");
           if (!this.wasInIsland) this.fsm.mouseLeft();
@@ -295,6 +313,9 @@ export class Island {
 
   launch() {
     this.fsm.launch();
+    // Rust sizes the window as PANEL_W × screen scale. If the page and the window
+    // ever disagree, the right-hand column is clipped at the window edge — and the
+    // mismatch is invisible in a screenshot, so every change is written down.
     const note = () => {
       const size = `${window.innerWidth}x${window.innerHeight}@${window.devicePixelRatio}`;
       if (size === this.windowSize) return;
@@ -314,6 +335,9 @@ export class Island {
     if (mode === "expanded") Sound.play("open");
     if (prev === "expanded") {
       Sound.play("close");
+      // Nothing is expanded any more, so nothing needs holding open either: a pin
+      // left behind here would refuse to arm the fold-away countdown the next time
+      // the island opens on any view at all.
       State.isPinned = false;
       this.fsm.pinned = false;
       this.sticky = false;
@@ -321,6 +345,9 @@ export class Island {
     }
     if (mode !== "expanded") {
       this.engine.resetMorph();
+      // Nothing can be seen of the sequence once the island is shut, and leaving
+      // it running would keep the frame loop awake — the island must cost
+      // nothing while hidden.
       UploadSeq.deactivate();
       // A fold takes the island out of the upload flow no matter what view it
       // was on, so Rust must stop offering the copy cursor.
@@ -343,6 +370,11 @@ export class Island {
   }
 
   expand(view: IslandViewName) {
+    // A reminder that is waiting keeps the stage. Opening the island lands here with
+    // whatever view asked for it, and a card put away a moment ago would otherwise be
+    // replaced by that view — which is how a reminder the user never saw disappeared
+    // for good. Only the two views that mean "just open the island" are overruled;
+    // the greeting, settings, a note or an error are deliberate and pass through.
     if (State.reminder && (view === "home" || view === "prompt")) {
       void Bridge.log(`expand ${view} -> reminder #${State.reminder.id}`);
       view = "reminder";
@@ -379,6 +411,23 @@ export class Island {
   }
 
   collapse() {
+    // Dictation ends with the island. Leaving the microphone open behind a folded window
+    // is both a privacy problem and the state that cannot be recovered from: the recording
+    // went on, ended on silence, and reopened the island by itself — which is how the
+    // window came back mid-animation, at the wrong size, with the cards cut off.
+    // The id moves so the samples on their way here are dropped instead of sent.
+    if (this.listening) {
+      this.listening.stop();
+      this.listening = null;
+      this.dictationId += 1;
+    }
+    if (State.voice) {
+      State.voice = null;
+      State.voiceLevel = 0;
+    }
+    // A note is a message, not a destination: once the island folds away it has
+    // been read, and Esc has to be able to make it go away. Leaving the view set
+    // meant the text came straight back the next time the island was opened.
     if (State.view === "note") {
       State.noteMessage = null;
       State.view = State.defaultView();
@@ -389,6 +438,11 @@ export class Island {
       State.newsMessage = null;
       State.view = State.defaultView();
     }
+    // A reminder is not answered by hiding the island. Clicking somewhere else puts
+    // the card away for now, and it is still there the next time the island opens;
+    // only its own buttons end it, which is what makes an unnoticed card impossible
+    // to lose. The first few seconds are ignored outright, so a click that was
+    // already on its way when the card appeared cannot take it away either.
     if (State.view === "reminder") {
       if (State.reminder && performance.now() - State.reminderShownAt < REMINDER_GRACE_MS) return;
       // Logged because the card is the only thing that can lose a reminder the file
@@ -400,8 +454,22 @@ export class Island {
     }
     State.isPinned = false;
     this.fsm.pinned = false;
-    // Drive the state machine, not the mode: setting the mode behind its back desyncs it.
+    // Drive the state machine rather than the mode: setting the mode behind its
+    // back left it thinking the island was still open, and a click on the compact
+    // island then did nothing — the island could never be reopened.
     this.fsm.forcePetit();
+    // …and then trust the mode, not the state machine. A transition to the state it is
+    // already in is deliberately a no-op, and opening a view moves the mode without moving
+    // the machine — so with the two out of step, `forcePetit()` folded nothing and every
+    // click outside called `collapse()` and changed exactly nothing, which is how the island
+    // was left expanded and unclosable.
+    if (State.mode !== "compact") this.setMode("compact");
+    // The window itself has to be taken back to the bar: the geometry animation only starts
+    // when someone asks for it.
+    this.animateGeometry(true);
+    // Folding away while the listening view was up used to leave it set: the island was
+    // shut, and the next time it opened it showed the microphone with no chat behind it.
+    this.ensureLeftListening();
   }
 
   /** Holds the island open for `seconds`, or indefinitely when 0. Sending a question
@@ -418,7 +486,10 @@ export class Island {
       this.holdTimer = null;
       State.isPinned = false;
       this.fsm.pinned = false;
-      // The island stays for the full interval from now, and only after a real mouse leave.
+      // The island stays put for the full interval from now, not from whenever the
+      // mouse last happened to leave — and only if the mouse has actually left:
+      // a cursor parked inside means the user is still reading, so nothing is armed
+      // and the FSM is not told the mouse went away.
       const away = !this.hovered;
       this.homeCollapseAt = away
         ? performance.now() + State.settings.autoCloseInterval * 1000
@@ -438,8 +509,10 @@ export class Island {
     this.fsm.reveal();
   }
 
-  /** The summon hotkey asks for the chat with the caret in the field, the island opens on the view it shows.
-   */
+  /** Summon from anywhere — the summon hotkey, or a click on the compact island.
+   *  Opening on `view`: the hotkey asks for the chat, with the caret in the field,
+   *  because the next thing is typing; a click with the mouse asks to look, and
+   *  lands on the home screen instead. */
   revealOrOpen(view: IslandViewName = "prompt") {
     if (State.mode === "expanded") {
       // Already open: settle the FSM out of "greeting", whose timer would fold the
@@ -470,6 +543,15 @@ export class Island {
   }
 
   private snipping = false;
+  /** The dictation in progress, if any. Non-null is what "already listening" means. */
+  private listening: { stop: () => void } | null = null;
+  /** Bumped by every dictation, so a recording that lands late cannot write over a newer
+   *  one's state — or send text from a microphone session that was already replaced. */
+  private dictationId = 0;
+  /** Set when the question just sent was spoken: its answer starts a quiet dictation, so a
+   *  spoken conversation continues without a keypress between sentences. Cleared again as
+   *  soon as it is used, and never set by a typed question. */
+  private dictatedTurn = false;
   private snipWaiter: ((info: SnipBounds) => void) | null = null;
   private holdTimer: number | null = null;
   private uploadPin = false;
@@ -489,7 +571,7 @@ export class Island {
       });
       await Bridge.beginSnip();
       const info = await answered;
-      if (info.width === 0) return; // they backed out, nothing to say
+      if (info.width === 0) return; // they backed out — nothing to say
       // Pinned, not sent: the input takes the caret and the picture waits there until
       // the user asks something about it.
       State.snip = { width: info.width, height: info.height };
@@ -506,7 +588,7 @@ export class Island {
     }
   }
 
-  /** The overlay finished, with a region, or with nothing at all (Esc). */
+  /** The overlay finished — with a region, or with nothing at all (Esc). */
   snipDone(info: SnipBounds) {
     const waiter = this.snipWaiter;
     this.snipWaiter = null;
@@ -518,11 +600,193 @@ export class Island {
     void this.snipRegion();
   }
 
-  /** The greeting opens with a shape that rushes into Iskra, so it starts after the first frame. */
+  /** The dictation chord. Same as clicking the microphone: the island decides what
+   *  listening means, the caller only says when. */
+  dictateStart() {
+    void this.dictate();
+  }
+
+  /** Dictation. One press starts listening, the next one stops it early; otherwise a pause
+   *  after speech ends it by itself — which is the point: press once, speak, and the text
+   *  goes on its way.
+   *
+   *  While it listens the island shows Iskra alone with the microphone and a level bar: no
+   *  card and no chat, because there is nothing to read yet. The transcript is then sent as
+   *  if it had been typed, so the answer is already on its way when the chat opens. */
+  private async dictate(quiet = false) {
+    // The engine is already working on the last recording. A new one started now would race
+    // it — the microphone would open, the finished transcript would arrive and clear the
+    // state under it, and what was left was a recording that ended with nothing in it.
+    if (State.voice === "transcribing") {
+      void Bridge.log("voice  press ignored — still transcribing");
+      return;
+    }
+    if (this.listening) {
+      // Second press: stop early. The handle settles with whatever was said, so the sentence
+      // goes on its way; the slot is emptied here as well, because a handle that somehow
+      // outlives its recording must never be able to block the chord for the rest of the
+      // session — which is exactly what it did when stopping left the promise unanswered.
+      const stale = this.listening;
+      this.listening = null;
+      stale.stop();
+      return;
+    }
+    const id = ++this.dictationId;
+    State.voice = "listening";
+    State.voiceLevel = 0;
+    // Held open while the microphone is open, but still closable: the auto-close countdown is
+    // a guess about whether someone is finished, and a recording is a person mid-sentence, so
+    // the guess must not fold the island away and cut the recording off — which is how an
+    // eleven-second question disappeared before it was ever transcribed. A click outside and
+    // Esc are not guesses; they go through `collapse`, which clears this. The listening view
+    // pins itself as well (see `syncDropPin`); this is the belt to that pair of braces.
+    this.fsm.pinned = true;
+    State.isPinned = true;
+    // Quiet means the chat is already open and the microphone simply goes live: no listening
+    // shape and no sound, because the conversation on screen is the context. This is how
+    // dictation starts itself again once a spoken question has been answered.
+    if (!quiet) {
+      // Deliberately not pinned. Pinning looked right — a card folding away mid-sentence is
+      // worse than no card — but it also took the window away from the click-outside and
+      // the countdown, so a dictation that never ended left the island impossible to close.
+      // Nothing here holds the window open any more.
+      this.expand("listening");
+      Sound.play("peek");
+    }
+
+    const handle = listen({
+      onLevel: (level) => {
+        State.voiceLevel = level;
+        // The bars ride the voice, and nothing else asks the island to repaint: a level that
+        // changes without a state change left them frozen for the whole recording — which is
+        // why they only moved once "transcribing" changed the state, and then statically.
+        this.dirty = true;
+      },
+      silenceMs: 900,
+      // Nothing said at all: end it instead of waiting out the thirty-second cap. Quiet has
+      // longer, because a follow-up question takes a moment to think about.
+      noSpeechMs: quiet ? 9000 : 6000,
+    });
+    this.listening = handle;
+    void Bridge.log("voice  listening");
+
+    try {
+      const samples = await handle.promise;
+      // A newer dictation has taken the island over; this result is not ours to use.
+      if (id !== this.dictationId) return;
+      this.listening = null;
+      if (samples.length === 0) {
+        this.dictateQuietly();
+        return;
+      }
+      State.voice = "transcribing";
+      State.notify();
+      const text = (await Bridge.voiceTranscribe(samples)).trim();
+      if (id !== this.dictationId) return;
+      State.voice = null;
+      if (!text) {
+        // Heard something, understood nothing. That is not an error the user can act on,
+        // so it folds away like the mis-click it was rather than asking to try again.
+        this.dictateQuietly();
+        return;
+      }
+      // A spoken question: it goes to the chat, and the answer brings the microphone back
+      // by itself. The chat opens whether or not this dictation was quiet — a quiet one is
+      // continuing a conversation, and both the message that was just sent and the answer on
+      // its way have to be visible. Opening a view that is already open costs nothing.
+      this.dictatedTurn = true;
+      this.expand("prompt");
+      sendDictated(text);
+    } catch (err) {
+      this.listening = null;
+      if (id === this.dictationId) this.voiceFailed(err instanceof NoMic ? "mic" : "engine");
+    } finally {
+      if (id === this.dictationId) {
+        // The pin goes back to the view that wants it: the chat and the listening view hold
+        // the island open by themselves, and a dictation that ended anywhere else gives the
+        // pin up entirely. Nothing else may leave it set, or the island stops closing.
+        this.fsm.pinned = false;
+        State.isPinned = false;
+        const keepOpen = quiet || State.view === "prompt" || State.view === "listening";
+        if (keepOpen && State.mode === "expanded") this.holdOpen(0);
+      }
+      if (id === this.dictationId && State.voice) {
+        State.voice = null;
+        State.notify();
+      }
+      // Whatever way this ended — heard, silent, failed, or overtaken — the island must not
+      // be left sitting in the listening view.
+      this.ensureLeftListening();
+    }
+  }
+
+  /** A dictation that produced nothing: back to where the island was, no card and no
+   *  sound. An error card for "you did not say anything" turns a mis-click into work. */
+  private dictateQuietly() {
+    State.voice = null;
+    State.voiceLevel = 0;
+    void Bridge.log(`ui  voice silent end view=${State.view} mode=${State.mode}`);
+    if (State.mode === "expanded" && State.view === "listening") this.collapse();
+    else State.notify();
+    this.ensureLeftListening();
+  }
+
+  /** The listening view is not somewhere the island may be left: it has no card and no bar
+   *  to dismiss, so if anything at all fails to fold it away the user is stuck looking at
+   *  "listening" with no way out. This runs after every dictation and after a collapse, and
+   *  it says in the log when it had to step in — which is the difference between a bug that
+   *  shows up once and one that cannot be diagnosed. */
+  private ensureLeftListening() {
+    if (State.view !== "listening") return;
+    void Bridge.log(`ui  listening view stuck (mode=${State.mode}) — folding by hand`);
+    State.view = State.defaultView();
+    State.voice = null;
+    State.voiceLevel = 0;
+    State.isPinned = false;
+    this.fsm.pinned = false;
+    this.fsm.forcePetit();
+    // Same reason as in `collapse`: the machine can already believe it is petit while the
+    // island is on screen, and a no-op transition would leave it there.
+    if (State.mode !== "compact") this.setMode("compact");
+    // The window itself has to be taken back to the bar: `forcePetit` moves the state machine
+    // and the geometry follows the state machine, but the animation only starts when someone
+    // asks for it. Without this the island stayed the size of the listening view — the height
+    // it needed for the microphone — with the home card crammed into it.
+    this.animateGeometry(true);
+    State.notify();
+  }
+
+  /** The chat answered a question that was spoken. Listening starts again on the chat
+   *  itself, without the listening shape and without a sound, so a conversation by voice
+   *  needs one keypress for the first sentence rather than one per sentence. Saying nothing
+   *  ends it: the microphone does not keep reopening on its own after a silence. */
+  private afterDictatedAnswer() {
+    if (!this.dictatedTurn) return;
+    this.dictatedTurn = false;
+    // Not while the island is folded: there is nothing to listen "next to" then, and the
+    // user has already moved on. The next keypress is one click away in that case.
+    if (State.mode !== "expanded") return;
+    void this.dictate(true);
+  }
+
+  /** A dictation that produced nothing, with the reason on the note card the chat uses. */
+  private voiceFailed(why: "mic" | "empty" | "engine") {
+    State.voice = null;
+    State.noteMessage = t(`voice.err.${why}`);
+    Sound.play("error");
+    void Bridge.log(`voice  ${why}`);
+    this.setView("note");
+  }
+
+  /** The greeting opens with a big shape that rushes into Iskra. Starting it the
+   *  moment the state changes painted those first frames while the bar was still
+   *  sliding out, so the shape filled the silhouette as a flat panel of colour for
+   *  a few frames — the bar has to arrive first, exactly like the character does.
+   *  A timer, not the frame loop, so it also works before the first frame lands. */
   private startGreetingWhenSettled() {
     const started = performance.now();
     const tick = window.setInterval(() => {
-      // The greeting view has to be up before the one-run guard latches, not just the shape still.
+      // Not just "the shape stopped moving": the greeting view has to be up as well.
       const ready = this.greetingViewUp() && this.height.value > NOTCH_H * 1.25;
       if (!ready && performance.now() - started < 1500) return;
       window.clearInterval(tick);
@@ -542,12 +806,20 @@ export class Island {
     return State.mode === "expanded" && State.view === "greeting";
   }
 
-  /** A click elsewhere in Windows. The island takes the hint, but not while a question
-   *  is in flight, that click is the user going back to work, not "done reading". */
+  /** A click elsewhere in Windows. The island takes the hint. */
   clickOutside() {
+    // Not while the island is asking for a file: picking the file up begins with a
+    // click outside the island, and folding the drop prompt away at that moment is
+    // exactly what killed the drag before it could reach us.
     if (UPLOAD_VIEWS.has(State.view)) return;
-    if (State.stateOverride === "thinking") return;
-    if (State.mode === "expanded") this.collapse();
+    // An answer being written is not a reason to stay open. This used to return early while
+    // the island was "thinking", so a request that stalled — or one whose answer simply took
+    // its time — left a window that could not be dismissed by clicking away at all. The
+    // answer lands in the conversation whether or not the card is still on screen.
+    if (State.mode === "expanded") {
+      void Bridge.log("ui  click outside — folding");
+      this.collapse();
+    }
   }
 
   /** The drop prompt holds the island open, and is the one place it becomes a drop
@@ -560,14 +832,20 @@ export class Island {
       this.holdOpen(wanted ? 0 : State.settings.autoCloseInterval);
     }
 
-    // The chat is typed in, so it stays pinned until dismissed by click-outside or
-    // Esc. Every other view keeps the popover's own countdown.
-    const sticky = view === "prompt";
+    // The chat is typed in and the microphone is spoken into: both are things the user is
+    // *doing*, not cards to read, so both stay until dismissed by click-outside or Esc. Every
+    // other view keeps the popover's own countdown. Leaving dictation out of this meant that
+    // opening the listening view armed the countdown, and the island folded — and then hid
+    // itself — a few seconds into a sentence that was still being spoken.
+    const sticky = view === "prompt" || view === "listening";
     if (sticky === this.sticky) return;
     this.sticky = sticky;
     if (sticky) {
       this.holdOpen(0);
     } else {
+      // Only if the cursor really is away. Clicking a pill leaves the pointer on
+      // the island, and telling the FSM it left there is what used to fold the card
+      // away under the cursor — the countdown waits for the mouse to leave instead.
       State.isPinned = false;
       this.fsm.pinned = false;
       if (this.hovered) {
@@ -626,7 +904,7 @@ export class Island {
   }
 
   /** Iskra eats the file. The inbox copy runs in the background, so a slow disk
-   *  cannot stall the animation, same as FileDropHandler on macOS. */
+   *  cannot stall the animation — same as FileDropHandler on macOS. */
   private swallow(path: string) {
     const name = path.split(/[\\/]/).pop() || "file";
     State.droppedFile = { name, path };
@@ -634,6 +912,9 @@ export class Island {
     State.chatHistory = [];
     void Bridge.chatReset();
 
+    // The drop must always have a sequence to play: OLE can deliver a drop that
+    // was never preceded by an enter on our target, and a view showing 0 % for
+    // ever is worse than a slightly late start.
     if (!UploadSeq.isActive) {
       UploadSeq.enterZone(State.mouseInIsland.x, State.mouseInIsland.y);
     }
@@ -737,7 +1018,13 @@ export class Island {
       this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
     }
 
+    // The region Rust accepts the mouse in is the settled shape, not the animated
+    // one: while a card grows, a click on a button already drawn would otherwise
+    // count as a click outside it — and a click outside folds the island away.
     const settled = this.targetSize();
+    // Nothing escapes while the card is changing shape. She is drawn outside the clip
+    // on purpose (she overhangs the bar), so during a grow or a shrink she has to be
+    // held inside the current silhouette or she hangs off the corner of it.
     const settling = this.width.animating || this.height.animating;
     if (settling !== this.settling) {
       this.settling = settling;
@@ -795,6 +1082,10 @@ export class Island {
       Sound.resume();
       State.lastActivity = performance.now();
       if (State.mode !== "expanded") {
+        // A click on the compact island opens what is worth looking at: while
+        // music is playing that is the now-playing card — the pink pill is the
+        // active one — and the home screen otherwise. Either way the tabs are one
+        // click away, so a click never traps anyone in a screen.
         if (musicPlaying()) State.setFocus("integration_music");
         this.revealOrOpen(musicPlaying() ? "overview" : State.defaultView());
         return;
@@ -828,7 +1119,7 @@ export class Island {
     State.mouseInIsland = { x: x - rect.x, y: y - rect.y };
 
     // Windows sends no cursor position with an OLE drag, so the drop sequence is
-    // fed from the Win32 cursor poll instead, it runs throughout the drag.
+    // fed from the Win32 cursor poll instead — it runs throughout the drag.
     if (UploadSeq.isActive && !UploadSeq.dropped) {
       UploadSeq.updateCursor(State.mouseInIsland.x, State.mouseInIsland.y);
     }
@@ -933,7 +1224,11 @@ export class Island {
     requestAnimationFrame(this.frame);
   }
 
-  private frame = () => {
+  private drawFrame(): number {
+    // One clock for the app. A frame's own timestamp can be stale right after the island
+    // sleeps, and a dt measured against it comes out negative: that steps the springs
+    // below backwards, so she woke up a few million pixels wide and then 1 px. The
+    // engine's tweens and blinks already run on performance.now(), so this does too.
     const nowMs = performance.now();
     const raw = (nowMs - this.lastFrame) / 1000;
     if (raw < this.worstDt) this.worstDt = raw;
@@ -980,7 +1275,7 @@ export class Island {
     if (UploadSeq.isActive) this.stepSequence();
     this.updateCountdown(nowMs);
 
-    // Nothing is drawn while hidden, so nothing may keep the loop alive either, 
+    // Nothing is drawn while hidden, so nothing may keep the loop alive either —
     // engine.busy is permanently true for any looping animation. Geometry still retracts.
     const settling =
       this.width.animating || this.height.animating || this.radius.animating;
@@ -1001,7 +1296,9 @@ export class Island {
     if (!busy) {
       this.running = false;
       Sound.idle();
-      return;
+      // Nothing left alive to draw: the loop stops on purpose, and `ensureRunning` starts it
+      // again the next time something wakes the island.
+      return -1;
     }
 
     // Nothing on screen but a living character: everything else drops to RESTING_FPS.
@@ -1016,8 +1313,30 @@ export class Island {
       // scrolling and the caret.
       State.view !== "prompt";
 
-    const fps = !still ? 0 : State.mode === "expanded" ? OPEN_FPS : RESTING_FPS;
+    // 0 means full speed. An open card gets its own rate rather than the bar's:
+    // the bar is a 184 px drawing nobody is looking at, a card is the thing on
+    // screen.
+    return !still ? 0 : State.mode === "expanded" ? OPEN_FPS : RESTING_FPS;
+  };
 
+  /** One frame, and the next one scheduled whatever happened inside it.
+   *
+   *  The body used to schedule its own successor, so a throw anywhere in it — drawing a view
+   *  that was halfway through a change, say — left the island on screen with the loop dead
+   *  behind it: frozen, unclickable, and only a restart of the app could clear it. The loop
+   *  is the one thing that has to keep running. */
+  private frame = () => {
+    let fps = 0;
+    try {
+      fps = this.drawFrame();
+    } catch (err) {
+      this.reportFrameError(err);
+      // Whether or not the failure repeats, the island keeps breathing — at the resting rate
+      // rather than flat out, because a view that throws on every frame would otherwise spin
+      // the processor with no visible result.
+      fps = RESTING_FPS;
+    }
+    if (fps < 0) return;
     if (fps > 0) {
       if (this.restTimer !== null) window.clearTimeout(this.restTimer);
       this.restTimer = window.setTimeout(() => {
@@ -1033,10 +1352,25 @@ export class Island {
     }
   };
 
+  /** Once loud, then at most every five seconds: a view that throws on every frame would
+   *  otherwise fill the log with the same line sixty times a second. */
+  private reportFrameError(err: unknown) {
+    this.frameErrors += 1;
+    const now = performance.now();
+    if (this.frameErrors === 1 || now - this.lastFrameError > 5000) {
+      this.lastFrameError = now;
+      void Bridge.log(`ui  frame threw (#${this.frameErrors}): ${String(err)}`);
+    }
+  }
+
   /** Decorative card animations keep compositing at zero opacity, so they run only
-   *  while the card is up or the cursor is on the island, see the `.asleep` rule. */
+   *  while the card is up or the cursor is on the island — see the `.asleep` rule. */
   private syncAsleep() {
     const awake = State.mode === "expanded" || this.hovered;
+    // Coming back after a while, the caches below still hold the sizes and places
+    // from the last time the island was out, so the first frame showed the glow as a
+    // big stretched square for a moment. Dropping them re-asserts everything on that
+    // frame instead: a handful of style writes once per wake.
     if (!awake) this.awake = false;
     else if (!this.awake) {
       this.awake = true;
@@ -1048,6 +1382,9 @@ export class Island {
     document.documentElement.classList.toggle("asleep", !awake);
   }
 
+  /** One line per wake, twice, so a flash that only shows up on somebody else's
+   *  machine can be read back from the log instead of guessed at. Cheap on purpose:
+   *  sizes and visibility, no pixels. */
   private reportWake() {
     const shot = (tag: string) => {
       const canvas = (id: string) => {
@@ -1066,12 +1403,18 @@ export class Island {
     }
   }
 
+  /** A frame whose clock is older than the previous one, which is what the first frame
+   *  after a sleep looks like. Clamped before it reaches anything, and written down once
+   *  per waking so the log can prove it if it happens again. */
   private reportStaleFrame(raw: number) {
     if (this.staleFrameLogged) return;
     this.staleFrameLogged = true;
     void Bridge.log(`ui  frame dt ${(raw * 1000).toFixed(1)}ms (stale frame clock) clamped to 0`);
   }
 
+  /** The hot path writes a style only when its cached value moved. That cache has to
+   *  go when the island has been asleep: the DOM still carries the last frame's
+   *  sizes, and nothing compares against those. */
   private forgetLaidOutSizes() {
     this.glowSize = -1;
     this.glowPos = { x: -1, y: -1 };
@@ -1082,6 +1425,9 @@ export class Island {
     this.geometryKey = "";
   }
 
+  /** Press and hold the island itself — not one of its controls — and it slides along
+   *  the top of the screen. Where it is left goes into the settings, so it comes back
+   *  there. The window is what moves, so the wake band follows it for free. */
   private bindDrag() {
     let dragging = false;
     let moved = false;
@@ -1153,6 +1499,9 @@ export class Island {
     this.botSize.target = p.diameter / 0.6;
 
     const greetingActive = State.mode === "expanded" && State.view === "greeting";
+    // She overhangs the bar by design, so she may not be on screen before it is:
+    // coming back from the wake strip the height climbs from 0 to NOTCH_H, and
+    // Iskra used to be there while the bar was still a sliver.
     const grown = clamp(this.height.value / NOTCH_H, 0, 1);
     // She waits until the bar is a third of the way out, so the order on screen
     // is always the bar first, then her fading in.
@@ -1163,6 +1512,9 @@ export class Island {
     this.botCanvas.style.opacity = visible ? String(shown) : "0";
 
     if (State.mode === "expanded" && State.view !== "uploading" && !greetingActive && !this.uploadActive) {
+      // Only once the card has arrived. The glow is 2.2× the character and is drawn
+      // outside the card's clip on purpose, so showing it while the island is still a
+      // 32 px bar spilled ~100 px of light blue onto the desktop around it.
       if (this.width.animating || this.height.animating) {
         this.botGlow.style.display = "none";
         return;
@@ -1200,6 +1552,9 @@ export class Island {
   }
 
   private drawBot(dt: number) {
+    // Nothing reaches the DOM that it cannot use: 0 is an invisible Iskra, "NaNpx" is a
+    // dropped declaration that leaves the last width behind, and a huge one is a flat
+    // slab of her own colour. Third of three guards: the frame clock, the springs, this.
     const size = this.botSize.value;
     const w = clamp(Number.isFinite(size) ? Math.round(size) : 1, 1, PANEL_W);
     const hCss = w + BOT_OVERHANG;
@@ -1246,7 +1601,7 @@ export class Island {
     this.engine.draw(ctx, w, hCss);
   }
 
-  /** BotCanvasView.lookX / lookY, tanh of the distance to the bot. */
+  /** BotCanvasView.lookX / lookY — tanh of the distance to the bot. */
   private lookX(): number {
     const rect = this.islandRect();
     const botScreenX = rect.x + this.botCx.value;
@@ -1277,6 +1632,9 @@ export class Island {
     const greetingActive = expanded && State.view === "greeting";
 
     this.contentEl.style.opacity = expanded && !greetingActive ? "1" : "0";
+    // While the drop sequence owns the body its own layer sits underneath, so the
+    // content must stop taking pointer events or it eats every click meant for the
+    // buttons the sequence paints. The header keeps them: see style.css.
     this.contentEl.style.pointerEvents =
       expanded && !greetingActive && !this.uploadActive ? "auto" : "none";
     this.greetingCanvas.style.display = greetingActive ? "block" : "none";
@@ -1300,6 +1658,10 @@ export class Island {
       }
     }
 
+    // Compact: the summon chord, dimmed, with the mini characters of every service
+    // the user switched on beside it. Not `otherTasks`: the focused pill is often
+    // the one you want to see there — the player, while music is playing — and a
+    // row that drops whichever service happens to be active reads as a missing pill.
     const showGrid = State.mode === "compact";
     this.miniGrid.style.opacity = showGrid ? "1" : "0";
     if (showGrid) {

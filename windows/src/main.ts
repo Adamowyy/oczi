@@ -23,7 +23,10 @@ async function main() {
     State.settings = { ...State.settings, ...boot.settings };
     setLang(State.settings.language);
   }
-  // The stored home view may differ from the one already built, so reload it.
+  // The home view is built a line above, before the boot reply lands. If the
+  // stored choice differs from the one the page was built in, loading it again is
+  // the honest fix. The second half of the test is what keeps a page whose storage
+  // is blocked from reloading itself forever.
   if (State.settings.language !== builtWith && storedLang() === State.settings.language) {
     location.reload();
     return;
@@ -74,11 +77,19 @@ async function main() {
     island.snipStart();
   });
 
-  // A click anywhere else in Windows. The island cannot hear it, it is click-through
-  // whenever the mouse is away, so Rust watches the mouse button and tells us.
+  // The dictation chord, registered by Rust (Ctrl+Shift+Space unless the user recorded
+  // another one). One press starts listening, the next one stops it early; otherwise the
+  // recording ends itself on a pause and the text goes on its way.
+  await onEvent<null>("hotkey-voice", () => {
+    setPaused(false);
+    island.dictateStart();
+  });
+
+  // A click anywhere else in Windows. The island cannot hear it — it is click-through
+  // whenever the mouse is away — so Rust watches the mouse button and tells us.
   await onEvent<null>("click-outside", () => island.clickOutside());
 
-  // The selection overlay answered, with a region, or with nothing (Esc).
+  // The selection overlay answered — with a region, or with nothing (Esc).
   await onEvent<{ width: number; height: number; bytes: number }>("snip-done", (info) =>
     island.snipDone(info),
   );
@@ -106,6 +117,9 @@ async function main() {
     State.settings = { ...State.settings, ...s };
     setLang(State.settings.language);
     if (languageChanged) {
+      // Every view bakes its text when it is built, so the honest way to
+      // re-translate the island is to load it again — the settings window does
+      // exactly that for its own widgets.
       location.reload();
       return;
     }
@@ -118,6 +132,9 @@ async function main() {
 
   island.launch();
 
+  /** Once per launch, and never while it sits in the background: is there
+   *  anything to say about this version? The card takes the stage when the
+   *  greeting folds, and the release check rides along in the same pass. */
   async function announce() {
     const version = boot?.version ?? "";
     if (!version) return;
@@ -139,13 +156,18 @@ async function main() {
     };
     State.notify();
     // While the greeting is up, island.ts hands the card over when it folds.
-    // Otherwise open it now, but never over something the user just opened.
+    // Otherwise open it now — but never over something the user just opened.
     if (island.fsm.state === "greeting") return;
     if (State.mode === "expanded" && State.view !== "whatsnew") return;
     island.alert("whatsnew");
   }
   void announce();
 
+  // The listener above is the only thing that can show a reminder, so nothing may
+  // be fired before it is wired — this is the "I am listening" Rust waits for, and
+  // the moment anything missed while Oczi was off is handed over. It comes last on
+  // purpose: the greeting starts a few lines up, and a card shown before that is a
+  // card the greeting paints over.
   await Bridge.remindersReady();
 
   // In a plain browser there is no wake strip behind the cursor: make the whole
