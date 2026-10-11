@@ -13,6 +13,7 @@ mod settings;
 mod shell;
 mod snip;
 mod startup;
+mod steam;
 mod text_tools;
 mod tray;
 mod update;
@@ -689,6 +690,21 @@ pub fn run() {
         return;
     }
 
+    // The same shape for the Steam library, which is read, not walked: `oczi.exe --steam`
+    // prints the games it can start and stops. A game's name is the whole of what a launch
+    // has to go on, so being able to see the list without opening a window is what tells a
+    // "could not find it" apart from "it is not installed".
+    if std::env::args().any(|arg| arg == "--steam") {
+        let games = steam::all();
+        if games.is_empty() {
+            println!("no steam library found");
+        }
+        for game in games {
+            println!("{}\t{}", game.appid, game.name);
+        }
+        return;
+    }
+
     // The same idea for dictation, and the only way to check the engine without speaking
     // into the app: `oczi.exe --transcribe <file.wav>` prints the text for a 16 kHz mono
     // recording and stops. A windowed build writes stdout when a terminal started it or a
@@ -710,6 +726,15 @@ pub fn run() {
             }
             return;
         }
+    }
+
+    // What the model is actually told, in full: `oczi.exe --prompt` prints the system prompt
+    // and stops. It is the only way to read the assembled text (every paragraph, both
+    // language settings, the escaped newlines) without a live conversation, and a prompt is
+    // exactly the kind of thing that reads one way in the source and another once assembled.
+    if std::env::args().any(|arg| arg == "--prompt") {
+        println!("{}", deepseek::system_prompt(true, true, "pl"));
+        return;
     }
 
     // A panic in the release build aborts the process, so this hook is the only

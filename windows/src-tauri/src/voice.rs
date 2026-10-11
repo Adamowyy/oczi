@@ -104,12 +104,16 @@ pub fn language(setting: &str) -> &'static str {
     }
 }
 
-/// What the engine is told to expect. Whisper uses this as context, not as an instruction:
-/// a short line of the words this app is actually asked for biases the decode towards them,
-/// which is what keeps a spoken command from coming back as a near-miss. Polish first,
-/// because that is what most dictation is, with the English terms that get mixed in.
+/// What the engine is told to expect. Whisper reads this as context, not as an instruction,
+/// so a line of the names this app is asked for biases the decode towards them.
+///
+/// Short, and spelled the way they are spoken (`Steama`, `Discorda`): the hint is decoded
+/// before the audio is, and the borrowed names only come back whole in the form the speaker
+/// says them. Measure any addition here on real speech, a longer hint is not a safer one.
+///
+/// `OCZI_PROMPT` replaces it (`-` for none).
 // i18n-ok: a vocabulary hint for the engine, never shown to a person.
-const PROMPT: &str = "Oczi, uruchom przeglądarkę, otwórz przeglądarkę, znajdź w internecie, zapisz w notatkach, przypomnij mi, ustaw przypomnienie, wyślij wiadomość, otwórz plik, otwórz folder, terminal, polecenie, zadanie, spotkanie, jutro, o której, config, plik, a także: open the browser, run the tests, search the web, write it down";
+const PROMPT: &str = "Oczi, odpal Steama, uruchom Discorda, Dead by Daylight";
 
 /// How much of the encoder to run. Whisper's encoder always works on a thirty-second window,
 /// so a five-second question pays for thirty — this is the one dial that makes a short
@@ -152,6 +156,22 @@ fn is_non_speech(text: &str) -> bool {
     !letters.is_empty() && letters.iter().all(|c| c.is_uppercase())
 }
 
+/// One decoding lever from the environment, so a setting can be compared on the same
+/// recordings without a rebuild. The defaults below are what the app ships.
+fn env_num(name: &str) -> Option<f32> {
+    std::env::var(name).ok()?.trim().parse::<f32>().ok()
+}
+
+/// The vocabulary hint, or none when `OCZI_PROMPT` is `-`, because "no hint" is worth
+/// measuring too.
+fn prompt() -> Option<String> {
+    match std::env::var("OCZI_PROMPT") {
+        Ok(value) if value.trim() == "-" => None,
+        Ok(value) if !value.trim().is_empty() => Some(value),
+        _ => Some(PROMPT.to_string()),
+    }
+}
+
 /// Text for a recording, or the reason there is none.
 pub fn transcribe(samples: &[f32], setting_language: &str) -> Result<String, Fault> {
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
@@ -183,16 +203,28 @@ pub fn transcribe(samples: &[f32], setting_language: &str) -> Result<String, Fau
 
     // Greedy decoding, not the library default of beam 5 with 5 candidates: dictation wants
     // the answer now, and the beam search multiplies decode time for a difference nobody
-    // can hear in a sentence they just spoke.
-    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+    // can hear in a sentence they just spoke. `OCZI_BEAM` (>= 2) switches to beam search and
+    // `OCZI_BEST_OF` widens greedy, so the cost of either can be measured instead of argued.
+    let beam = env_num("OCZI_BEAM").unwrap_or(0.0) as i32;
+    let best_of = env_num("OCZI_BEST_OF").unwrap_or(1.0).max(1.0) as i32;
+    let mut params = if beam >= 2 {
+        FullParams::new(SamplingStrategy::BeamSearch {
+            beam_size: beam,
+            patience: 1.0,
+        })
+    } else {
+        FullParams::new(SamplingStrategy::Greedy { best_of })
+    };
     params.set_n_threads(threads());
     params.set_language(Some(language(setting_language)));
     params.set_translate(false);
     // Vocabulary, and a second attempt at raising temperature when a window comes out
     // unconvincing: greedy decoding is fast, and the fallback is what gives a garbled
     // sentence another chance at being the sentence that was said.
-    params.set_initial_prompt(PROMPT);
-    params.set_temperature_inc(0.2);
+    if let Some(hint) = prompt() {
+        params.set_initial_prompt(&hint);
+    }
+    params.set_temperature_inc(env_num("OCZI_TEMP_INC").unwrap_or(0.2));
     // Shorter recordings run a shorter encoder: see `audio_ctx`.
     params.set_audio_ctx(audio_ctx(samples));
     // The library prints progress and timings to stderr; a windowed app has no console, so
@@ -312,4 +344,55 @@ pub fn wav_16k_mono(bytes: &[u8]) -> Result<Vec<f32>, Fault> {
         return Err(Fault::BadAudio);
     }
     Ok(samples)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The two measured properties of the vocabulary hint, so a later edit cannot quietly
+    /// undo them: the borrowed names are written the way they are *spoken* (with the Polish
+    /// case ending the decoder has to produce), and the line stays short — its characters are
+    /// decoded before the audio is, and the long list it replaced was the less accurate of
+    /// the two. A bare-name list is the specific thing that did not work.
+    #[test]
+    fn prompt_names_the_borrowed_words_as_they_are_spoken() {
+        assert!(
+            PROMPT.contains("Steama") && PROMPT.contains("Discorda"),
+            "borrowed names need their Polish case ending: {PROMPT}"
+        );
+        assert!(
+            !PROMPT.contains("Steam ") && !PROMPT.contains("Discord "),
+            "a list of bare English names fixed nothing when it was tried: {PROMPT}"
+        );
+        assert!(
+            PROMPT.chars().count() <= 80,
+            "the hint is paid for on every dictation — keep it short: {} chars",
+            PROMPT.chars().count()
+        );
+    }
+
+    /// A marker or an invented sentence is not a transcript. The engine's answer to audio with
+    /// no words in it must never reach the chat, so this rule is the reason a stray clip folds
+    /// away instead of starting a conversation.
+    #[test]
+    fn markers_are_not_transcripts() {
+        assert!(is_non_speech(""));
+        assert!(is_non_speech("   "));
+        assert!(is_non_speech("[BLANK_AUDIO]"));
+        assert!(is_non_speech("[MUSIC]"));
+        assert!(is_non_speech("(NOISE)"));
+        assert!(!is_non_speech("Odpal Steama"));
+        assert!(!is_non_speech("[BLANK_AUDIO] and then something"));
+    }
+
+    /// The encoder window is scaled to the clip, and the floor is what keeps the tail of a
+    /// sentence inside it: below ~600 positions the end of the audio falls past the window.
+    #[test]
+    fn audio_window_keeps_a_floor() {
+        let short = vec![0.0f32; SAMPLE_RATE as usize]; // one second
+        assert_eq!(audio_ctx(&short), 600);
+        let long = vec![0.0f32; SAMPLE_RATE as usize * 60];
+        assert_eq!(audio_ctx(&long), 1500);
+    }
 }

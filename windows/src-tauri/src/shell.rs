@@ -12,7 +12,9 @@ use std::time::{Duration, Instant};
 /// Output handed back to the model, per stream. More than this is noise.
 pub const MAX_OUTPUT: usize = 8_000;
 pub const DEFAULT_TIMEOUT: u64 = 30;
-pub const MAX_TIMEOUT: u64 = 300;
+/// The longest a foreground command may run. The user is watching the island while it waits,
+/// so anything slower belongs in `terminal_job`; this cap is what makes that true.
+pub const MAX_TIMEOUT: u64 = 60;
 
 pub struct Output {
     pub code: Option<i32>,
@@ -103,8 +105,17 @@ pub fn launch(what: &str) -> Result<String, String> {
     }
     let target = if Path::new(what).exists() {
         PathBuf::from(what)
+    } else if let Some(path) = find_app_tolerant(what) {
+        path
+    } else if let Some(game) = crate::steam::installed(what) {
+        // A game is not a file to run: Steam owns it, and the app id in its own URL is the
+        // only handle on it. Checked before giving up, never by walking the disk — a model
+        // left to search for a game's executable spends minutes on it (see `steam.rs`).
+        return crate::steam::open(&game);
     } else {
-        find_app(what).ok_or_else(|| format!("Could not find \"{what}\" on the desktop or in the Start menu."))?
+        return Err(format!(
+            "Could not find \"{what}\" on the desktop, in the Start menu or in the Steam library."
+        ));
     };
 
     let dir = target.parent().map(|p| p.to_path_buf()).unwrap_or_default();
@@ -132,6 +143,40 @@ pub fn launch(what: &str) -> Result<String, String> {
 /// Shortcuts beat executables, and the desktop beats the Start menu.
 fn find_app(name: &str) -> Option<PathBuf> {
     pick_app(&search_dirs(), name)
+}
+
+/// The name as it arrives from the tools, which is not always the name on disk: a dictated one
+/// carries the Polish case ending it was spoken with. The plain name is tried first and the
+/// stripped forms only when nothing matched at all, so a program whose real name ends the same
+/// way is untouched and the only cost of a miss is a second walk.
+fn find_app_tolerant(name: &str) -> Option<PathBuf> {
+    if let Some(path) = find_app(name) {
+        return Some(path);
+    }
+    for candidate in spoken_stems(name) {
+        if let Some(path) = find_app(&candidate) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// What a spoken name might be on disk: without the case ending that only the speaker added.
+/// Polish borrows masculine names with `-a` in the accusative, so that is the ending worth
+/// trying; a stem under three letters is not a name and is dropped. `steam` matches the same
+/// way.
+pub(crate) fn spoken_stems(name: &str) -> Vec<String> {
+    let lowered = name.trim().to_lowercase();
+    let mut stems = Vec::new();
+    // i18n-ok: Polish case endings — data to match against, not UI copy.
+    for ending in ["a", "ę", "u"] {
+        if let Some(stem) = lowered.strip_suffix(ending) {
+            if stem.chars().count() >= 3 {
+                stems.push(stem.to_string());
+            }
+        }
+    }
+    stems
 }
 
 fn pick_app(dirs: &[PathBuf], name: &str) -> Option<PathBuf> {
@@ -657,6 +702,39 @@ mod tests {
         let found = pick_app(&[dir.clone()], "pzupdater").expect("found");
         assert_eq!(found, exact);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_foreground_command_is_killed_at_its_deadline() {
+        // The cap is what keeps a command that hunts a whole disk from holding the turn for
+        // minutes: it has to come back, with `timed_out` set and the output it produced.
+        let started = Instant::now();
+        let out = run("ping -n 30 127.0.0.1", None, Some(1)).expect("run");
+        assert!(out.timed_out, "the command was not killed at its deadline");
+        assert_eq!(out.code, None, "a killed command has no exit code");
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "returned after {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_timeout_above_the_cap_is_clamped() {
+        // Asking for ten minutes does not buy ten minutes: it is the clamp that bounds it.
+        assert_eq!(Some(600u64).unwrap_or(DEFAULT_TIMEOUT).clamp(1, MAX_TIMEOUT), 60);
+    }
+
+    #[test]
+    fn finds_a_program_spelled_the_way_it_was_spoken() {
+        assert_eq!(spoken_stems("Steama"), vec!["steam"]);
+        assert_eq!(spoken_stems("Discorda"), vec!["discord"]);
+        assert_eq!(spoken_stems("Steam"), Vec::<String>::new());
+        // Too short to be a name: nothing to look for.
+        assert_eq!(spoken_stems("ma"), Vec::<String>::new());
+        // A real name that happens to end the same way is only a *second* candidate, so the
+        // program itself still wins — see `find_app_tolerant`.
+        assert_eq!(spoken_stems("Opera"), vec!["oper"]);
     }
 
     #[test]

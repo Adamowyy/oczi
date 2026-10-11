@@ -53,11 +53,22 @@ Finish with at most two sources you actually used, each as a bare URL on its own
 /// so the text spends most of its length on when not to touch it.
 const TERMINAL_PROMPT: &str = "\nYou can also run commands on this machine — Windows, cmd.exe — with the terminal tools: run_terminal for anything short, terminal_job for servers, builds and downloads, then terminal_output and terminal_kill for those. \
 To open a program or a file use launch_app — it finds things by name — and keep run_terminal for commands. \
+Never hunt for a program by walking the disk: dir /s, where /r, a loop over drive letters take minutes and leave the window unable to answer while they run. If a name cannot be found, say so in one line instead of searching for it. \
+Anything that can take longer than a minute belongs in terminal_job, not run_terminal: the foreground call is cut off at a minute on purpose. \
 On this machine the usual folders are not always where they look: ask Windows for one — in PowerShell, [Environment]::GetFolderPath(\"Desktop\") — or use the %USERPROFILE% variable, instead of assuming a path. \nUse them whenever the answer needs the real machine — files, installed versions, processes, git state, a build or a script — instead of guessing or telling the user to do it themselves. \
 Prefer read-only commands. Before anything that deletes, overwrites, installs or changes the system, say exactly what you are about to run and wait for the user to agree. \
 Never run something destructive as a side effect of a guess. \
 Every command is written to the app log, so report the command you ran and what it printed, and never claim a result you did not see. \nCall the tools the normal way: never write the call out as text or XML, because that does nothing at all. \
 When you have asked whether to do something and the user answers ok, yes, go ahead or anything else that reads as agreement, that is permission: do it, without asking a second time.";
+
+/// Appended when the build carries dictation. What the user sends may be a *transcript*
+/// rather than something typed, decoded by a small model running locally: it is fast, and it
+/// is wrong sometimes, always in the same shape — two words run together, a borrowed name
+/// spelled the way it sounds, a Polish case ending on a name the machine has never heard of.
+/// Saying so here costs no latency (the turn was going to the model anyway) and it is the
+/// difference between a name that gets launched and a name that is only repeated back.
+#[cfg(feature = "voice")]
+const DICTATION_PROMPT: &str = "\nSome messages reach you as dictation: Oczi's own speech recognition, decoded by a small local model on this machine. Read the sentence for what the user meant before you act on it, because the mistakes are predictable — two words run together, a borrowed product name written the way it sounds, a Polish case ending attached to a name that has none. Before a name goes into a tool, especially launch_app, put it back in the plain form it has on the machine — the name as it is written in the Start menu, not the way it was spoken.";
 
 const REMINDER_PROMPT: &str = "\nAnything the user wants to be told about later — \"remind me\", \"przypomnij mi\", \"in 20 minutes\", \"tomorrow at 8\" — is one call to the remind tool. A card Oczi itself shows at that moment; the user needs nothing installed and nothing running for it. \
 Never build a reminder out of a script, a scheduled task, PowerShell, msg or a .ps1 file: the tool is the only thing the user will actually see, and anything else just leaves files behind. \
@@ -66,7 +77,8 @@ A reminder can repeat: pass `repeat` as \"daily\", \"weekdays\" or \"weekly\" wh
 list_reminders shows what is pending, including anything already on screen and waiting to be answered; cancel_reminder removes one by its id. \
 After setting one, say when it will come — and whether it repeats — briefly.";
 
-const SELF_PROMPT: &str = "\nOczi itself is `oczi.exe`, and its window is drawn by Edge WebView2: the `msedgewebview2.exe` processes under it are Oczi's own, not junk — closing one closes Oczi's window. Other `msedgewebview2.exe` processes belong to whatever else uses WebView2, and the parent chain tells them apart. Oczi's data is %APPDATA%\\Oczi and its log %LOCALAPPDATA%\\Oczi\\oczi.log; never suggest deleting either. \\\nFor anything about autostart — what starts with Windows, what sits there from logon, what can be turned off — call startup_items and answer from what it prints. A registry entry on its own is not a program that starts: it can outlive the program it points at, and a switched-off one runs nothing at all.";
+const SELF_PROMPT: &str = "\nOczi itself is `oczi.exe`, and its window is drawn by Edge WebView2: the `msedgewebview2.exe` processes under it are Oczi's own, not junk — closing one closes Oczi's window. Other `msedgewebview2.exe` processes belong to whatever else uses WebView2, and the parent chain tells them apart. Oczi's data is %APPDATA%\\Oczi and its log %LOCALAPPDATA%\\Oczi\\oczi.log; never suggest deleting either. \
+For anything about autostart — what starts with Windows, what sits there from logon, what can be turned off — call startup_items and answer from what it prints. A registry entry on its own is not a program that starts: it can outlive the program it points at, and a switched-off one runs nothing at all.";
 
 /// Rounds of tool calls allowed in one turn. Terminal work is a chain, look,
 /// look again, act, so this is the budget for a whole task, not one lookup.
@@ -236,7 +248,7 @@ fn tools(web: bool, terminal: bool) -> Value {
                     "properties": {
                         "command": { "type": "string", "description": "The command line, exactly as you would type it into cmd.exe." },
                         "cwd": { "type": "string", "description": "Optional working directory, e.g. C:\\\\Users\\\\me\\\\project." },
-                        "timeoutSeconds": { "type": "integer", "description": "How long to wait before the command is killed. Default 30, maximum 300." }
+                        "timeoutSeconds": { "type": "integer", "description": "How long to wait before the command is killed. Default 30, maximum 60." }
                     },
                     "required": ["command"]
                 }
@@ -246,7 +258,7 @@ fn tools(web: bool, terminal: bool) -> Value {
             "type": "function",
             "function": {
                 "name": "launch_app",
-                "description": "Open a program or a file, the way double-clicking it would: this is how to start something. Give it a full path, or just part of a name — \"PZUpdater\", \"spotify\" — and it is looked up on the desktop, the public desktop and in the Start menu. Do not use run_terminal with `start` for this.",
+                "description": "Open a program or a file, the way double-clicking it would: this is how to start something. Give it a full path, or just part of a name — \"PZUpdater\", \"spotify\" — and it is looked up on the desktop, the public desktop, the Start menu, and the Steam library (a game is started through Steam, by its own name). Do not use run_terminal with `start` for this.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -305,10 +317,14 @@ fn tools(web: bool, terminal: bool) -> Value {
     Value::Array(list)
 }
 
-fn system_prompt(web: bool, terminal: bool, language: &str) -> String {
+pub(crate) fn system_prompt(web: bool, terminal: bool, language: &str) -> String {
     let date = crate::util::today();
     let mut prompt = SYSTEM_PROMPT.to_string();
     prompt.push_str(language_line(language));
+    // Dictation is a build feature, so the note about transcripts belongs only in a build
+    // that has the microphone: the ordinary installer never sends one.
+    #[cfg(feature = "voice")]
+    prompt.push_str(DICTATION_PROMPT);
     if web {
         prompt.push_str(&WEB_PROMPT.replace("{date}", &date));
     } else {
