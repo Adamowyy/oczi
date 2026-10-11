@@ -268,6 +268,11 @@ export class Island {
     this.fsm.onTransition = (from, to) => {
       switch (to) {
         case "hidden":
+          // A view going off screen is a bug, not a state change: the countdown that did it
+          // is a leftover. Logged so a report of it comes with evidence.
+          if (State.mode === "expanded") {
+            void Bridge.log(`ui  hidden while ${State.view} was open (fsm from ${from})`);
+          }
           this.setMode("hidden");
           break;
         case "petit":
@@ -383,6 +388,13 @@ export class Island {
       this.fsm.pinned = true;
     }
     this.stopSequenceIfLeaving(view);
+    // Open, so the state machine has to be told before the view is drawn: left in `petit` it
+    // keeps the bar's hide countdown, which fires into `hidden` with the view on screen. The
+    // greeting has the same hole one step earlier.
+    if (this.fsm.state === "greeting") this.greeting.interrupt();
+    if (this.fsm.settleOpen()) {
+      void Bridge.log(`ui  open ${view} — bar hide countdown cancelled`);
+    }
     State.view = view;
     this.syncDropPin(view);
     if (State.mode !== "expanded") this.setMode("expanded");

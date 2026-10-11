@@ -97,6 +97,18 @@ export class IslandStateMachine {
     this.transition("petit");
   }
 
+  /** The island is on screen because something opened it from the bar, so the machine has to
+   *  agree. `expand()` sets the render mode without moving the machine, which left the bar's
+   *  own `petitHide` counting down under an expanded island; it fired into `hidden` and took
+   *  the window with it mid-sentence. Drops every timer the machine armed for itself and
+   *  returns whether one of them would have hidden the island. */
+  settleOpen(): boolean {
+    const wasFolding = this.petitHide != null && this.state !== "hidden";
+    this.cancelTimers();
+    if (this.state !== "home") this.state = "home";
+    return wasFolding;
+  }
+
   forceHidden() {
     this.cancelTimers();
     this.transition("hidden");
