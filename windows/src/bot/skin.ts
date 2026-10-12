@@ -1,4 +1,4 @@
-// Iskra's look: silhouette, palette, eyes; motion lives in engine.ts.
+// Oczi's look: silhouette, palette, eyes; motion lives in engine.ts.
 
 export type RGB = readonly [number, number, number];
 
@@ -13,7 +13,7 @@ export interface Skin {
   accent: RGB;
   /** Eye spacing, height and size, in R units. */
   eyes: { sp: number; pitch: number; w: number; h: number };
-  /** Hands, for a character that waves. Iskra hops instead. */
+  /** Hands, for a character that waves. Oczi hops instead. */
   waves: boolean;
   /** Star shards orbiting the body. */
   shards: boolean;
@@ -59,7 +59,7 @@ function rrPoint(ca: number, sa: number, w: number, h: number, cr: number) {
   return { x: kx * w, y: ky * h };
 }
 
-export const ISKRA: Skin = {
+export const OCZI: Skin = {
   hull(a, morph = 0) {
     const ca = Math.cos(a);
     const sa = Math.sin(a);

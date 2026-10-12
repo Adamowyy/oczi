@@ -1,6 +1,6 @@
 [package]
 name = "oczi"
-description = "Oczi — Iskra lives at the top of your screen"
+description = "Oczi — Oczi lives at the top of your screen"
 authors = ["Adam Warzecha"]
 license = "MIT"
 repository = "https://github.com/Adamowyy/oczi"

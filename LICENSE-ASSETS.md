@@ -5,7 +5,7 @@ Copyright (c) 2026 Adam Warzecha. All rights reserved, except as stated below.
 The [MIT License](LICENSE) covers the **source code** of Oczi. It does **not**
 cover the brand and the artwork listed here:
 
-- the name **"Oczi"** and the character **Iskra** — her design, look, eyes and animations as a character;
+- the name **"Oczi"** and the character herself — her design, look, eyes and animations as a character;
 - the **app icon and tray icon** (`windows/src-tauri/icons/`, generated from the skin by `scripts/gen-icons.mjs`);
 - the **sounds**, if and when any ship.
 
@@ -17,7 +17,7 @@ cover the brand and the artwork listed here:
 
 ## What you can't do without written permission
 
-- Publish or distribute an app, a fork or a derivative work under the name "Oczi" or "Iskra", or with the Oczi icon or the Iskra character.
+- Publish or distribute an app, a fork or a derivative work under the name "Oczi", or with the Oczi icon or the Oczi character.
 - Use any of these assets commercially, or in a way that suggests your project is Oczi or is made or endorsed by its author.
 
 If you fork Oczi to ship your own app, that's welcome under the MIT License:

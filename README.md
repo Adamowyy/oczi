@@ -2,7 +2,7 @@
 
 # Oczi for Windows
 
-**Iskra — a tiny crystal that lives at the top of your screen.**
+**Oczi — a tiny crystal that lives at the top of your screen.**
 
 Drop a file, chat through the DeepSeek API, snap a region screenshot — all without leaving what you're doing.
 
@@ -10,7 +10,7 @@ Drop a file, chat through the DeepSeek API, snap a region screenshot — all wit
 ![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=black)
 ![Rust](https://img.shields.io/badge/Rust-backend-000?logo=rust)
 
-<img src="docs/island-card.jpg" alt="The Oczi card: Iskra on the left, her service pills on the right, and the chat field below" width="640">
+<img src="docs/island-card.jpg" alt="The Oczi card: Oczi on the left, her service pills on the right, and the chat field below" width="640">
 
 </div>
 
@@ -66,9 +66,9 @@ it can still sit there and look pretty, but it cannot answer anything.
 
 ## What it does
 
-Iskra is a soft little crystal with three shards orbiting her, living at the top centre of the screen. She waves hello, follows your cursor with her eyes, gets annoyed when you poke her (and dizzy if you insist), and turns into a box to swallow a file you drop on her.
+Oczi is a soft little crystal with three shards orbiting her, living at the top centre of the screen. She waves hello, follows your cursor with her eyes, gets annoyed when you poke her (and dizzy if you insist), and turns into a box to swallow a file you drop on her.
 
-- 📎 **Drop a file** — Iskra swallows it, then offers to answer questions about it. Dropped files are copied into an inbox so the original is never touched.
+- 📎 **Drop a file** — Oczi swallows it, then offers to answer questions about it. Dropped files are copied into an inbox so the original is never touched.
 - 💬 **Chat** — ask anything; the answer runs against the OpenAI-compatible DeepSeek API, in Rust, so the key and the file bytes never reach the web view. Pick the model (`deepseek-flash` or `deepseek-v4-pro`) and a **Thinking** switch in Settings.
 - ⏰ **Reminders** — ask for one in the chat and a card comes up at the right moment, with **OK** and **+10 min**. They can repeat every day, on working days or once a week, and they live in a file of their own, so a new conversation still sees them. Nothing is installed for them and nothing is left behind on the disk.
 - 🖱️ **The eye** — snap a region of the screen and pin it to the next question, like a screenshot you don't have to paste anywhere.
@@ -94,7 +94,7 @@ npm run pack           # installer lands in windows/release/
 ## License
 
 The **code** is [MIT](LICENSE): © Louis Raillé for the Coucou base this fork is
-built on, © Adam Warzecha for the Oczi changes. The **Oczi name, the Iskra
+built on, © Adam Warzecha for the Oczi changes. The **Oczi name, the Oczi
 character and the app icon** are not covered by it — see
 [LICENSE-ASSETS.md](LICENSE-ASSETS.md). Forking to ship your own app is welcome;
 give it your own name, icon and character.

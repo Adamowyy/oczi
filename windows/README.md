@@ -4,7 +4,7 @@
 
 # Oczi for Windows
 
-**No notch on a PC — so Iskra lives at the top of your screen instead.**
+**No notch on a PC — so Oczi lives at the top of your screen instead.**
 
 Chat through the **DeepSeek API**, drop a file, keep an eye on your services —
 without leaving what you're doing.
@@ -14,7 +14,7 @@ without leaving what you're doing.
 ![Rust](https://img.shields.io/badge/Rust-backend-000?logo=rust)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
-<img src="../docs/island-card.jpg" alt="The Oczi card: Iskra, her service pills and the chat field" width="640">
+<img src="../docs/island-card.jpg" alt="The Oczi card: Oczi, her service pills and the chat field" width="640">
 
 </div>
 
@@ -37,16 +37,16 @@ source.
 
 | What you do | What happens |
 |---|---|
-| Move the mouse to the very top-centre of the screen | Iskra peeks out |
+| Move the mouse to the very top-centre of the screen | Oczi peeks out |
 | Click the small island | It opens |
-| Click Iskra | She gets annoyed. Three times in a row and she goes dizzy |
-| Rest the pointer on Iskra for two seconds | Hearts |
-| Drag a file onto the island | Iskra turns into a box, swallows it, then offers to answer questions about it |
+| Click Oczi | She gets annoyed. Three times in a row and she goes dizzy |
+| Rest the pointer on Oczi for two seconds | Hearts |
+| Drag a file onto the island | Oczi turns into a box, swallows it, then offers to answer questions about it |
 | `Esc` | Closes the island |
 | Tray icon | Open, Settings…, Pause, Quit |
 
 Everything else happens on its own: a finished integration pulse badges its pill,
-and your services sit in the coloured pills next to Iskra.
+and your services sit in the coloured pills next to Oczi.
 
 The UI is English by default; **Settings… → Language** switches it to Polish, and
 the island follows — the whole page is re-loaded, because the views bake their
@@ -149,13 +149,13 @@ Oczi-Windows-setup.exe          the same file under the rolling name
 
 Installing is optional — `target/release/oczi.exe` runs on its own. There is no
 window in the taskbar and no console: the island at the top of the screen and the
-Iskra in the notification area are the whole app, and Quit lives in its menu.
+Oczi in the notification area are the whole app, and Quit lives in its menu.
 
 No sounds ship yet — the audio layer is in place and silent, and adding a sound
 pack is a matter of dropping WAVs in and listing their names in `SOUND_NAMES`
 (`src/core/sound.ts`).
 
-The app icon and the tray icon are drawn in code from Iskra's own outline in
+The app icon and the tray icon are drawn in code from Oczi's own outline in
 `src/bot/skin.ts`, so the icon and the character can't drift apart:
 
 ```powershell
@@ -167,7 +167,7 @@ npm run icons          # regenerates src-tauri/icons from scripts/gen-icons.mjs
 ```
 windows/
   src/                 island front end (TypeScript, no framework)
-    bot/               Iskra: her skin, the character engine, the greeting
+    bot/               Oczi: her skin, the character engine, the greeting
     island/            state machine, hooks, integrations
     views/             every island view
     settings/          the settings window
@@ -186,9 +186,9 @@ problems. It stays on your machine.
   the top edge instead of hiding in a notch.
 - The chat talks to **DeepSeek**, not the Claude API, and there is no Claude Code
   integration at all: no session ticker, no permission approval from the island.
-- Not in this version: sending a file by email, dragging Iskra onto a window to
+- Not in this version: sending a file by email, dragging Oczi onto a window to
   attach it as context, and jumping to a specific terminal window.
 - Cal.com shows the next bookings as a list rather than a calendar view.
 - Licence: the code is MIT (see the root [LICENSE](../LICENSE)); the Oczi name,
-  the Iskra character and the icon are reserved
+  the Oczi character and the icon are reserved
   ([LICENSE-ASSETS.md](../LICENSE-ASSETS.md)).

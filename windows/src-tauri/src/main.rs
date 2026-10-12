@@ -1,4 +1,4 @@
-// Oczi runs without a console window: Iskra is the whole UI.
+// Oczi runs without a console window: Oczi is the whole UI.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {

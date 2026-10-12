@@ -108,7 +108,7 @@ jobs:
         run: |
           $v = "${{ steps.pack.outputs.version }}"
           $notes = @"
-          Oczi for Windows $v — Iskra at the top of your screen.
+          Oczi for Windows $v — Oczi at the top of your screen.
 
           ## Setup
 

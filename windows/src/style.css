@@ -254,7 +254,7 @@ body {
   width: 0;
 }
 
-/* The summon-chord hint and the mini integration mini characters, right of Iskra. */
+/* The summon-chord hint and the mini integration mini characters, right of Oczi. */
 #mini-grid {
   position: absolute;
   display: flex;
@@ -279,7 +279,7 @@ body {
   gap: 3px;
 }
 
-/* A mini Iskra: the slot is the body, the canvas is larger and overflows it so
+/* A mini Oczi: the slot is the body, the canvas is larger and overflows it so
    hands, badges and particles are not cut off. */
 .mini {
   position: relative;
@@ -1083,7 +1083,7 @@ input[type="range"]::-webkit-slider-thumb {
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
 
-/* ── Home: Iskra at full size with the chat beside it ───────────────────── */
+/* ── Home: Oczi at full size with the chat beside it ───────────────────── */
 
 .home-body {
   position: relative;
@@ -1091,8 +1091,8 @@ input[type="range"]::-webkit-slider-thumb {
   height: 100%;
   display: flex;
   gap: 12px;
-  /* Left inset is where the canvas draws Iskra; wider than the chat view's 84 px
-     because Iskra is bigger here. */
+  /* Left inset is where the canvas draws Oczi; wider than the chat view's 84 px
+     because Oczi is bigger here. */
   padding: 12px 16px 14px 150px;
 }
 
@@ -1332,7 +1332,7 @@ html.asleep *::after {
   50% { box-shadow: 0 0 0 7px rgba(229, 72, 77, 0); }
 }
 
-/* Dictation: the bars sit right of Iskra and move with the voice, so an open
+/* Dictation: the bars sit right of Oczi and move with the voice, so an open
    microphone is something you can see rather than something you assume. The
    label underneath says which of the two things is happening. */
 .voice-wrap {

@@ -27,6 +27,12 @@ ask for instead of handing you a list to pick from.
 
 - YouTube plays instead of searching.
 
+### Fixes
+
+- The opening greeting no longer holds the island on screen after it has
+  finished, so the card about a new version is shown rather than waiting behind
+  it.
+
 ## 0.3.0 — 2026-10-10
 
 - Dictation, in the installer whose name says voice: press its shortcut, speak, and
@@ -159,7 +165,7 @@ ask for instead of handing you a list to pick from.
 - Coming back after a long idle no longer shows her as a giant square, or as nothing
   at all: the first frame could arrive carrying the clock of the last frame before the
   sleep, and the step it produced ran the day backwards. The frame loop now keeps its
-  own clock, so the little Iskras beside the pills keep their shape too.
+  own clock, so the little Oczis beside the pills keep their shape too.
 
 ## 0.1.2 — 2026-10-03
 
@@ -168,7 +174,7 @@ MIT, the name, the character and the icon are not (see LICENSE-ASSETS.md).
 
 **The character**
 
-- Iskra replaces the original mascot: a crystal drawn from data — a parametric
+- Oczi replaces the original mascot: a crystal drawn from data — a parametric
   hull, a palette, two eyes and three shards orbiting her — in `src/bot/skin.ts`,
   with the engine reading that description instead of hard-coded shapes. The app
   icon is generated from the same geometry by `npm run icons`, so the two cannot
@@ -207,7 +213,7 @@ MIT, the name, the character and the icon are not (see LICENSE-ASSETS.md).
   for the small bar, and at full rate the moment the cursor is on the island or
   the chat is in use.
 - Coming back from the top edge, the bar arrives before the character in it:
-  Iskra overhangs her bar by design, and used to be on screen while it was still a
+  Oczi overhangs her bar by design, and used to be on screen while it was still a
   sliver.
 - The drop card's two buttons work: the sequence's card is painted on a canvas, and
   the invisible card of ordinary views used to lie on top of it and swallow the
@@ -224,10 +230,10 @@ MIT, the name, the character and the icon are not (see LICENSE-ASSETS.md).
 - An answer can carry a little structure: **bold** for key words, `code` for commands
   and paths, and plain bullet or numbered lists. The model is told to keep it short
   and to use nothing else — no headings, no tables, the card is too small for them.
-- Iskra stays inside the card while it changes shape. She is drawn outside the
+- Oczi stays inside the card while it changes shape. She is drawn outside the
   card's clip on purpose — she overhangs the bar — so while a card grew or shrank
   she hung off its corner; the silhouette holds everything in until it settles.
-- The big light-blue square that flashed past the window edge is gone: it was Iskra
+- The big light-blue square that flashed past the window edge is gone: it was Oczi
   travelling from the bar to her place in the card, with her glow lighting up before
   the card had finished growing.
 - No more flash of a big stretched square when she wakes: the sizes and places the

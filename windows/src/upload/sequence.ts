@@ -341,7 +341,7 @@ class UploadSequence {
       this.by.step(USC.REST_Y, response, damping, dt);
     }
 
-    // Tilt follows how fast Iskra is sliding.
+    // Tilt follows how fast Oczi is sliding.
     const tiltTarget = isDragging ? Math.max(-0.18, Math.min(0.18, this.bx.vel * 0.0015)) : 0;
     this.tilt = lerp(this.tilt, tiltTarget, 1 - Math.pow(0.0005, dt));
 

@@ -67,7 +67,7 @@ export const WAKE_STRIP_W = 240;
 export const WAKE_STRIP_H = 6;
 
 export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
-  // The default screen: Iskra at full size, chat next to it.
+  // The default screen: Oczi at full size, chat next to it.
   home: { height: 216, botX: 78, botY: null, botDiameter: 64, agentMode: "none" },
   // Taller than it was, to fit the chat field under the pills.
   overview: { height: 228, botX: 68, botY: null, botDiameter: 58, agentMode: "pills" },
@@ -83,7 +83,7 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   searching: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   result: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   note: { height: 160, botX: 60, botY: null, botDiameter: 50, agentMode: "column" },
-  // Dictation: Iskra alone with the microphone and the level bars next to her. No agents
+  // Dictation: Oczi alone with the microphone and the level bars next to her. No agents
   // and no card — the only thing on screen is the recording.
   listening: { height: 168, botX: 84, botY: null, botDiameter: 64, agentMode: "none" },
   // Taller than a note: a reminder carries a line of its own for the kind of card

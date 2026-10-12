@@ -510,7 +510,7 @@ export function renderIntegrationCard(task: AgentTask, hooks: IntegrationCardHoo
       return pcCard();
     case "integration_music": {
       // Inside the overview the card keeps the integration padding, which leaves
-      // room for Iskra on the left; on the home screen it takes the pills' slot.
+      // room for Oczi on the left; on the home screen it takes the pills' slot.
       return h("div", { class: "int-card" }, buildMusicCard());
     }
     default:

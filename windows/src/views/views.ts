@@ -160,7 +160,7 @@ function buildChatBar(actions: ViewActions): { el: HTMLElement; sync(): void } {
   };
 }
 
-/** The island's home screen: Iskra, the integration pills above the bar, and the bar
+/** The island's home screen: Oczi, the integration pills above the bar, and the bar
  *  as a doorway into the chat. One text input in the app, not two fighting over focus. */
 function buildHome(actions: ViewActions): ViewHost {
   const pills = h("div", { class: "pills" });
@@ -173,7 +173,7 @@ function buildHome(actions: ViewActions): ViewHost {
     { class: "view home" },
     h("div", { class: "card wash home-card" },
       h("div", { class: "home-body" },
-        // Empty on purpose: Iskra is drawn here by the canvas, not by the DOM.
+        // Empty on purpose: Oczi is drawn here by the canvas, not by the DOM.
         h("div", { class: "home-left" }),
         h("div", { class: "home-right" }, pills, shortcuts, chatBar.el),
       ),
@@ -382,7 +382,7 @@ function buildNote(): ViewHost {
 
 // ── Dictation ─────────────────────────────────────────────────────────────────
 
-/** Dictation: Iskra alone with the microphone. No card and no chat — the sentence is not
+/** Dictation: Oczi alone with the microphone. No card and no chat — the sentence is not
  *  there yet, and anything else on screen is something to read instead of to speak. The
  *  bars follow the voice, so an open microphone is visible rather than assumed. */
 function buildListening(): ViewHost {

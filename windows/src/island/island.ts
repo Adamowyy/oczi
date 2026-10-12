@@ -1,4 +1,4 @@
-// The island: DOM shell, sizing animation, Iskra placement, mouse handling.
+// The island: DOM shell, sizing animation, Oczi placement, mouse handling.
 // Mirrors IslandRootView.swift + IslandWindowController.swift.
 
 import { Tracked, Spring, clamp } from "../core/anim";
@@ -147,6 +147,7 @@ export class Island {
     this.engine.onDizzy = () => this.handleDizzy();
     this.greeting.onComplete = () => {
       this.greetingStarted = false;
+      void Bridge.log(`ui  greeting animation done mode=${State.mode} view=${State.view} fsm=${this.fsm.status()}`);
       this.fsm.greetComplete();
     };
     // A spoken question that has just been answered starts listening again by itself.
@@ -220,7 +221,7 @@ export class Island {
     for (const v of this.views.values()) this.viewsEl.append(v.el);
     this.contentEl = h("div", { id: "content" }, this.header.el, this.viewsEl);
 
-    // The drop sequence draws the card, the bar and its own Iskra. It sits under
+    // The drop sequence draws the card, the bar and its own Oczi. It sits under
     // the header, which stays visible on top of it exactly as on macOS.
     this.uploadCanvas = new UploadCanvas({
       ask: () => {
@@ -279,7 +280,10 @@ export class Island {
           if (from === "greeting") this.greeting.interrupt();
           else if (from === "hidden") Sound.play("peek");
           this.setMode("compact");
-          if (from === "greeting") State.view = State.defaultView();
+          if (from === "greeting") {
+            void Bridge.log("ui  greeting folded");
+            State.view = State.defaultView();
+          }
           // The greeting has had its turn. A reminder comes first, and it has to be
           // re-asserted here rather than only at the moment it arrived: Rust drops
           // it from the list as it fires it, so a card the greeting painted over is
@@ -665,7 +669,7 @@ export class Island {
    *  after speech ends it by itself — which is the point: press once, speak, and the text
    *  goes on its way.
    *
-   *  While it listens the island shows Iskra alone with the microphone and a level bar: no
+   *  While it listens the island shows Oczi alone with the microphone and a level bar: no
    *  card and no chat, because there is nothing to read yet. The transcript is then sent as
    *  if it had been typed, so the answer is already on its way when the chat opens. */
   private async dictate(quiet = false) {
@@ -833,7 +837,7 @@ export class Island {
     this.setView("note");
   }
 
-  /** The greeting opens with a big shape that rushes into Iskra. Starting it the
+  /** The greeting opens with a big shape that rushes into Oczi. Starting it the
    *  moment the state changes painted those first frames while the bar was still
    *  sliding out, so the shape filled the silhouette as a flat panel of colour for
    *  a few frames — the bar has to arrive first, exactly like the character does.
@@ -958,7 +962,7 @@ export class Island {
     }
   }
 
-  /** Iskra eats the file. The inbox copy runs in the background, so a slow disk
+  /** Oczi eats the file. The inbox copy runs in the background, so a slow disk
    *  cannot stall the animation — same as FileDropHandler on macOS. */
   private swallow(path: string) {
     const name = path.split(/[\\/]/).pop() || "file";
@@ -1003,7 +1007,7 @@ export class Island {
   }
 
   /** Sounds and view changes off the canvas timeline: a `tick` every 10 %, then
-   *  `choose` once Iskra has grown back. */
+   *  `choose` once Oczi has grown back. */
   private stepSequence() {
     const since = UploadSeq.sinceDrop();
     if (since == null) return;
@@ -1315,7 +1319,7 @@ export class Island {
         this.greeting.draw(gctx);
       }
     } else {
-      // Kept running even while the drop canvas is up, so the island's own Iskra
+      // Kept running even while the drop canvas is up, so the island's own Oczi
       // is already in the right place the moment the canvas fades out.
       this.drawBot(dt);
     }
@@ -1556,12 +1560,12 @@ export class Island {
     const greetingActive = State.mode === "expanded" && State.view === "greeting";
     // She overhangs the bar by design, so she may not be on screen before it is:
     // coming back from the wake strip the height climbs from 0 to NOTCH_H, and
-    // Iskra used to be there while the bar was still a sliver.
+    // Oczi used to be there while the bar was still a sliver.
     const grown = clamp(this.height.value / NOTCH_H, 0, 1);
     // She waits until the bar is a third of the way out, so the order on screen
     // is always the bar first, then her fading in.
     const shown = clamp((grown - 0.35) / 0.65, 0, 1);
-    // The drop canvas draws its own Iskra; two of them would overlap.
+    // The drop canvas draws its own Oczi; two of them would overlap.
     const visible = p.opacity > 0 && shown > 0.01 && !greetingActive && !this.uploadActive;
     this.botShown = visible;
     this.botCanvas.style.opacity = visible ? String(shown) : "0";
@@ -1607,7 +1611,7 @@ export class Island {
   }
 
   private drawBot(dt: number) {
-    // Nothing reaches the DOM that it cannot use: 0 is an invisible Iskra, "NaNpx" is a
+    // Nothing reaches the DOM that it cannot use: 0 is an invisible Oczi, "NaNpx" is a
     // dropped declaration that leaves the last width behind, and a huge one is a flat
     // slab of her own colour. Third of three guards: the frame clock, the springs, this.
     const size = this.botSize.value;
@@ -1635,7 +1639,7 @@ export class Island {
 
     const focus = State.focusTask;
     // A tint means "this colour belongs to the service you are looking at", so it
-    // only applies on the Services view; elsewhere Iskra stays neutral.
+    // only applies on the Services view; elsewhere Oczi stays neutral.
     const tinted = State.view === "overview" && focus?.isIntegration === true;
     this.engine.bodyColor = tinted && focus ? hexToRGB(focus.color) : null;
     this.engine.particleOverhang = BOT_OVERHANG;

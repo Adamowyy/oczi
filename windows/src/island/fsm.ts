@@ -22,6 +22,8 @@ export class IslandStateMachine {
   private petitHide: number | null = null;
   private homeCollapse: number | null = null;
   private greetCollapse: number | null = null;
+  /** The pointer is over the island, so a countdown means "waiting for it to leave". */
+  private hovering = false;
 
   // ── Inputs ──────────────────────────────────────────────────────────────────
 
@@ -31,6 +33,7 @@ export class IslandStateMachine {
   }
 
   mouseEntered() {
+    this.hovering = true;
     switch (this.state) {
       case "hidden":
         this.cancelTimers();
@@ -43,12 +46,14 @@ export class IslandStateMachine {
         this.clear("homeCollapse");
         break;
       case "greeting":
+        // Entering holds the greeting, the way it holds a card open.
         this.scheduleGreetCollapse(this.greetHoverCollapseDelay);
         break;
     }
   }
 
   mouseLeft() {
+    this.hovering = false;
     switch (this.state) {
       case "hidden":
         break;
@@ -74,7 +79,11 @@ export class IslandStateMachine {
   /** Greeting animation finished (T.end). Doesn't override a running hover timer. */
   greetComplete() {
     if (this.state !== "greeting") return;
-    if (this.greetCollapse == null) this.scheduleGreetCollapse(this.greetAutoCollapseDelay);
+    // Skip only a live hover countdown — the pointer is over the island and the long timer is
+    // really running. A timer cancelled by an interrupt must not stop the re-arm, or the
+    // greeting is left on screen with nothing left to fold it.
+    if (this.hovering && this.greetCollapse != null) return;
+    this.scheduleGreetCollapse(this.greetAutoCollapseDelay);
   }
 
   /** Non-alert work event: show compact from hidden. */
@@ -105,7 +114,10 @@ export class IslandStateMachine {
   settleOpen(): boolean {
     const wasFolding = this.petitHide != null && this.state !== "hidden";
     this.cancelTimers();
-    if (this.state !== "home") this.state = "home";
+    // Never claim `home` while the greeting has the stage: the greeting folds through its own
+    // transition, and a machine already in `home` makes `greetComplete` a no-op, which left the
+    // greeting on screen with nothing left to end it.
+    if (this.state !== "home" && this.state !== "greeting") this.state = "home";
     return wasFolding;
   }
 
@@ -152,6 +164,11 @@ export class IslandStateMachine {
     this.clear("petitHide");
     this.clear("homeCollapse");
     this.clear("greetCollapse");
+  }
+
+  /** Where the machine stands, for a log line that has to explain a card that never came. */
+  status(): string {
+    return `${this.state} hover=${this.hovering} collapse=${this.greetCollapse != null}`;
   }
 
   private transition(next: FsmState) {

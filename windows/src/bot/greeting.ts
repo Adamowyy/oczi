@@ -3,7 +3,7 @@
 
 import { Sound } from "../core/sound";
 import { COMPACT_W, NOTCH_H, NOTCH_W } from "../core/layout";
-import { ISKRA } from "./skin";
+import { OCZI } from "./skin";
 
 // ── Timing (mirrors greeting-v2.html `T`) ─────────────────────────────────────
 
@@ -236,11 +236,11 @@ function rr(x: CanvasRenderingContext2D, X: number, Y: number, W: number, H: num
 
 /** The skin's outline, stretched to hw × hh so the layout maths stays as it was. */
 function bodyPath(hw: number, hh: number): Path2D {
-  const [BX, BY] = ISKRA.extents(0);
+  const [BX, BY] = OCZI.extents(0);
   const steps = 96;
   const p = new Path2D();
   for (let i = 0; i <= steps; i++) {
-    const [ux, uy] = ISKRA.hull((i / steps) * 2 * Math.PI);
+    const [ux, uy] = OCZI.hull((i / steps) * 2 * Math.PI);
     const px = (ux / BX) * hw;
     const py = (uy / BY) * hh;
     if (i === 0) p.moveTo(px, py);
@@ -258,8 +258,8 @@ function skinFill(
   x0: number, y0: number, x1: number, y1: number,
 ) {
   const g = x.createLinearGradient(x0, y0, x1, y1);
-  g.addColorStop(0, css(ISKRA.top));
-  g.addColorStop(1, css(ISKRA.bottom));
+  g.addColorStop(0, css(OCZI.top));
+  g.addColorStop(1, css(OCZI.bottom));
   x.save();
   x.fillStyle = g;
   x.fill(path);
@@ -277,10 +277,10 @@ function star4(x: CanvasRenderingContext2D, ro: number, ri: number) {
   x.closePath();
 }
 
-/** Iskra's shards, in place of a wave. */
+/** Oczi's shards, in place of a wave. */
 function drawShards(x: CanvasRenderingContext2D, hh: number, p: Pose) {
   const t = performance.now() / 1000;
-  const R = hh / ISKRA.extents(0)[1];
+  const R = hh / OCZI.extents(0)[1];
   for (let i = 0; i < 3; i++) {
     const a = t * (0.55 + i * 0.18) + (i * Math.PI * 2) / 3;
     const orb = R * (1.34 + 0.05 * Math.sin(t * 1.3 + i));
@@ -288,14 +288,14 @@ function drawShards(x: CanvasRenderingContext2D, hh: number, p: Pose) {
     x.globalAlpha = clamp(p.card, 0, 1);
     x.translate(p.x + Math.cos(a) * orb, p.y + Math.sin(a) * orb * 0.62);
     x.rotate(a + p.tilt);
-    x.fillStyle = i % 2 ? css(ISKRA.accent) : "rgba(255,255,255,0.8)";
+    x.fillStyle = i % 2 ? css(OCZI.accent) : "rgba(255,255,255,0.8)";
     star4(x, R * 0.13, R * 0.055);
     x.fill();
     x.restore();
   }
 }
 
-function drawIskra(x: CanvasRenderingContext2D, p: Pose) {
+function drawOczi(x: CanvasRenderingContext2D, p: Pose) {
   const hh = p.hb / 2;
   const hw = hh * ASP;
   if (hh <= 0.4) return;
@@ -304,8 +304,8 @@ function drawIskra(x: CanvasRenderingContext2D, p: Pose) {
   if (p.halo > 0) {
     for (const [R, alpha] of [[hw * 2.6, 0.18], [hw * 4.2, 0.07]] as const) {
       const g = x.createRadialGradient(p.x, p.y, 0, p.x, p.y, R);
-      g.addColorStop(0, css(ISKRA.accent, alpha * p.halo));
-      g.addColorStop(1, css(ISKRA.accent, 0));
+      g.addColorStop(0, css(OCZI.accent, alpha * p.halo));
+      g.addColorStop(1, css(OCZI.accent, 0));
       x.fillStyle = g;
       x.beginPath();
       x.arc(p.x, p.y, R, 0, Math.PI * 2);
@@ -337,12 +337,12 @@ function drawIskra(x: CanvasRenderingContext2D, p: Pose) {
   // Eyes, sized and spaced by the skin.
   x.save();
   x.clip(body);
-  x.fillStyle = ISKRA.ink;
-  x.strokeStyle = ISKRA.ink;
-  const [BX, BY] = ISKRA.extents(0);
+  x.fillStyle = OCZI.ink;
+  x.strokeStyle = OCZI.ink;
+  const [BX, BY] = OCZI.extents(0);
   const R = hh / BY;
-  const er = R * ISKRA.eyes.w * 0.5;
-  const sp = Math.sin(ISKRA.eyes.sp) * R * BX;
+  const er = R * OCZI.eyes.w * 0.5;
+  const sp = Math.sin(OCZI.eyes.sp) * R * BX;
   const lx = p.lookX * hw * 0.42;
   const ly = p.lookY * hh * 0.28 + hh * 0.12 + p.eyeRoll * hh * 1.25;
   for (const sd of [-1, 1]) {
@@ -501,7 +501,10 @@ export class Greeting {
 
   draw(x: CanvasRenderingContext2D) {
     const t = this.elapsed;
-    if (!this.fired && t >= T.end && this.tc >= T.autoLeave) this.fire();
+    // The animation ending is what ends the greeting, whether or not the hover countdown is
+    // still running: an interrupted greeting has its timers cancelled, and waiting for a
+    // countdown that no longer exists left it on screen for good.
+    if (!this.fired && t >= T.end) this.fire();
 
     const p = pose(t, this.tc);
     x.clearRect(0, 0, 640, 150);
@@ -524,6 +527,6 @@ export class Greeting {
     }
 
     drawMinis(x, p.minis);
-    drawIskra(x, p);
+    drawOczi(x, p);
   }
 }

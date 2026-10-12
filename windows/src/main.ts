@@ -161,24 +161,29 @@ async function main() {
     if (seen !== version) void Bridge.markVersionSeen(version);
     // A fresh install was never updated, so it has nothing to be told about.
     const changed = seen !== "" && seen !== version ? newsKey(version) : null;
-    const update = await Bridge.checkUpdate();
-    if (!changed && !update) return;
-    const body = [
-      changed ? t(changed) : null,
-      update ? t("news.updateLine", update.version, update.url) : null,
-    ]
-      .filter((line): line is string => line !== null)
-      .join("\n");
-    State.newsMessage = {
-      title: changed ? t("news.title", version) : t("news.updateTitle"),
-      body,
+    const show = (title: string, body: string) => {
+      State.newsMessage = { title, body };
+      State.notify();
+      // While the greeting is up, island.ts hands the card over when it folds.
+      // Otherwise open it now — but never over something the user just opened.
+      if (island.fsm.state === "greeting") return;
+      if (State.mode === "expanded" && State.view !== "whatsnew") return;
+      island.alert("whatsnew");
     };
-    State.notify();
-    // While the greeting is up, island.ts hands the card over when it folds.
-    // Otherwise open it now — but never over something the user just opened.
-    if (island.fsm.state === "greeting") return;
-    if (State.mode === "expanded" && State.view !== "whatsnew") return;
-    island.alert("whatsnew");
+    // What this version has to say goes up before the release check, which is a
+    // call over the network: the greeting folds in well under a second, and a
+    // handover still waiting for an answer hands over nothing.
+    if (changed) show(t("news.title", version), t(changed));
+    const update = await Bridge.checkUpdate();
+    if (!update) return;
+    const line = t("news.updateLine", update.version, update.url);
+    // A card already up keeps its title and takes the update line as one more.
+    if (changed) {
+      if (!State.newsMessage) return;
+      show(State.newsMessage.title, `${State.newsMessage.body}\n${line}`);
+      return;
+    }
+    show(t("news.updateTitle"), line);
   }
   void announce();
 

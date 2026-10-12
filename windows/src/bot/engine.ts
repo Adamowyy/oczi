@@ -4,7 +4,7 @@
 import { Ease, clamp, lerp, type EaseFn } from "../core/anim";
 import { Sound } from "../core/sound";
 import type { BotEmoteName, BotStateName } from "../core/layout";
-import { ISKRA, type RGB, type Skin } from "./skin";
+import { OCZI, type RGB, type Skin } from "./skin";
 
 export type { RGB };
 
@@ -210,7 +210,7 @@ export class BotEngine {
   /** Fired when three slaps land inside 1.7 s (→ dizzy + confused view). */
   onDizzy: (() => void) | null = null;
 
-  constructor(skin: Skin = ISKRA) {
+  constructor(skin: Skin = OCZI) {
     this.skin = skin;
   }
 
@@ -985,7 +985,7 @@ export class BotEngine {
     }
   }
 
-  /** Iskra's shards, orbiting the body. */
+  /** Oczi's shards, orbiting the body. */
   private drawShards(x: CanvasRenderingContext2D, R: number, cx: number, cy: number) {
     if (!this.skin.shards || this.isMini || R <= 14) return;
     const t = now();

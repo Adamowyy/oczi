@@ -2,7 +2,7 @@
 // body; the island hides its own character for the duration, since this canvas draws one.
 
 import { State } from "../core/state";
-import { ISKRA } from "../bot/skin";
+import { OCZI } from "../bot/skin";
 import { t } from "../core/i18n";
 import {
   USC, eIn, eInOut, eOut, lerp, progressAt,
@@ -24,12 +24,12 @@ function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: n
 /** The skin's outline, morphed towards its box form. */
 function bodyPath(ctx: CanvasRenderingContext2D, m: number, R: number): { rx: number; ry: number } {
   const mc = Math.max(0, Math.min(m, 1));
-  const [ex, ey] = ISKRA.extents(mc);
+  const [ex, ey] = OCZI.extents(mc);
   const rx = ex * R;
   const ry = ey * R;
   ctx.beginPath();
   for (let i = 0; i <= 96; i++) {
-    const [ux, uy] = ISKRA.hull((i / 96) * Math.PI * 2, mc);
+    const [ux, uy] = OCZI.hull((i / 96) * Math.PI * 2, mc);
     if (i === 0) ctx.moveTo(ux * R, uy * R);
     else ctx.lineTo(ux * R, uy * R);
   }
@@ -298,8 +298,8 @@ export class UploadCanvas {
 
     // Body.
     const bg = ctx.createLinearGradient(rx * 0.7, -ry * 0.9, -rx * 0.8, ry * 0.9);
-    bg.addColorStop(0, css(ISKRA.top));
-    bg.addColorStop(1, css(ISKRA.bottom));
+    bg.addColorStop(0, css(OCZI.top));
+    bg.addColorStop(1, css(OCZI.bottom));
     ctx.fillStyle = bg;
     ctx.fill();
 
@@ -316,7 +316,7 @@ export class UploadCanvas {
     bodyPath(ctx, f.morph, R);
     ctx.clip();
 
-    // Top rim, once Iskra is box-shaped enough to have one.
+    // Top rim, once Oczi is box-shaped enough to have one.
     if (mc > 0.3) {
       const a = Math.max(0, Math.min(1, (mc - 0.3) / 0.7));
       ctx.beginPath();
@@ -353,10 +353,10 @@ export class UploadCanvas {
     }
 
     // Eyes, sized and spaced by the skin.
-    const ew = R * ISKRA.eyes.w;
-    const eh = R * (ISKRA.eyes.h + 0.16 * mc);
-    const ey = R * (-ISKRA.eyes.pitch + 0.28 * mc);
-    const sp = Math.sin(ISKRA.eyes.sp) * ISKRA.extents(mc)[0] * R;
+    const ew = R * OCZI.eyes.w;
+    const eh = R * (OCZI.eyes.h + 0.16 * mc);
+    const ey = R * (-OCZI.eyes.pitch + 0.28 * mc);
+    const sp = Math.sin(OCZI.eyes.sp) * OCZI.extents(mc)[0] * R;
     const lx = f.lookX * R * (0.34 - 0.08 * mc);
     const ly = f.lookY * R * (0.16 - 0.09 * mc);
     for (const sd of [-1, 1]) {
@@ -447,7 +447,7 @@ export class UploadCanvas {
 function drawEye(ctx: CanvasRenderingContext2D, shape: UploadEyeShape, w: number, h: number) {
   switch (shape) {
     case "pill":
-      ctx.fillStyle = ISKRA.ink;
+      ctx.fillStyle = OCZI.ink;
       rr(ctx, -w / 2, -h / 2, w, h, w / 2);
       ctx.fill();
       break;
@@ -461,7 +461,7 @@ function drawEye(ctx: CanvasRenderingContext2D, shape: UploadEyeShape, w: number
       ctx.lineTo(w / 2, hh / 2 - w / 2);
       ctx.arc(0, hh / 2 - w / 2, w / 2, 0, Math.PI, false);
       ctx.closePath();
-      ctx.fillStyle = ISKRA.ink;
+      ctx.fillStyle = OCZI.ink;
       ctx.fill();
       break;
     }
@@ -469,7 +469,7 @@ function drawEye(ctx: CanvasRenderingContext2D, shape: UploadEyeShape, w: number
     case "content":
       ctx.beginPath();
       ctx.arc(0, -h * 0.12, w * 0.85, Math.PI * 0.15, Math.PI * 0.85, false);
-      ctx.strokeStyle = ISKRA.ink;
+      ctx.strokeStyle = OCZI.ink;
       ctx.lineWidth = w * 0.5;
       ctx.lineCap = "round";
       ctx.stroke();

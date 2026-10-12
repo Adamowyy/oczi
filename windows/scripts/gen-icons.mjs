@@ -13,22 +13,22 @@ const SKIN_TS = join(HERE, "..", "src", "bot", "skin.ts");
 const BUNDLE = join(HERE, ".skin.bundle.mjs");
 
 await build({ entryPoints: [SKIN_TS], bundle: true, format: "esm", outfile: BUNDLE, logLevel: "warning" });
-const { ISKRA } = await import(pathToFileURL(BUNDLE).href);
+const { OCZI } = await import(pathToFileURL(BUNDLE).href);
 
 const SS = 4; // supersampling factor
 const RIM = 0.05; // outline thickness, in R units
 const RIM_COLOR = [4, 14, 30];
 
-const [BX, BY] = ISKRA.extents(0);
-const TOP = ISKRA.top.map((v) => v * 255);
-const BOTTOM = ISKRA.bottom.map((v) => v * 255);
-const INK = [0, 1, 2].map((i) => parseInt(ISKRA.ink.slice(1 + i * 2, 3 + i * 2), 16));
+const [BX, BY] = OCZI.extents(0);
+const TOP = OCZI.top.map((v) => v * 255);
+const BOTTOM = OCZI.bottom.map((v) => v * 255);
+const INK = [0, 1, 2].map((i) => parseInt(OCZI.ink.slice(1 + i * 2, 3 + i * 2), 16));
 
 const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 
 /** Boundary radius of the outline at angle `a`, in R units. */
 function edge(a) {
-  const [x, y] = ISKRA.hull(a);
+  const [x, y] = OCZI.hull(a);
   return Math.hypot(x, y);
 }
 
@@ -51,9 +51,9 @@ function render(size) {
   const gd = [g1[0] - g0[0], g1[1] - g0[1]];
   const glen = gd[0] * gd[0] + gd[1] * gd[1];
 
-  const eyeSp = Math.sin(ISKRA.eyes.sp) * rx;
-  const eyeR = [R * ISKRA.eyes.w * 0.5, R * ISKRA.eyes.h * 0.5];
-  const eyeY = -Math.sin(ISKRA.eyes.pitch) * ry;
+  const eyeSp = Math.sin(OCZI.eyes.sp) * rx;
+  const eyeR = [R * OCZI.eyes.w * 0.5, R * OCZI.eyes.h * 0.5];
+  const eyeY = -Math.sin(OCZI.eyes.pitch) * ry;
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
