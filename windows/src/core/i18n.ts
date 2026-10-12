@@ -176,13 +176,29 @@ const EN = {
   "rem.daily": "every day",
   "rem.weekdays": "Mon–Fri",
   "rem.weekly": "every week",
+  // An interval needs its own words: the card reads "every 45 minutes", and an hour is worth
+  // saying as an hour.
+  "rem.hourly": "every hour",
+  "rem.everyMinute": "every minute",
+  "rem.everyMinutes": "every {} minutes",
+  "rem.everyMinutesFew": "every {} minutes",
+  "rem.everyHours": "every {} hours",
+  "rem.everyHoursFew": "every {} hours",
   "rem.ok": "OK",
   "rem.snooze": "+10 min",
+  // Routine report, raised by Rust when a routine has run. The strip shows only the name of what
+  // ran; the taller card adds the kind, the time, and one line naming a step that failed.
+  "routine.title": "Routine done",
+  "routine.partialTitle": "Routine partly done",
+  "routine.missedTitle": "Routine did not run",
+  "routine.missedWhy": "Oczi was not running at that time, so nothing happened.",
+  "routine.stepFailed": "did not work: {}",
   "news.0.1.4": "- **Settings → Island lives on** now lists every display the way Windows numbers it, so the island can be pinned to one monitor instead of only the main one or the one under the cursor.\n- A short card like this one appears after an update, and once a launch it also says whether a newer release is waiting on GitHub.",
   "news.0.1.6": "- Answers read as prose again: a list item's text no longer breaks into columns, tables and headings are folded into plain lines, and replies are shorter.\n- The model now sees its own replies, so it stops repeating itself and stops answering two questions at once.",
   "news.0.1.7": "- You can pick both keyboard shortcuts yourself now: in Settings → General, click the field and press the combination you like. One for the island, one for the screenshot.\n- Two new pills: PC, showing your processor, memory and disks, and Music, showing what is playing right now (Spotify, a browser, VLC), with play/pause and skipping.",
   "news.0.2.0": "- Oczi sets reminders itself now: ask for one and a card comes up at the right moment, with **OK** and **+10 min**. They can repeat every day, on working days or once a week.\n- An empty chat suggests what to ask for, and a reminder you never answered comes back on the next launch.",
   "news.0.3.0": "- Dictation, in the installer with voice in its name: press its shortcut, speak, and the sentence goes to the chat by itself. It is written down on this computer, with no key and no account.\n- Oczi listens again once it has answered, so a conversation can be held by voice.\n- The shortcut and the language it listens for are set in the settings, next to the other shortcuts.",
+  "news.0.4.0": "- Oczi runs routines now: say what should happen and when, and it works the steps out for itself — opening a program or a page, playing something, closing a process. They can repeat every day, on working days, weekly, or every so many minutes.\n- Each run leaves a small card with a tick that folds away by itself: green, or amber naming the step that failed.\n- YouTube plays instead of searching.",
 } as const;
 
 export type TextKey = keyof typeof EN;
@@ -350,13 +366,29 @@ const PL: Record<TextKey, string> = {
   "rem.daily": "codziennie",
   "rem.weekdays": "dni robocze",
   "rem.weekly": "co tydzień",
+  // Odstęp ma własne słowa, bo polski odmienia je inaczej niż angielski: „co 45 minut",
+  // „co minutę", „co godzinę", „co 2 godziny", „co 5 godzin".
+  "rem.hourly": "co godzinę",
+  "rem.everyMinute": "co minutę",
+  "rem.everyMinutes": "co {} minut",
+  "rem.everyMinutesFew": "co {} minuty",
+  "rem.everyHours": "co {} godzin",
+  "rem.everyHoursFew": "co {} godziny",
   "rem.ok": "Jasne",
   "rem.snooze": "+10 min",
+  // Karta rutyny: pasek pokazuje tylko nazwę tego, co poszło; wyższa karta dodaje typ, termin
+  // i jedną linię z nazwą kroku, który zawiódł.
+  "routine.title": "Rutyna wykonana",
+  "routine.partialTitle": "Rutyna częściowo wykonana",
+  "routine.missedTitle": "Rutyna nie odpaliła",
+  "routine.missedWhy": "Oczi wtedy nie działał, więc nic się nie stało.",
+  "routine.stepFailed": "nie udało się: {}",
   "news.0.1.4": "- **Ustawienia → Wyspa mieszka na** pokazują teraz każdy monitor tak, jak numeruje go Windows — wyspę można przypiąć na stałe do jednego ekranu, a nie tylko do głównego albo tego pod kursorem.\n- Po aktualizacji pojawia się taka krótka karta, a raz na uruchomienie mówi też, czy na GitHubie czeka nowsze wydanie.",
   "news.0.1.6": "- Odpowiedzi znów czyta się jak prozę: tekst punktu nie łamie się na kolumny, tabele i nagłówki zamieniają się w zwykłe linie, a odpowiedzi są krótsze.\n- Model widzi teraz własne odpowiedzi, więc nie powtarza się i nie odpowiada na dwa pytania naraz.",
   "news.0.1.7": "- Od teraz oba skróty ustawisz sam: w Ustawieniach → Ogólne klikasz pole i wciskasz taką kombinację, jaka Ci pasuje. Osobno dla wyspy, osobno dla zrzutu ekranu.\n- Doszły dwie nowe pigułki: PC, czyli procesor, pamięć i dyski Twojego komputera, oraz Music, czyli to, co teraz gra (Spotify, przeglądarka, VLC), z play/pauzą i przewijaniem.",
   "news.0.2.0": "- Oczi sam ustawia teraz przypomnienia: poproś o jedno, a karta pojawi się o właściwej porze, z przyciskami **Jasne** i **+10 min**. Mogą się powtarzać codziennie, w dni robocze albo raz w tygodniu.\n- Puste pole czatu podpowiada, o co można zapytać, a niepotwierdzone przypomnienie wróci przy następnym uruchomieniu.",
   "news.0.3.0": "- Dyktowanie, w instalatorze z „voice” w nazwie: naciśnij jego skrót, mów, a zdanie samo trafi na czat. Słowa zapisują się na tym komputerze, bez klucza i bez konta.\n- Po odpowiedzi Oczi znowu nasłuchuje, więc można rozmawiać głosem.\n- Skrót i język nasłuchu ustawia się obok pozostałych skrótów, w ustawieniach.",
+  "news.0.4.0": "- Oczi wykonuje teraz rutyny: powiedz, co ma się stać i kiedy, a sam rozłoży to na kroki — otworzy program albo stronę, puści coś, zamknie proces. Mogą się powtarzać codziennie, w dni robocze, co tydzień albo co ileś minut.\n- Po każdym wykonaniu na chwilę pojawia się karta z okejką: zielona, a przy nieudanym kroku bursztynowa, z jego nazwą.\n- YouTube gra, zamiast wyszukiwać.",
 };
 
 const TABLES: Record<Lang, Record<TextKey, string>> = { en: EN, pl: PL };

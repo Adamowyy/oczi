@@ -741,6 +741,144 @@ body {
   color: var(--red-text);
 }
 
+/* The routine report's tick: a big one on the right of the card that boinks in and draws
+   itself, with a soft light breathing behind it. The card folds away by itself a few seconds
+   in, so the half second of drawing is what says "done" without a sentence. Both classes are
+   toggled by the view's sync, because a view is built once and shown many times. */
+.done-tick-wrap {
+  position: absolute;
+  right: 56px;
+  top: 50%;
+  width: 88px;
+  height: 88px;
+  margin-top: -44px;
+  pointer-events: none;
+}
+
+/* The fluid part: a soft light that swells behind the tick and never quite settles. It reaches
+   past the ring on purpose — a glow confined to the icon's own box is a glow nobody sees. */
+.done-tick-wrap::before {
+  content: "";
+  position: absolute;
+  inset: -22px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(52, 211, 153, 0.42) 0%, rgba(52, 211, 153, 0) 62%);
+  animation: done-fluid 3.4s ease-in-out infinite;
+}
+
+.done-tick {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The strip: the same tick at the size a one-line card can carry, with the glow pulled in
+   closer so it does not swamp the card it sits in. */
+.done-tick-wrap.slim {
+  right: 44px;
+  width: 52px;
+  height: 52px;
+  margin-top: -26px;
+}
+
+.done-tick-wrap.slim::before {
+  inset: -14px;
+}
+
+.done-tick circle,
+.done-tick path {
+  fill: none;
+  stroke: var(--green-2);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.done-tick circle {
+  opacity: 0.5;
+  stroke-dasharray: 202;
+  stroke-dashoffset: 202;
+}
+
+.done-tick path {
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+}
+
+.done-tick-wrap.play .done-tick {
+  animation: done-boink 0.52s cubic-bezier(0.2, 1.5, 0.35, 1) both;
+}
+
+.done-tick-wrap.play .done-tick circle {
+  animation: done-tick-ring 0.5s ease-out forwards;
+}
+
+.done-tick-wrap.play .done-tick path {
+  animation: done-tick-mark 0.32s ease-out 0.3s forwards;
+}
+
+/* It did not all go to plan: amber when part of it worked, red when nothing ran at all — never
+   more alarming than the news. */
+.done-tick-wrap.warn::before {
+  background: radial-gradient(circle, rgba(245, 165, 36, 0.38) 0%, rgba(245, 165, 36, 0) 62%);
+}
+
+.done-tick-wrap.warn .done-tick circle,
+.done-tick-wrap.warn .done-tick path {
+  stroke: var(--amber);
+}
+
+.done-tick-wrap.bad::before {
+  background: radial-gradient(circle, rgba(244, 80, 94, 0.4) 0%, rgba(244, 80, 94, 0) 62%);
+}
+
+.done-tick-wrap.bad .done-tick circle,
+.done-tick-wrap.bad .done-tick path {
+  stroke: var(--red-text);
+}
+
+@keyframes done-boink {
+  0% {
+    transform: scale(0.55);
+    opacity: 0;
+  }
+  55% {
+    transform: scale(1.08, 0.92);
+    opacity: 1;
+  }
+  75% {
+    transform: scale(0.97, 1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes done-fluid {
+  0%,
+  100% {
+    transform: scale(0.82);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
+}
+
+@keyframes done-tick-ring {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes done-tick-mark {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
 .who-row {
   display: flex;
   align-items: center;

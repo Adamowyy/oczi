@@ -17,6 +17,8 @@ export type IslandViewName =
   | "note"
   | "listening"
   | "reminder"
+  | "routine"
+  | "routineFull"
   | "whatsnew"
   | "settings"
   | "greeting";
@@ -87,6 +89,14 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   // Taller than a note: a reminder carries a line of its own for the kind of card
   // and another for the time, plus a row with its answers.
   reminder: { height: 196, botX: 60, botY: null, botDiameter: 50, agentMode: "none" },
+  // A routine's report in its usual shape: one line — the name of what ran — with the big tick
+  // on the right. `botY` is explicit on both routine views: with the island's header hidden the
+  // auto-centring in `botPosition` still subtracts the 34 pt it assumes is there, which drops the
+  // mascot below the middle of a card that has no header.
+  routine: { height: 112, botX: 60, botY: 56, botDiameter: 46, agentMode: "none" },
+  // The report that has something to explain: what went wrong, or that nothing ran at all, and
+  // which run it was — so it carries the kind of card, the time and one line of detail.
+  routineFull: { height: 176, botX: 60, botY: 88, botDiameter: 50, agentMode: "none" },
   // Taller than a note: the card carries a handful of lines plus its button.
   whatsnew: { height: 208, botX: 60, botY: null, botDiameter: 50, agentMode: "none" },
   settings: { height: 160, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },

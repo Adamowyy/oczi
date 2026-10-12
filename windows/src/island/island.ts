@@ -12,7 +12,7 @@ import {
 import { Sound } from "../core/sound";
 import { listen, NoMic } from "../core/mic";
 import { t } from "../core/i18n";
-import { State } from "../core/state";
+import { State, routineView, ROUTINE_VIEWS } from "../core/state";
 import { BotEngine, hexToRGB } from "../bot/engine";
 import { Greeting } from "../bot/greeting";
 import { createMiniBot, miniBotCount, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../bot/minibots";
@@ -289,8 +289,9 @@ export class Island {
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
         case "home": {
-          // A reminder that is waiting takes the stage at every opening until it is
-          // answered; then a news card; then whatever the opening asked for.
+          // A reminder that is waiting takes the stage at every opening until it is answered;
+          // then a news card; then whatever the opening asked for. A routine's report does not:
+          // it is a passing notice and goes by itself.
           const view: IslandViewName = State.reminder
             ? "reminder"
             : State.newsMessage
@@ -422,6 +423,32 @@ export class Island {
     State.notify();
   }
 
+  /** Folds a transient card away by itself: a routine's report is news about work already
+   *  done, and news that waits to be clicked is a chore — it shows, it ticks, it goes. Four
+   *  seconds is long enough to see the tick and read the label. */
+  autoFoldIn(view: IslandViewName, seconds = 4) {
+    window.setTimeout(() => {
+      if (State.view !== view || State.mode !== "expanded") return;
+      void Bridge.log(`ui  ${view} card folded after ${seconds}s`);
+      this.collapse();
+    }, seconds * 1000);
+  }
+
+  /** A second report that landed while the first was on the card takes it now, the same way a
+   *  queued reminder does — Rust has already taken it out of its own list, so this queue is
+   *  the only place it exists. Called after whatever was on screen is gone. */
+  private showQueuedRoutine() {
+    if (State.routineReport || State.reminder) return;
+    const next = State.queuedRoutines.shift();
+    if (!next) return;
+    State.routineReport = next;
+    State.routineShownAt = performance.now();
+    const view = routineView(next);
+    void Bridge.log(`routine #${next.id} report shown ${view} (${State.queuedRoutines.length} more)`);
+    this.alert(view);
+    this.autoFoldIn(view);
+  }
+
   collapse() {
     // Dictation ends with the island. Leaving the microphone open behind a folded window
     // is both a privacy problem and the state that cannot be recovered from: the recording
@@ -464,6 +491,20 @@ export class Island {
       );
       State.view = State.defaultView();
     }
+    // A routine's report is *read* by folding away: it is a notice about something already
+    // done, so hiding the island is acknowledgement rather than dismissal — and the record is
+    // closed on the Rust side right there, which is what keeps an old report out of the list
+    // the model reads. The first moment is still ignored, so a click already on its way when
+    // the card appeared cannot swallow it unread.
+    if (ROUTINE_VIEWS.has(State.view)) {
+      if (State.routineReport && performance.now() - State.routineShownAt < REMINDER_GRACE_MS) return;
+      if (State.routineReport) void Bridge.routineDone(State.routineReport.id);
+      void Bridge.log(
+        `routine ${State.routineReport ? `#${State.routineReport.id} report folded away` : "report gone"}`,
+      );
+      State.routineReport = null;
+      State.view = State.defaultView();
+    }
     State.isPinned = false;
     this.fsm.pinned = false;
     // Drive the state machine rather than the mode: setting the mode behind its
@@ -482,6 +523,8 @@ export class Island {
     // Folding away while the listening view was up used to leave it set: the island was
     // shut, and the next time it opened it showed the microphone with no chat behind it.
     this.ensureLeftListening();
+    // Whatever report waited behind the card that just went takes it now.
+    this.showQueuedRoutine();
   }
 
   /** Holds the island open for `seconds`, or indefinitely when 0. Sending a question

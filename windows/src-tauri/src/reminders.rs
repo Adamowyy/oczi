@@ -20,8 +20,11 @@ const FORMS: &str =
     "Podaj czas jako \"+20m\", \"18:30\", \"jutro 08:00\" albo \"2026-10-12 09:00\".";
 
 /// How a repeating reminder comes back. Anything else is a one-off.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+///
+/// Serialized as one plain word — `"daily"`, `"weekdays"`, `"weekly"`, or `"every:45"` for an
+/// interval in minutes — because the same string is what the island reads to phrase the card,
+/// what the reminder file stores, and what `list_reminders` hands back to the model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Repeat {
     /// Every day at the same clock time.
     Daily,
@@ -29,10 +32,44 @@ pub enum Repeat {
     Weekdays,
     /// The same weekday, every week.
     Weekly,
+    /// Every N minutes, counted from the last time it was due.
+    Every(i64),
+}
+
+impl Serialize for Repeat {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&match self {
+            Repeat::Daily => "daily".to_string(),
+            Repeat::Weekdays => "weekdays".to_string(),
+            Repeat::Weekly => "weekly".to_string(),
+            Repeat::Every(minutes) => format!("every:{minutes}"),
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for Repeat {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(d)?;
+        match raw.as_str() {
+            "daily" => Ok(Repeat::Daily),
+            "weekdays" => Ok(Repeat::Weekdays),
+            "weekly" => Ok(Repeat::Weekly),
+            other => match other.strip_prefix("every:") {
+                Some(minutes) => minutes
+                    .parse::<i64>()
+                    .map(Repeat::Every)
+                    .map_err(serde::de::Error::custom),
+                None => Err(serde::de::Error::custom(format!(
+                    "unknown repeat \"{other}\""
+                ))),
+            },
+        }
+    }
 }
 
 impl Repeat {
-    /// The next occurrence after `at`, always the same clock time.
+    /// The next occurrence after `at`, always the same clock time — or the interval, for one that
+    /// comes back on a timer rather than on a calendar.
     fn step(self, at: i64) -> i64 {
         match self {
             Repeat::Daily => at + 86_400,
@@ -44,6 +81,7 @@ impl Repeat {
                 }
                 next
             }
+            Repeat::Every(minutes) => at + minutes * 60,
         }
     }
 }
@@ -56,7 +94,17 @@ fn is_weekend(secs: i64) -> bool {
 
 /// The next time this should come up, never in the past: a daily reminder answered
 /// after a week away lands on tomorrow, not on a day that has already gone.
-fn next_after(at: i64, repeat: Repeat, now: i64) -> i64 {
+/// `pub(crate)` because a routine repeats by exactly this rule — reminders and routines
+/// must not drift apart about what "codziennie" means.
+pub(crate) fn next_after(at: i64, repeat: Repeat, now: i64) -> i64 {
+    // An interval jumps straight to its next slot, however long the gap was: a fifteen-minute
+    // reminder answered after a night away is due in fifteen minutes, not walked forward one
+    // firing at a time — and the loop below could not reach the present for a one-minute one.
+    if let Repeat::Every(minutes) = repeat {
+        let step = minutes.max(1) * 60;
+        let slots = (now - at).div_euclid(step) + 1;
+        return at + slots * step;
+    }
     let mut next = at;
     // Bounded so a nonsense stamp in the file cannot spin here.
     for _ in 0..4_096 {
@@ -81,20 +129,74 @@ pub fn parse_repeat(spec: &str) -> Result<Option<Repeat>, String> {
         "weekly" | "week" | "every week" | "co tydzien" | "co tydzień" | "tygodniowo" => {
             Some(Repeat::Weekly)
         }
-        other => {
-            return Err(format!(
-                "Nie znam powtarzania „{other}” — użyj daily, weekdays albo weekly."
-            ))
-        }
+        other => match parse_every(other)? {
+            Some(minutes) => Some(Repeat::Every(minutes)),
+            None => {
+                return Err(format!(
+                    "Nie znam powtarzania „{other}” — użyj daily, weekdays, weekly albo odstępu, np. „co 45 minut”."
+                ))
+            }
+        },
     })
 }
 
+/// A sane interval, in minutes: a minute is the floor, a week the ceiling.
+fn check_every(minutes: i64) -> Result<Option<i64>, String> {
+    if (1..=10_080).contains(&minutes) {
+        Ok(Some(minutes))
+    } else {
+        Err(format!(
+            "Odstęp musi wynosić od minuty do tygodnia, a nie {minutes} minut."
+        ))
+    }
+}
+
+/// An interval written as words — "co 45 minut", "co 2 godziny", "co godzinę", "co minutę",
+/// "every 45 minutes", "hourly" — or the `every:45` form `list_reminders` hands back, so a
+/// reminder that was read out can be set again unchanged. `Ok(None)` when the text is not an
+/// interval at all, which is what lets the caller say what it does understand.
+fn parse_every(word: &str) -> Result<Option<i64>, String> {
+    if let Some(rest) = word.strip_prefix("every:") {
+        let minutes: i64 = rest
+            .trim()
+            .parse()
+            .map_err(|_| format!("Nie rozumiem odstępu „{word}”."))?;
+        return check_every(minutes);
+    }
+    // The interval can be in the words themselves, with no number to read.
+    if word.contains("pół godziny") || word.contains("pol godziny") || word.contains("half an hour") {
+        return check_every(30);
+    }
+    let mut number: Option<i64> = None;
+    let mut unit = 0i64;
+    for token in word.split_whitespace() {
+        if let Ok(n) = token.parse::<i64>() {
+            number = Some(n);
+        } else if token.starts_with("min") || token == "m" {
+            unit = 1;
+        } else if token.starts_with("godzin") || token.starts_with("godzine") || token.starts_with("hour")
+            || token == "h"
+        {
+            unit = 60;
+        }
+    }
+    match (number, unit) {
+        // A number needs a unit: "co 45" could be minutes or days, and guessing one is worse than
+        // asking again — the error above says which forms work.
+        (Some(n), u) if u > 0 => check_every(n * u),
+        (None, u) if u > 0 => check_every(u),
+        _ => Ok(None),
+    }
+}
+
 /// The word for a repeat, for messages the model reads and writes on.
-pub fn repeat_word(repeat: Repeat) -> &'static str {
+pub fn repeat_word(repeat: Repeat) -> String {
     match repeat {
-        Repeat::Daily => "codziennie",
-        Repeat::Weekdays => "w dni robocze",
-        Repeat::Weekly => "co tydzień",
+        Repeat::Daily => "codziennie".to_string(),
+        Repeat::Weekdays => "w dni robocze".to_string(),
+        Repeat::Weekly => "co tydzień".to_string(),
+        // Minutes, the unit the model itself passes back in: no plural rules to get wrong here.
+        Repeat::Every(minutes) => format!("co {minutes} min"),
     }
 }
 
@@ -794,5 +896,50 @@ mod tests {
         assert_eq!(parse_repeat("dni robocze"), Ok(Some(Repeat::Weekdays)));
         assert_eq!(parse_repeat("weekly"), Ok(Some(Repeat::Weekly)));
         assert!(parse_repeat("co drugi dzień").is_err());
+        // An interval, however it gets written — including the form `list_reminders` hands back.
+        assert_eq!(parse_repeat("co 45 minut"), Ok(Some(Repeat::Every(45))));
+        assert_eq!(parse_repeat("every 15 minutes"), Ok(Some(Repeat::Every(15))));
+        assert_eq!(parse_repeat("co 2 godziny"), Ok(Some(Repeat::Every(120))));
+        assert_eq!(parse_repeat("co godzinę"), Ok(Some(Repeat::Every(60))));
+        assert_eq!(parse_repeat("co minutę"), Ok(Some(Repeat::Every(1))));
+        assert_eq!(parse_repeat("every:45"), Ok(Some(Repeat::Every(45))));
+        // A number with no unit, and an interval nobody wants, are refused out loud instead of
+        // being guessed into minutes.
+        assert!(parse_repeat("co 45").is_err());
+        assert!(parse_repeat("co 0 minut").is_err());
+    }
+
+    #[test]
+    fn an_interval_lands_on_its_next_slot_and_never_in_the_past() {
+        let base = 1_700_000_000;
+        let quarter = 15 * 60;
+        // Due and answered at once: the next slot is one interval on.
+        assert_eq!(next_after(base, Repeat::Every(15), base), base + quarter);
+        // Answered an hour late: it does not fire four times to catch up.
+        assert_eq!(
+            next_after(base, Repeat::Every(15), base + 3600),
+            base + 5 * quarter
+        );
+        // Answered a second after the slot: that slot is not offered again.
+        assert_eq!(
+            next_after(base, Repeat::Every(15), base + quarter + 1),
+            base + 2 * quarter
+        );
+        // Not due yet: it stays where it was put.
+        assert_eq!(next_after(base, Repeat::Every(15), base - 600), base);
+    }
+
+    #[test]
+    fn a_repeat_survives_the_file_as_one_word() {
+        assert_eq!(serde_json::to_string(&Repeat::Daily).unwrap(), "\"daily\"");
+        assert_eq!(
+            serde_json::to_string(&Repeat::Every(45)).unwrap(),
+            "\"every:45\""
+        );
+        for spec in ["daily", "weekdays", "weekly", "every:45", "every:1"] {
+            let back: Repeat = serde_json::from_str(&format!("\"{spec}\"")).unwrap();
+            assert_eq!(serde_json::to_string(&back).unwrap(), format!("\"{spec}\""));
+            assert!(!repeat_word(back).is_empty());
+        }
     }
 }

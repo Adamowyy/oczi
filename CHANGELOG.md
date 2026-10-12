@@ -2,6 +2,31 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.4.0 — 2026-10-13
+
+**Oczi became smarter.** It now does things later by itself, and plays what you
+ask for instead of handing you a list to pick from.
+
+### Routines
+
+- Oczi keeps working when you are not looking. Tell it what should happen and
+  when — open a game in a quarter of an hour, put music on, close everything in
+  the evening — and it works the steps out for itself from what it already knows
+  how to do: opening a program or a page, playing something, running a command,
+  closing a process. If something is beyond it, it says so instead of scheduling
+  a promise.
+- A routine can repeat every day, on working days, or weekly — or every so many
+  minutes, for something that should come back more often than once a day, and
+  reminders take those intervals too. Asking in a new conversation lists what is
+  set, and if Oczi was closed when one came due, it says so rather than
+  pretending it ran.
+- Each run leaves a small card with a tick that folds away by itself: green when
+  every step went through, amber when one did not, naming the step that failed.
+
+### YouTube
+
+- YouTube plays instead of searching.
+
 ## 0.3.0 — 2026-10-10
 
 - Dictation, in the installer whose name says voice: press its shortcut, speak, and

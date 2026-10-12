@@ -133,6 +133,17 @@ export const Bridge = {
   remindersReady: () => call<void>("reminders_ready"),
 
   reminderDone: (id: number) => call<number | null>("reminder_done", { id }),
+
+  /** Called once the routine listener is wired — the same handshake as `remindersReady`,
+   *  for a card that must not be emitted before the island can hear it. */
+  routinesReady: () => call<void>("routines_ready"),
+
+  /** The report card has been read. A one-off is finished; a repeating routine keeps its
+   *  place and only loses the report. */
+  routineDone: (id: number) => call<boolean>("routine_done", { id }),
+
+  /** Run one now instead of waiting for its time — the card reports it like any other run. */
+  routineRunNow: (id: number) => callOrThrow<void>("routine_run_now", { id }),
 };
 
 export interface IntegrationUpdate {
@@ -176,6 +187,19 @@ export interface ReminderEvent {
   repeat?: "daily" | "weekdays" | "weekly";
 }
 
+/** A routine that has just run: Rust did the work, the island reports it. */
+export interface RoutineEvent {
+  id: number;
+  label: string;
+  atText: string;
+  lateSeconds: number;
+  /** It never ran — it came due while Oczi was off, or a run was interrupted. */
+  missed: boolean;
+  repeat?: "daily" | "weekdays" | "weekly";
+  /** One entry per step, in the order it ran; `arg` is the name it acted on. */
+  outcomes: { tool: string; arg: string; ok: boolean }[];
+}
+
 /** Same as `call`, but surfaces the error so the UI can show what went wrong. */
 async function callOrThrow<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!IS_TAURI) throw new Error("not running inside Oczi");
@@ -199,6 +223,7 @@ export type BridgeEvent =
   | { name: "click-outside"; payload: null }
   | { name: "snip-done"; payload: SnipInfo }
   | { name: "reminder"; payload: ReminderEvent }
+  | { name: "routine"; payload: RoutineEvent }
   | { name: "screen-changed"; payload: null };
 
 export interface DragDropPayload {

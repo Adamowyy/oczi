@@ -140,6 +140,196 @@ pub fn launch(what: &str) -> Result<String, String> {
     Ok(format!("Started {}.", target.display()))
 }
 
+/// Opens an address in the user's default browser. The same route the island's own link
+/// buttons take (`url.dll,FileProtocolHandler`), so a page the model opens and a link the
+/// user clicks on a card behave identically.
+pub fn open_url(url: &str) -> Result<String, String> {
+    #[cfg(windows)]
+    use std::os::windows::process::CommandExt;
+
+    let url = url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("An address must start with http:// or https://".to_string());
+    }
+    let mut command = Command::new("rundll32.exe");
+    command.args(["url.dll,FileProtocolHandler", url]);
+    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+        .spawn()
+        .map_err(|e| format!("Could not open {url}: {e}"))?;
+    Ok(format!("Opened {url}."))
+}
+
+// ── Closing a program ─────────────────────────────────────────────────────────
+
+/// Windows' own processes, security software, and our own window. A wrong program name is
+/// a failed command; one of these is the shell, the session or the desktop itself, and
+/// closing it takes the taskbar — or Oczi's island — with it. Oczi draws its window with
+/// WebView2, so `msedgewebview2.exe` *is* Oczi and is refused here as well as in the
+/// prompt that tells the model so.
+const PROTECTED_PROCESSES: &[&str] = &[
+    "system",
+    "registry",
+    "idle",
+    "memory compression",
+    "secure system",
+    "smss",
+    "csrss",
+    "wininit",
+    "winlogon",
+    "services",
+    "lsass",
+    "lsaiso",
+    "dwm",
+    "fontdrvhost",
+    "svchost",
+    "explorer",
+    "sihost",
+    "shellexperiencehost",
+    "taskhostw",
+    "audiodg",
+    "spoolsv",
+    "msmpeng",
+    "nissrv",
+    "securityhealthservice",
+    "oczi",
+    "msedgewebview2",
+];
+
+/// A process name as `taskkill /IM` wants it: bare, with no wildcard, no switch, no path.
+/// This is the one argument a model gets wrong in the worst way — `*` closes the machine —
+/// so it is normalised and refused here instead of being handed to taskkill.
+pub fn image_name(name: &str) -> Result<String, String> {
+    let raw = name.trim().trim_matches('"').trim();
+    if raw.is_empty() {
+        return Err("No process name given".to_string());
+    }
+    // A path is accepted for its file name alone (C:\Program Files\Steam\steam.exe), but
+    // only when it really is one. "steam /F" is not a path, and taking the text after the
+    // slash would turn that mistake into `f.exe` — a close that silently does nothing
+    // instead of saying the name was wrong.
+    let looks_like_path = raw.contains('\\') || raw.contains(':');
+    let base = if looks_like_path {
+        raw.rsplit(['\\', '/']).next().unwrap_or(raw).trim()
+    } else {
+        raw
+    };
+    let lower = base.to_ascii_lowercase();
+    let stem = lower.strip_suffix(".exe").unwrap_or(&lower).to_string();
+    let plain = stem
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+' | '(' | ')'));
+    if stem.is_empty() || stem.len() > 64 || !plain {
+        return Err(format!("\"{name}\" is not a process name"));
+    }
+    if PROTECTED_PROCESSES.contains(&stem.as_str()) {
+        return Err(format!(
+            "\"{stem}\" is part of Windows or of Oczi itself — it is not closed from here"
+        ));
+    }
+    Ok(format!("{stem}.exe"))
+}
+
+/// `tasklist`'s CSV, as the pids of one image. "Not running" and "the process list could
+/// not be read" are different answers and only one of them is a success, so the caller
+/// gets an error rather than an empty list when the read itself failed.
+fn pids_in(csv: &str, image: &str) -> Vec<u32> {
+    let wanted = image.to_ascii_lowercase();
+    let mut out = Vec::new();
+    for line in csv.lines() {
+        let line = line.trim();
+        if !line.starts_with('"') {
+            continue;
+        }
+        let mut fields = line.split("\",\"");
+        let name = fields
+            .next()
+            .unwrap_or("")
+            .trim_matches('"')
+            .to_ascii_lowercase();
+        if name != wanted {
+            continue;
+        }
+        if let Some(pid) = fields
+            .next()
+            .and_then(|f| f.trim_matches('"').trim().parse::<u32>().ok())
+        {
+            out.push(pid);
+        }
+    }
+    out
+}
+
+fn running_pids(image: &str) -> Result<Vec<u32>, String> {
+    let cmd = format!("tasklist /FI \"IMAGENAME eq {image}\" /FO CSV /NH");
+    let out = run(&cmd, None, Some(15))?;
+    if out.code != Some(0) {
+        return Err(format!("Could not read the process list: {}", out.format()));
+    }
+    Ok(pids_in(&out.stdout, image))
+}
+
+/// Waits for a close request to be answered, up to three seconds. An application needs a
+/// moment to save and go, and reporting "still running" after 10 ms is what makes a model
+/// force the close of something that was closing anyway.
+fn wait_until_gone(image: &str) -> Vec<u32> {
+    let mut last: Vec<u32> = Vec::new();
+    for _ in 0..12 {
+        std::thread::sleep(Duration::from_millis(250));
+        match running_pids(image) {
+            Ok(pids) => {
+                if pids.is_empty() {
+                    return pids;
+                }
+                last = pids;
+            }
+            // An unreadable process list is not an empty one: keep the last answer we
+            // had rather than reporting a close that did not happen.
+            Err(_) => {}
+        }
+    }
+    last
+}
+
+/// Closes a program by its process name. It is *asked* to close first — that is what lets
+/// Discord and Steam save their state — and only forced when it did not answer, which is
+/// what the user means by "kill it". Nothing running is a success, not an error.
+pub fn kill_process(name: &str) -> Result<String, String> {
+    let image = image_name(name)?;
+    let before = running_pids(&image)?;
+    if before.is_empty() {
+        return Ok(format!("{image} was not running."));
+    }
+    run(&format!("taskkill /IM {image} /T"), None, Some(20))?;
+    if wait_until_gone(&image).is_empty() {
+        return Ok(format!(
+            "Closed {image} — {} process(es), and it closed itself.",
+            before.len()
+        ));
+    }
+    // It did not answer a close request: a game with no window, or a program that is
+    // stuck. Now it is killed, and the answer says so.
+    crate::log::line(format!("taskkill had to force {image}"));
+    run(&format!("taskkill /IM {image} /T /F"), None, Some(20))?;
+    let left = wait_until_gone(&image);
+    if left.is_empty() {
+        return Ok(format!(
+            "Killed {image} — {} process(es), forced after it did not close on its own.",
+            before.len()
+        ));
+    }
+    Ok(format!(
+        "{image}: {} of {} process(es) are still running.",
+        left.len(),
+        before.len()
+    ))
+}
+
 /// Shortcuts beat executables, and the desktop beats the Start menu.
 fn find_app(name: &str) -> Option<PathBuf> {
     pick_app(&search_dirs(), name)
@@ -790,5 +980,59 @@ mod tests {
         let clipped = clip(&long);
         assert!(clipped.contains("THE-END"));
         assert!(clipped.contains("clipped"));
+    }
+
+    #[test]
+    fn a_process_name_is_a_name_and_nothing_else() {
+        assert_eq!(image_name("steam").unwrap(), "steam.exe");
+        assert_eq!(image_name(" Discord ").unwrap(), "discord.exe");
+        // A path is accepted for its file name, which is how a model quotes a game.
+        assert_eq!(
+            image_name("C:\\Program Files (x86)\\Steam\\steam.exe").unwrap(),
+            "steam.exe"
+        );
+
+        let long = "x".repeat(70);
+        // A wildcard closes half the machine, a switch and a quote are not a name, and a
+        // drive letter on its own is not a program.
+        for bad in ["*", "", "   ", "steam /F", "steam.exe\" /IM discord.exe", "C:", long.as_str()] {
+            assert!(image_name(bad).is_err(), "{bad:?} must not be a process name");
+        }
+
+        // Windows, its shell, the security software, and Oczi's own window.
+        for held in [
+            "explorer",
+            "svchost",
+            "lsass",
+            "winlogon",
+            "dwm",
+            "msmpeng",
+            "oczi",
+            "msedgewebview2",
+        ] {
+            assert!(image_name(held).is_err(), "{held} must not be closable");
+        }
+    }
+
+    #[test]
+    fn reads_pids_out_of_the_process_list() {
+        let csv = "\"steam.exe\",\"1234\",\"Console\",\"1\",\"300,000 K\"\r\n\
+                   \"steamwebhelper.exe\",\"5678\",\"Console\",\"1\",\"10,000 K\"\r\n";
+        assert_eq!(pids_in(csv, "steam.exe"), vec![1234]);
+        assert_eq!(pids_in(csv, "Steam.exe"), vec![1234], "the filter is case-blind");
+        assert_eq!(pids_in(csv, "discord.exe"), Vec::<u32>::new());
+        // tasklist says so in words when nothing matches: no process, and no crash.
+        let none = "INFO: No tasks are running which match the specified criteria.\r\n";
+        assert_eq!(pids_in(none, "steam.exe"), Vec::<u32>::new());
+        // A row whose pid cannot be read is dropped rather than guessed at.
+        assert_eq!(pids_in("\"steam.exe\",\"oops\"\r\n", "steam.exe"), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn only_an_http_address_is_opened() {
+        // Anything else would be a way to run a file or a script through a "link".
+        for bad in ["", "   ", "file:///C:/Windows/System32/calc.exe", "javascript:alert(1)", "C:\\x.html"] {
+            assert!(open_url(bad).is_err(), "{bad:?} must not be opened");
+        }
     }
 }

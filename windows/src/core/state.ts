@@ -50,8 +50,46 @@ export interface DueReminder {
   lateSeconds: number;
   /** Already due when Oczi started, so it came up while the app was not running. */
   missed: boolean;
-  /** How it comes back, absent for a one-off. */
-  repeat?: "daily" | "weekdays" | "weekly";
+  /** How it comes back, absent for a one-off: `daily`, `weekdays`, `weekly`, or `every:<minutes>`
+   *  for an interval counted from the last time it was due. */
+  repeat?: string;
+}
+
+/** One step of a routine that has just run. `tool` names the action, `arg` is what it
+ *  acted on — a program, a host, a process — and the card translates the verb itself. */
+export interface RoutineStep {
+  tool: string;
+  arg: string;
+  ok: boolean;
+}
+
+/** A routine that has just run — the payload of Rust's `routine` event. Same slot as a
+ *  reminder: the work is already done, and this is what the user is told about it. */
+export interface DueRoutine {
+  id: number;
+  /** The short name the model gave it, shown as the card's title. */
+  label: string;
+  /** The moment it was due, formatted in Rust, so both sides agree on the clock. */
+  atText: string;
+  lateSeconds: number;
+  /** It never ran: it came due while Oczi was off, or a run was interrupted. */
+  missed: boolean;
+  /** As Rust sends it: `daily`, `weekdays`, `weekly`, or `every:<minutes>` for an interval. */
+  repeat?: string;
+  outcomes: RoutineStep[];
+}
+
+/** The two shapes a routine's report can take, in one place: the island hides its header for
+ *  both, and the view the report is shown in comes from `routineView`. */
+export const ROUTINE_VIEWS: ReadonlySet<IslandViewName> = new Set(["routine", "routineFull"]);
+
+/** Which report card a routine's result needs. The slim one is the usual case: it says what ran
+ *  and nothing else. Anything with something to explain — a step that failed, or a run that never
+ *  happened — gets the taller card, and so does a run of several steps, because a line about
+ *  four things does not fit in a strip. */
+export function routineView(r: DueRoutine): IslandViewName {
+  const failed = r.outcomes.some((o) => !o.ok);
+  return r.missed || failed || r.outcomes.length >= 3 ? "routineFull" : "routine";
 }
 
 const task = (
@@ -192,6 +230,13 @@ class AppState {
   /** Reminders that came due while another one was on the card. Rust has already
    *  taken them off the list, so this queue is the only place they still exist. */
   queuedReminders: DueReminder[] = [];
+  /** A routine that has run and whose report is on the card right now. Set from Rust's
+   *  event; only the card's own button ends it, so a report cannot be missed. */
+  routineReport: DueRoutine | null = null;
+  /** Reports that arrived while another card was up, one at a time. */
+  queuedRoutines: DueRoutine[] = [];
+  /** When the report card appeared, for the few seconds it ignores a stray click. */
+  routineShownAt = 0;
   /** When the card on screen appeared, for the few seconds it ignores a click that
    *  would hide the island. */
   reminderShownAt = 0;

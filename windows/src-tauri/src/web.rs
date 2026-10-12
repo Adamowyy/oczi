@@ -80,6 +80,21 @@ pub async fn search(provider: &str, query: &str) -> Result<Vec<Hit>, String> {
 /// internet, a fetched page is untrusted input, and it must not be able to
 /// point the app back at the machine it runs on.
 pub async fn fetch(url: &str) -> Result<String, String> {
+    let body = fetch_html(url, PAGE_BYTES).await?;
+    let text = page_text(&body);
+    if text.trim().is_empty() {
+        return Err("The page has no readable text (it may need JavaScript).".to_string());
+    }
+    crate::log::line(format!("web  fetch {url} → {} chars", text.len()));
+    Ok(text)
+}
+
+/// A page's own markup, byte for byte, for the callers that have to read the page's own JSON
+/// rather than its text — YouTube's results carry the video ids there and nowhere else, and
+/// they sit far enough into a 1.7 MB page that the text tools' own cap would miss them, so
+/// the cap is the caller's. The guards are the same: http(s) only, public hosts only, and a
+/// page that announces itself as larger than `MAX_PAGE_BYTES` is refused before download.
+pub(crate) async fn fetch_html(url: &str, cap: usize) -> Result<String, String> {
     let url = url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("The address must start with http:// or https://".to_string());
@@ -108,7 +123,7 @@ pub async fn fetch(url: &str) -> Result<String, String> {
         return Err(format!("That is not a text page ({kind})."));
     }
     // A page that announces itself as huge is refused before it is downloaded:
-    // the text cap below would otherwise only trim what was already in memory.
+    // the cap below would otherwise only trim what was already in memory.
     if let Some(size) = response
         .headers()
         .get("content-length")
@@ -124,13 +139,7 @@ pub async fn fetch(url: &str) -> Result<String, String> {
         .bytes()
         .await
         .map_err(|e| format!("Could not read the page: {e}"))?;
-    let body = String::from_utf8_lossy(&bytes[..bytes.len().min(PAGE_BYTES)]).into_owned();
-    let text = page_text(&body);
-    if text.trim().is_empty() {
-        return Err("The page has no readable text (it may need JavaScript).".to_string());
-    }
-    crate::log::line(format!("web  fetch {url} → {} chars", text.len()));
-    Ok(text)
+    Ok(String::from_utf8_lossy(&bytes[..bytes.len().min(cap)]).into_owned())
 }
 
 /// The tool result the model reads: numbered, plain, with the URL spelled out

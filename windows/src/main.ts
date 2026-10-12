@@ -1,9 +1,9 @@
 // Entry point: boot the bridge, wire the island, start the greeting.
 
 import "./style.css";
-import { Bridge, IS_TAURI, onEvent, type ReminderEvent } from "./core/bridge";
+import { Bridge, IS_TAURI, onEvent, type ReminderEvent, type RoutineEvent } from "./core/bridge";
 import { Sound } from "./core/sound";
-import { State, type Settings } from "./core/state";
+import { State, routineView, type Settings } from "./core/state";
 import { currentLang, setLang, storedLang, t } from "./core/i18n";
 import { newsKey } from "./core/whats-new";
 import { Island } from "./island/island";
@@ -111,6 +111,25 @@ async function main() {
     void Bridge.log(`reminder #${r.id} shown view=${State.view} mode=${State.mode}`);
   });
 
+  // A routine has just run — the work is already done by Rust, and this is the report the
+  // user reads. Kept in one slot, like a reminder: a second report waits its turn instead
+  // of taking the card away, and only the card's own button clears it.
+  await onEvent<RoutineEvent>("routine", (r) => {
+    if (State.routineReport) {
+      State.queuedRoutines.push(r);
+      void Bridge.log(`routine #${r.id} report queued (${State.queuedRoutines.length})`);
+      return;
+    }
+    State.routineReport = r;
+    State.routineShownAt = performance.now();
+    // Two shapes: the slim strip for the usual report, the taller card when there is something
+    // to explain — see `routineView`. Either way it is a notice, and folds itself away.
+    const view = routineView(r);
+    island.alert(view);
+    island.autoFoldIn(view);
+    void Bridge.log(`routine #${r.id} report shown ${view} mode=${State.mode}`);
+  });
+
   // The settings window writes preferences; apply them here without a restart.
   await onEvent<Settings>("settings-changed", (s) => {
     const languageChanged = s.language !== State.settings.language;
@@ -169,6 +188,9 @@ async function main() {
   // purpose: the greeting starts a few lines up, and a card shown before that is a
   // card the greeting paints over.
   await Bridge.remindersReady();
+  // The same handshake for routines: their card is a report of work already done, and
+  // one that was lost to a crash or a shutdown comes back in the reply to this call.
+  await Bridge.routinesReady();
 
   // In a plain browser there is no wake strip behind the cursor: make the whole
   // page wake the island so the visuals can be checked with `npm run dev`.

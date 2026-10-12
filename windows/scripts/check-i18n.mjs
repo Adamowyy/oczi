@@ -93,7 +93,11 @@ function rustFiles(dir) {
 }
 
 const ROOT = join(HERE, "..");
-const RUST_SKIP = new Set(["text_tools.rs", "reminders.rs"]);
+// A module whose Polish is entirely model-facing — tool results, errors the model relays
+// and the log — belongs here rather than behind a marker on every line. `text_tools`
+// parses calls the model wrote out in four languages, `reminders` and `routines` answer
+// the model about a plan, and the cards the user reads are translated on the island.
+const RUST_SKIP = new Set(["text_tools.rs", "reminders.rs", "routines.rs", "youtube.rs"]);
 
 function scan(files) {
   for (const file of files) {

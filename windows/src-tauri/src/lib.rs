@@ -8,6 +8,7 @@ mod log;
 mod media;
 mod pc;
 mod reminders;
+mod routines;
 mod secrets;
 mod settings;
 mod shell;
@@ -22,9 +23,8 @@ mod util;
 mod voice;
 mod web;
 mod webview_guard;
+mod youtube;
 
-use std::os::windows::process::CommandExt;
-use std::process::Command;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
@@ -38,9 +38,6 @@ use files::DroppedFile;
 use island::{PollGate, ScreenInfo};
 use settings::Settings;
 use snip::Snip;
-
-/// Keeps spawned helpers from flashing a console window.
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub struct Shared {
     pub settings: Mutex<Settings>,
@@ -246,13 +243,10 @@ fn set_intervals(shared: State<Shared>, auto_close: Option<f64>, notch_hide: Opt
 
 #[tauri::command]
 fn open_url(url: String) {
-    if !(url.starts_with("http://") || url.starts_with("https://")) {
-        return;
-    }
-    let _ = Command::new("rundll32.exe")
-        .args(["url.dll,FileProtocolHandler", &url])
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn();
+    // One route for both sides — a link on a card and the model's own open_url tool go
+    // through the same call, so they open in the same browser the same way. The error is
+    // ignored here on purpose: a link that cannot be opened must not raise a dialog.
+    let _ = shell::open_url(&url);
 }
 
 #[tauri::command]
@@ -495,6 +489,42 @@ fn reminders_ready(app: AppHandle) {
     reminders::ready(&app);
 }
 
+// ── Routines ──────────────────────────────────────────────────────────────────
+
+/// What Oczi will do by itself, read from the file every time, so a routine edited by
+/// hand is still right when the window opens.
+#[tauri::command]
+fn routines_list() -> Vec<routines::Routine> {
+    routines::all()
+}
+
+#[tauri::command]
+fn routine_cancel(id: u64) -> Result<bool, String> {
+    routines::remove(id)
+}
+
+/// The report card has been read. A one-off is finished and leaves the list; a repeating
+/// routine keeps its place, and only its report is dropped.
+#[tauri::command]
+fn routine_done(id: u64) -> Result<bool, String> {
+    routines::answered(id)
+}
+
+/// The island has wired its listener, so a report may be pushed from now on. Anything
+/// reported while Oczi was not listening — a run whose card was lost to a crash, a
+/// restart or a shutdown — is handed over in this same call.
+#[tauri::command]
+fn routines_ready(app: AppHandle) {
+    routines::ready(&app);
+}
+
+/// Run one on the spot, without waiting for its time. The card reports it like any other
+/// run, so nothing happens silently.
+#[tauri::command]
+fn routine_run_now(app: AppHandle, id: u64) -> Result<(), String> {
+    routines::run_now(&app, id)
+}
+
 /// Refresh buttons in the integration cards.
 #[tauri::command]
 async fn refresh_integration(app: AppHandle, id: String) {
@@ -681,7 +711,43 @@ async fn voice_transcribe(_request: tauri::ipc::Request<'_>) -> Result<String, S
     Err("engine".to_string())
 }
 
+/// The value after `--flag` on the command line — for the headless checks that take one.
+fn flag_value(flag: &str) -> Option<String> {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == flag {
+            return args.next();
+        }
+    }
+    None
+}
+
 pub fn run() {
+    // The one part of play_video that needs the network, on its own: `oczi.exe --play "lofi do
+    // programowania"` resolves it exactly as the tool does, opens it, and prints what it
+    // picked. Without a window, so whether the ids the parser reads are real is answerable on
+    // a real machine — and the tab that opens is the other half of the proof.
+    if let Some(query) = flag_value("--play") {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("async runtime");
+        match runtime.block_on(youtube::play(&query)) {
+            Ok(started) => println!(
+                "{} — {} ({})",
+                if started.opened {
+                    "playing"
+                } else {
+                    "already playing, not reopened"
+                },
+                started.hit.title,
+                started.hit.id
+            ),
+            Err(e) => println!("failed: {e}"),
+        }
+        return;
+    }
+
     // A read-only look at what starts with this PC, the same text the model gets from
     // startup_items. It is here for support and for checking the reader on a real
     // machine without opening a window: `oczi.exe --startup` prints it and stops.
@@ -814,6 +880,11 @@ pub fn run() {
             reminder_cancel,
             reminder_done,
             reminders_ready,
+            routines_list,
+            routine_cancel,
+            routine_done,
+            routines_ready,
+            routine_run_now,
             open_settings_window,
             set_paused,
             set_island_anchor,
@@ -858,6 +929,9 @@ pub fn run() {
             // Reminders are the app's own promise, so they are watched here rather
             // than by anything the user has to keep alive separately.
             reminders::start(handle.clone());
+            // Routines are the same promise with the doing attached: the same clock, the
+            // same file under %APPDATA%\Oczi, nothing left on the machine.
+            routines::start(handle.clone());
             Ok(())
         })
         .build(tauri::generate_context!())

@@ -59,7 +59,7 @@ On this machine the usual folders are not always where they look: ask Windows fo
 Prefer read-only commands. Before anything that deletes, overwrites, installs or changes the system, say exactly what you are about to run and wait for the user to agree. \
 Never run something destructive as a side effect of a guess. \
 Every command is written to the app log, so report the command you ran and what it printed, and never claim a result you did not see. \nCall the tools the normal way: never write the call out as text or XML, because that does nothing at all. \
-When you have asked whether to do something and the user answers ok, yes, go ahead or anything else that reads as agreement, that is permission: do it, without asking a second time.";
+When you have asked whether to do something and the user answers ok, yes, go ahead or anything else that reads as agreement, that is permission: do it, without asking a second time. \nTo put a page on the screen for the user, use open_url: fetch_url *reads* a page, open_url *opens* it in their browser. To play something — music, a song, a genre, a video, an episode — use play_video: it searches YouTube itself, starts the first result playing and keeps it going as that video's radio mix. A search page is not playback, so never answer a request to put something on with a list of links to choose from. To close a program, use kill_process with its name — it asks the program to close first, which is what lets Discord and Steam save their state, and only forces it when that request was ignored. Never kill a process to \"clean up\" without being asked.";
 
 /// Appended when the build carries dictation. What the user sends may be a *transcript*
 /// rather than something typed, decoded by a small model running locally: it is fast, and it
@@ -73,9 +73,11 @@ const DICTATION_PROMPT: &str = "\nSome messages reach you as dictation: Oczi's o
 const REMINDER_PROMPT: &str = "\nAnything the user wants to be told about later — \"remind me\", \"przypomnij mi\", \"in 20 minutes\", \"tomorrow at 8\" — is one call to the remind tool. A card Oczi itself shows at that moment; the user needs nothing installed and nothing running for it. \
 Never build a reminder out of a script, a scheduled task, PowerShell, msg or a .ps1 file: the tool is the only thing the user will actually see, and anything else just leaves files behind. \
 Give `when` in one of the forms the tool documents: \"+15m\", \"18:30\", \"tomorrow 08:00\", \"2026-10-12 09:00\". \
-A reminder can repeat: pass `repeat` as \"daily\", \"weekdays\" or \"weekly\" when the user asks for one that comes back, and omit it for a one-off. Never accept \"codziennie\" and then set a one-off — list_reminders says which are repeating, and the user will see the difference. \
+A reminder can repeat: pass `repeat` as \"daily\", \"weekdays\", \"weekly\", or an interval in minutes — \"every 45 minutes\", or the same thing in the user's own words — for one that comes back on a timer, counted from the last time it was due; the first one is whatever `when` says. Omit `repeat` entirely for a one-off. Never accept a daily request and then set a one-off — list_reminders says which are repeating, and the user will see the difference. \
 list_reminders shows what is pending, including anything already on screen and waiting to be answered; cancel_reminder removes one by its id. \
 After setting one, say when it will come — and whether it repeats — briefly.";
+
+const ROUTINE_PROMPT: &str = "\nA routine is something the user wants Oczi to *do* later, at a time they name — \"in 10 minutes open a page and search for something\", \"in 15 minutes launch a game and run a script from the desktop\", \"in 20 minutes close a couple of programs\", \"put music on in an hour\". Set it with schedule_routine: the moment in the same forms the remind tool documents, a short label, and the steps. \nYou plan the steps yourself, at the moment you are asked: each one is a call to a tool you have in this turn — launch_app, open_url, run_terminal, kill_process — with the arguments you would pass it right now. There is no catalogue of routines and no prepared script to fall back on; whatever the user thinks of works as long as you can express it as those calls, and the app performs exactly the steps you wrote, at that moment, then shows a card saying what it did. \nIf the request needs something you cannot do at all — and what you cannot do now you cannot promise for later — say so in one line in the same answer. Never set a routine you are not sure will work: a step that fails at the time is a promise broken while nobody is there to fix it. \nSteps are machine actions, so terminal access has to be on in the settings: if it is off, say that instead of setting anything. \nNever build a routine out of a Windows scheduled task, a script, PowerShell, msg or a file left on the disk — schedule_routine is what a routine is, and it leaves nothing behind. \nLike a reminder it can come back: pass `repeat` as \"daily\", \"weekdays\" or \"weekly\", or an interval in minutes like \"every 30 minutes\", which runs again that long after each run. list_routines shows what is set and how the last run went; cancel_routine removes one. After setting one, say when it will run, briefly.";
 
 const SELF_PROMPT: &str = "\nOczi itself is `oczi.exe`, and its window is drawn by Edge WebView2: the `msedgewebview2.exe` processes under it are Oczi's own, not junk — closing one closes Oczi's window. Other `msedgewebview2.exe` processes belong to whatever else uses WebView2, and the parent chain tells them apart. Oczi's data is %APPDATA%\\Oczi and its log %LOCALAPPDATA%\\Oczi\\oczi.log; never suggest deleting either. \
 For anything about autostart — what starts with Windows, what sits there from logon, what can be turned off — call startup_items and answer from what it prints. A registry entry on its own is not a program that starts: it can outlive the program it points at, and a switched-off one runs nothing at all.";
@@ -112,12 +114,17 @@ fn language_line(language: &str) -> &'static str {
 /// The names of the tools offered this turn, so a call the model writes into
 /// the text is only taken when it names a real one.
 fn tool_names(web: bool, terminal: bool) -> Vec<&'static str> {
-    // Reminders first: always offered, whatever the switches say, see REMINDER_PROMPT.
+    // Reminders and routines first: always offered, whatever the switches say, see
+    // REMINDER_PROMPT and ROUTINE_PROMPT. A routine is planned out of the tools offered
+    // this turn, so the model has to know the tools exist even to say it cannot plan one.
     let mut names = vec![
         "remind",
         "list_reminders",
         "cancel_reminder",
         "startup_items",
+        "schedule_routine",
+        "list_routines",
+        "cancel_routine",
     ];
     if web {
         names.extend(["web_search", "fetch_url"]);
@@ -130,6 +137,13 @@ fn tool_names(web: bool, terminal: bool) -> Vec<&'static str> {
             "terminal_output",
             "terminal_kill",
         ]);
+        // The tools a routine may be built from, taken from the list `parse_steps` itself
+        // validates against, so the offered tools and the accepted steps cannot drift apart.
+        for tool in crate::routines::STEP_TOOLS {
+            if !names.contains(&tool) {
+                names.push(tool);
+            }
+        }
     }
     names
 }
@@ -167,8 +181,7 @@ fn tools(web: bool, terminal: bool) -> Value {
                         },
                         "repeat": {
                             "type": "string",
-                            "enum": ["daily", "weekdays", "weekly"],
-                            "description": "Only when the user wants it to come back: \"daily\" every day, \"weekdays\" Monday to Friday, \"weekly\" the same day each week, at the same clock time. Omit it entirely for a one-off. If the user asks for a repeating reminder, set this — never agree to \"codziennie\" and then set a one-off."
+                            "description": "Only when the user wants it to come back: \"daily\" every day, \"weekdays\" Monday to Friday, \"weekly\" the same day each week at the same clock time — or an interval in minutes, \"every 45 minutes\", which comes back that long after each firing (the user's own words for the same interval work too). Omit it entirely for a one-off. If the user asks for a repeating reminder, set this — never agree to a repeat and then set a one-off."
                         }
                     },
                     "required": ["text", "when"]
@@ -196,6 +209,78 @@ fn tools(web: bool, terminal: bool) -> Value {
                     "type": "object",
                     "properties": {
                         "id": { "type": "integer", "description": "The reminder's id." }
+                    },
+                    "required": ["id"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "schedule_routine",
+                "description": "Set up a routine: something Oczi itself does at a time the user named, with nobody asking again — \"in 10 minutes open YouTube and search for urbex history\", \"in 15 minutes launch the game and run the script in my FiveM folder\", \"in 20 minutes kill Steam and Discord\" — including something you have never been asked before. `steps` is the whole point: each step is a call to a tool you have in this very turn (launch_app, open_url, run_terminal, kill_process) with the arguments you would pass it right now, and the app performs exactly those when the moment comes. There is no catalogue of prepared routines and no script to reuse: what you can express as those calls works, and what you cannot do is something to say out loud in one line instead of promising it. Never build a routine out of a Windows scheduled task, a script, PowerShell or a file left on the disk.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "label": {
+                            "type": "string",
+                            "description": "A short name for it in the user's language, shown as the card's title — \"YouTube: urbex history\", \"morning setup\"."
+                        },
+                        "when": {
+                            "type": "string",
+                            "description": "When it runs, in exactly the forms the remind tool documents: a duration from now (\"+10m\", \"+1h30m\", \"90\") or a local time (\"18:30\", \"tomorrow 08:00\", \"2026-10-12 09:00\")."
+                        },
+                        "repeat": {
+                            "type": "string",
+                            "description": "Only when the user wants it to come back: \"daily\" every day, \"weekdays\" Monday to Friday, \"weekly\" the same day each week, or an interval in minutes, \"every 30 minutes\", which runs again that long after each run. Omit it entirely for something that happens once."
+                        },
+                        "steps": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 4,
+                            "description": "What to do, in order — at most four steps. A step is {\"tool\": ..., \"args\": {...}}, e.g. {\"tool\":\"open_url\",\"args\":{\"url\":\"https://www.youtube.com/results?search_query=urbex+history\"}}, {\"tool\":\"launch_app\",\"args\":{\"target\":\"spotify\"}}, {\"tool\":\"run_terminal\",\"args\":{\"command\":\"C:\\\\Users\\\\me\\\\Desktop\\\\FiveM\\\\start.cmd\"}}, {\"tool\":\"kill_process\",\"args\":{\"name\":\"steam\"}}. The arguments are the ones that tool itself takes, written out in full now — nothing is decided later.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "tool": {
+                                        "type": "string",
+                                        "enum": ["launch_app", "open_url", "run_terminal", "kill_process"],
+                                        "description": "Which tool this step calls."
+                                    },
+                                    "args": {
+                                        "type": "object",
+                                        "description": "The arguments of that call, exactly as that tool takes them: launch_app takes target, open_url takes url, run_terminal takes command, kill_process takes name."
+                                    }
+                                },
+                                "required": ["tool", "args"]
+                            }
+                        }
+                    },
+                    "required": ["label", "when", "steps"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "list_routines",
+                "description": "List the routines that are set, each with its id, its time, the steps it will perform and how its last run went. Call it when the user asks what Oczi will do by itself, or before setting one that might already exist.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "cancel_routine",
+                "description": "Remove a routine by the id list_routines gave, so it never runs again.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "integer", "description": "The routine's id." }
                     },
                     "required": ["id"]
                 }
@@ -271,6 +356,48 @@ fn tools(web: bool, terminal: bool) -> Value {
         list.push(json!({
             "type": "function",
             "function": {
+                "name": "open_url",
+                "description": "Open a web address in the user's own browser — this is how a page gets onto their screen. Use it when they want something opened rather than read: fetch_url reads a page, open_url puts it in front of them. Works for a search or a query, e.g. \"https://www.youtube.com/results?search_query=urbex+history\". Accepts http:// and https:// only.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "The absolute http(s) address to open." }
+                    },
+                    "required": ["url"]
+                }
+            }
+        }));
+        list.push(json!({
+            "type": "function",
+            "function": {
+                "name": "play_video",
+                "description": "Put something on and PLAY it on YouTube — a song, a genre, a video, an episode. Give it what the user asked for in their own words (\"lofi do programowania\", \"urbex history\") and YouTube is searched for real, the first result starts playing, and the same video's radio mix keeps playing after it, so it does not stop after one clip. A link or a video id the user gave is played as it is, never searched for. Use this instead of open_url whenever something is meant to be watched or listened to: a search page is not playback, and a page of results is never the answer to \"play something\".",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "What to play — the user's own words, or the YouTube link or video id they pasted." }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }));
+        list.push(json!({
+            "type": "function",
+            "function": {
+                "name": "kill_process",
+                "description": "Close a running program by its process name — \"steam\", \"discord\", \"chrome\". It asks the program to close first, which is what lets Discord and Steam save their state, and forces the close only when that request was ignored, so say which of the two happened if it matters. Use it when the user wants a program shut down or stopped. Part of Windows (explorer, svchost, lsass) and Oczi's own window are refused.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "The program's name, with or without .exe — \"steam\", \"Discord.exe\"." }
+                    },
+                    "required": ["name"]
+                }
+            }
+        }));
+        list.push(json!({
+            "type": "function",
+            "function": {
                 "name": "terminal_job",
                 "description": "Start a long command in the background and return its job number. Use it for servers, builds, downloads or anything that should keep running while you answer. Its output goes to a log you read with terminal_output.",
                 "parameters": {
@@ -335,6 +462,9 @@ Today is {date}."));
     // be turned into a reminder without it, and the reminder tools are always on.
     prompt.push_str(&format!("\nIt is now {}.", crate::util::now_line()));
     prompt.push_str(REMINDER_PROMPT);
+    // Routines are always offered for the same reason reminders are, and this text is what
+    // stops the model from promising one it cannot build out of the tools it has.
+    prompt.push_str(ROUTINE_PROMPT);
     prompt.push_str(SELF_PROMPT);
     if terminal {
         prompt.push_str(TERMINAL_PROMPT);
@@ -382,6 +512,38 @@ async fn run_tool(name: &str, args: &Value, provider: &str, terminal: bool) -> R
             } else {
                 // i18n-ok: model-facing, as above.
                 Ok(format!("Nie ma zaplanowanego przypomnienia o numerze #{id}."))
+            }
+        }
+        "schedule_routine" => {
+            let label = args.get("label").and_then(Value::as_str).unwrap_or("").trim();
+            let when = args.get("when").and_then(Value::as_str).unwrap_or("").trim();
+            let repeat_arg = args.get("repeat").and_then(Value::as_str).unwrap_or("");
+            if label.is_empty() {
+                // i18n-ok: model-facing tool error; the card the user sees is translated on the island.
+                return Err("Pusta rutyna — podaj krótką nazwę w „label”.".to_string());
+            }
+            let at = crate::reminders::parse_when(when)?;
+            let repeat = crate::reminders::parse_repeat(repeat_arg)?;
+            // The steps are checked here, while the model can still fix the plan or say it
+            // cannot do it — never at the hour, when nobody is there to fix anything.
+            let steps = crate::routines::parse_steps(args.get("steps"), terminal)?;
+            let r = crate::routines::add(label, at, repeat, steps)?;
+            let cycle = match r.repeat {
+                Some(rep) => format!(" [{}]", crate::reminders::repeat_word(rep)),
+                None => String::new(),
+            };
+            crate::log::line(format!("routine set: #{} {}", r.id, r.label));
+            // i18n-ok: model-facing tool result; the card the user sees is translated on the island.
+            Ok(format!("Rutyna #{} ustawiona na {}{} — {} ({} kroków)", r.id, crate::reminders::format_local(r.at), cycle, r.label, r.steps.len()))
+        }
+        "list_routines" => Ok(crate::routines::describe()),
+        "cancel_routine" => {
+            let id = args.get("id").and_then(Value::as_u64).unwrap_or(0);
+            if crate::routines::remove(id)? {
+                // i18n-ok: model-facing, as above.
+                Ok(format!("Rutyna #{id} usunięta — nie odpali się już."))
+            } else {
+                Ok(format!("There is no routine #{id}."))
             }
         }
         "web_search" => {
@@ -441,6 +603,52 @@ async fn run_tool(name: &str, args: &Value, provider: &str, terminal: bool) -> R
             crate::log::line(format!("shell launch: {started}"));
             Ok(started)
         }
+        "open_url" => {
+            if !terminal {
+                return Err("Terminal access is off in the settings.".to_string());
+            }
+            let url = args.get("url").and_then(Value::as_str).unwrap_or("").trim();
+            if url.is_empty() {
+                return Err("Nothing to open — pass \"url\".".to_string());
+            }
+            crate::log::line(format!("shell open url: {url}"));
+            let out = crate::shell::open_url(url)?;
+            crate::log::line(format!("shell open url: {out}"));
+            Ok(out)
+        }
+        "play_video" => {
+            if !terminal {
+                return Err("Terminal access is off in the settings.".to_string());
+            }
+            let query = args.get("query").and_then(Value::as_str).unwrap_or("").trim();
+            if query.is_empty() {
+                return Err("Nothing to play — pass \"query\".".to_string());
+            }
+            crate::log::line(format!("youtube play: {query}"));
+            let started = crate::youtube::play(query).await?;
+            if !started.opened {
+                // i18n-ok: model-facing tool result; the user reads the answer, not this.
+                return Ok(format!("Już to leci od chwili — nie otwieram drugi raz: {}", started.hit.title));
+            }
+            // i18n-ok: model-facing tool result; what the user reads is the answer, not this.
+            Ok(format!(
+                "Puszczam: {} — https://www.youtube.com/watch?v={}",
+                started.hit.title, started.hit.id
+            ))
+        }
+        "kill_process" => {
+            if !terminal {
+                return Err("Terminal access is off in the settings.".to_string());
+            }
+            let name = args.get("name").and_then(Value::as_str).unwrap_or("").trim();
+            if name.is_empty() {
+                return Err("Nothing to close — pass \"name\".".to_string());
+            }
+            crate::log::line(format!("shell kill: {name}"));
+            let out = crate::shell::kill_process(name)?;
+            crate::log::line(format!("shell kill: {out}"));
+            Ok(out)
+        }
         "terminal_job" => {
             if !terminal {
                 return Err("Terminal access is off in the settings.".to_string());
@@ -481,6 +689,18 @@ async fn run_tool(name: &str, args: &Value, provider: &str, terminal: bool) -> R
         }
         other => Err(format!("Unknown tool: {other}")),
     }
+}
+
+/// One step of a routine, run by the app with the model out of the loop — the same
+/// executor the chat uses, so a routine cannot do anything the chat could not.
+///
+/// The recorded steps are honoured whatever the switches say *now*: they were planned with
+/// terminal access on and the user agreed to that plan by asking for the routine, and a
+/// later toggle must not turn half of a routine into a silent no-op. Only the step tools
+/// are reachable from here; which ones those are is decided in `routines::parse_steps`
+/// when the plan is set, and the empty provider is never used because no step is a lookup.
+pub(crate) async fn run_step(tool: &str, args: &Value) -> Result<String, String> {
+    run_tool(tool, args, "", true).await
 }
 
 #[derive(Default)]

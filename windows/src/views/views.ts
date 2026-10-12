@@ -3,9 +3,9 @@
 import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
 import { Bridge } from "../core/bridge";
-import { State, type AgentTask } from "../core/state";
+import { State, ROUTINE_VIEWS, type AgentTask } from "../core/state";
 import { washRGBA, type IslandViewName, type Wash } from "../core/layout";
-import { t } from "../core/i18n";
+import { t, type TextKey } from "../core/i18n";
 import { createMiniBot, pruneMiniBots } from "../bot/minibots";
 import { buildPrompt, bubble } from "./chat";
 import { buildChoose, buildUpload, buildUploading } from "./upload";
@@ -94,6 +94,10 @@ export function buildHeader(actions: ViewActions): ViewHost {
       clear(gearBtn);
       gearBtn.append(svg(v === "settings" ? ICONS.gearFill : ICONS.gear, 14));
       el.style.opacity = v === "confused" ? "0" : "1";
+      // A routine's report is a notice, not a place to navigate from: the tabs and the gear are
+      // hidden *and* take up no room, so the card fills the island instead of sitting under a
+      // strip of controls that have nothing to do with what just happened.
+      el.style.display = ROUTINE_VIEWS.has(v) ? "none" : "";
     },
   };
 }
@@ -424,7 +428,32 @@ function answer(actions: ViewActions) {
 }
 
 /** The i18n key for each repeat, so the card can say what comes back. */
-const CYCLE = { daily: "rem.daily", weekdays: "rem.weekdays", weekly: "rem.weekly" } as const;
+const CYCLE: Record<string, TextKey> = { daily: "rem.daily", weekdays: "rem.weekdays", weekly: "rem.weekly" };
+
+/** How a repeat reads on a card, from the one word Rust sends: `daily`/`weekdays`/`weekly`, or
+ *  `every:<minutes>`. An interval needs its own phrase rather than a key lookup, because "co 45
+ *  minut" is a number and a unit that inflects — "co 2 minuty" and "co 5 minut" are not the same
+ *  word, and neither is "co godzinę". */
+function cycleLabel(spec: string): string | null {
+  const [kind, arg] = spec.split(":");
+  if (kind !== "every") return CYCLE[kind] ? t(CYCLE[kind]) : null;
+  const minutes = Number(arg);
+  if (!Number.isFinite(minutes) || minutes <= 0) return null;
+  if (minutes === 60) return t("rem.hourly");
+  if (minutes % 60 === 0) return t(countKey("rem.everyHours", minutes / 60), String(minutes / 60));
+  if (minutes === 1) return t("rem.everyMinute");
+  return t(countKey("rem.everyMinutes", minutes), String(minutes));
+}
+
+/** Polish counts two at a time: 2–4 take the "few" form ("co 2 minuty"), everything else — bar the
+ *  teens, where the same word as the many form is right — the "many" one ("co 5 minut"). English
+ *  points both keys at one string. */
+function countKey(base: "rem.everyMinutes" | "rem.everyHours", n: number): TextKey {
+  const mod100 = n % 100;
+  const mod10 = n % 10;
+  const few = mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14);
+  return (few ? `${base}Few` : base) as TextKey;
+}
 
 const STALE_REMINDER_MS = 30 * 60 * 1000;
 
@@ -466,9 +495,110 @@ function buildReminder(actions: ViewActions): ViewHost {
       text.textContent = r.text;
       // A repeating reminder has to say so on the card: "codziennie o 11:50" and a
       // one-off at the same hour look identical otherwise.
-      const cycle = r.repeat ? t(CYCLE[r.repeat]) : null;
+      const cycle = r.repeat ? cycleLabel(r.repeat) : null;
       const when = t("rem.at", r.atText);
       whenEl.textContent = cycle ? `${when} · ${cycle}` : when;
+    },
+  };
+}
+
+// ── Routine report ────────────────────────────────────────────────────────────
+
+/** A failed step is *named*, never described with a verb: "✗ otworzyłem X" claims the step
+ *  worked while crossing it out, and a tool's own name is an implementation detail the card has
+ *  no business showing. `routine.stepFailed` says what happened; the name is data. */
+
+/** The ✓ that draws itself: this card is gone within seconds, and a tick being drawn is what
+ *  says "done" in that time without a sentence. */
+function doneTick(): SVGSVGElement {
+  const ns = "http://www.w3.org/2000/svg";
+  const el = document.createElementNS(ns, "svg");
+  el.setAttribute("viewBox", "0 0 78 78");
+  el.setAttribute("class", "done-tick");
+  el.setAttribute("aria-hidden", "true");
+  const ring = document.createElementNS(ns, "circle");
+  ring.setAttribute("cx", "39");
+  ring.setAttribute("cy", "39");
+  ring.setAttribute("r", "32");
+  const mark = document.createElementNS(ns, "path");
+  mark.setAttribute("d", "M23.5 40.5l10.8 10.8 20.5-21.6");
+  el.append(ring, mark);
+  return el;
+}
+
+function buildRoutine(_actions: ViewActions, full: boolean): ViewHost {
+  const tick = h("div", { class: full ? "done-tick-wrap" : "done-tick-wrap slim" }, doneTick());
+  const kind = h("div", { class: "eyebrow" });
+  const title = h("div", { class: "title" });
+  const whenEl = h("div", { class: "sub" });
+  const note = h("div", { class: "detail" });
+  // Two shapes of the same news. The usual one is a single line — what ran, and the tick — in a
+  // strip barely taller than the bar; the taller one is for a report that has something to
+  // explain: a failure, or a run that never happened at all.
+  const shell = card("green",
+    tick,
+    h(
+      "div",
+      { class: "stack", style: full ? "padding:0 156px 0 98px" : "padding:0 116px 0 98px" },
+      kind,
+      title,
+      whenEl,
+      note,
+    ),
+  );
+  const el = h("div", { class: "view" }, shell);
+  // The report the tick was last drawn for: the animation replays when a different report
+  // takes the card, and not on every repaint of the same one.
+  let tickId = -1;
+  return {
+    el,
+    sync() {
+      const r = State.routineReport;
+      if (!r) return;
+      const failed = r.outcomes.filter((o) => !o.ok);
+      // The slim card says one thing: what ran. The kind of card, the time and the detail line
+      // belong to the shape that has something to explain.
+      if (!full) {
+        kind.style.display = "none";
+        whenEl.style.display = "none";
+        note.style.display = "none";
+      }
+      // The wash says how it went before any of the words do: green all round, amber when part
+      // of it worked, red when nothing ran at all.
+      shell.style.setProperty("--wash", washRGBA(r.missed ? "red" : failed.length ? "amber" : "green"));
+      kind.textContent = r.missed
+        ? t("routine.missedTitle")
+        : failed.length
+          ? t("routine.partialTitle")
+          : t("routine.title");
+      kind.classList.toggle("late", r.missed || failed.length > 0);
+      title.textContent = r.label;
+      // A repeating routine has to say so, exactly as a reminder card does.
+      const cycle = r.repeat ? cycleLabel(r.repeat) : null;
+      const when = t("rem.at", r.atText);
+      whenEl.textContent = cycle ? `${when} · ${cycle}` : when;
+
+      // One line, and only when there is something to say: what went wrong, or that nothing
+      // happened at all. A card that has to be gone in four seconds says the least it can.
+      const wrong = failed[0];
+      const line = r.missed
+        ? t("routine.missedWhy")
+        : wrong
+          ? `✗ ${t("routine.stepFailed", wrong.arg)}`
+          : "";
+      note.textContent = line;
+      note.style.display = full && line ? "" : "none";
+
+      // The tick is drawn per appearance, not per build: this view is made once and shown
+      // many times, so the animation is taken off, the element reflowed, and put back.
+      tick.classList.toggle("warn", !r.missed && failed.length > 0);
+      tick.classList.toggle("bad", r.missed);
+      if (r.id !== tickId) {
+        tickId = r.id;
+        tick.classList.remove("play");
+        void tick.getBoundingClientRect();
+        tick.classList.add("play");
+      }
     },
   };
 }
@@ -608,6 +738,8 @@ export function buildViews(
   map.set("note", buildNote());
   map.set("listening", buildListening());
   map.set("reminder", buildReminder(actions));
+  map.set("routine", buildRoutine(actions, false));
+  map.set("routineFull", buildRoutine(actions, true));
   map.set("whatsnew", buildWhatsNew(actions));
   map.set("settings", buildSettings(actions));
   map.set("prompt", buildPrompt(actions, onChatHeightChange));
