@@ -140,22 +140,31 @@ const SEARCH_KEYS: SecretField[] = [
 /** One credential row: input, save button, status dot. Shared by the
  * integrations and the search backends, same rules for every secret. */
 function secretRow(field: SecretField, present: Record<string, boolean>): HTMLElement {
+  const stored = present[field.key] ?? false;
   const input = h("input", {
     type: field.secret ? "password" : "text",
-    placeholder: present[field.key] ? t("set.stored") : field.placeholder,
+    placeholder: field.secret && stored ? t("set.stored") : field.placeholder,
     autocomplete: "off",
     spellcheck: "false",
     style: "flex:1 1 auto;min-width:0",
   }) as HTMLInputElement;
+  // A region code or an instance URL is a setting, so it is shown as it is.
+  if (!field.secret && stored) {
+    void Bridge.secretValue(field.key).then((value) => {
+      if (value && !input.value) input.value = value;
+    });
+  }
   const saveBtn = h("button", { text: t("set.save") });
-  const dotEl = statusDot(present[field.key] ?? false);
+  const dotEl = statusDot(stored);
   saveBtn.addEventListener("click", async () => {
     const value = input.value.trim();
     try {
       await Bridge.secretSet(field.key, value);
       present[field.key] = value.length > 0;
-      input.value = "";
-      input.placeholder = value ? t("set.stored") : field.placeholder;
+      if (field.secret) {
+        input.value = "";
+        input.placeholder = value ? t("set.stored") : field.placeholder;
+      }
       dotEl.style.background = value ? "#22c55e" : "#f4505e";
     } catch {
       dotEl.style.background = "#f5a524";

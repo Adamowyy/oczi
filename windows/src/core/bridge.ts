@@ -130,6 +130,8 @@ export const Bridge = {
   ingestFile: (path: string) => callOrThrow<DroppedFile>("ingest_file", { path }),
   /** Only ever tells you whether a key exists, never its value. */
   secretPresent: (key: string) => call<boolean>("secret_present", { key }),
+  /** A setting that is not a secret (a region, an instance URL), read back for display. */
+  secretValue: (key: string) => call<string | null>("secret_value", { key }),
   secretSet: (key: string, value: string) => callOrThrow<void>("secret_set", { key, value }),
   secretClear: (key: string) => callOrThrow<void>("secret_clear", { key }),
 

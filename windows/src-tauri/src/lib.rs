@@ -449,6 +449,13 @@ fn secret_set(key: String, value: String) -> Result<(), String> {
     secrets::set(&key, &value)
 }
 
+/// A setting, not a secret, is shown back to the window: a masked region code tells nobody
+/// anything. `secrets::readable` decides which keys those are.
+#[tauri::command]
+fn secret_value(key: String) -> Option<String> {
+    secrets::readable(&key)
+}
+
 #[tauri::command]
 fn secret_clear(key: String) -> Result<(), String> {
     secrets::clear(&key)
@@ -886,6 +893,7 @@ pub fn run() {
             cancel_snip,
             ingest_file,
             secret_present,
+            secret_value,
             secret_set,
             secret_clear,
             refresh_integration,

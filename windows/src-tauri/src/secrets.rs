@@ -54,6 +54,17 @@ pub fn present(key: &str) -> bool {
     get(key).is_some()
 }
 
+/// Values the settings window may read back. Keys are never here on purpose: a key is replaced,
+/// not displayed.
+pub const READABLE_KEYS: &[&str] = &["n8n-url", "ggdeals-region"];
+
+pub fn readable(key: &str) -> Option<String> {
+    if !READABLE_KEYS.contains(&key) {
+        return None;
+    }
+    get(key)
+}
+
 /// Moves keys left under the old service name to the current one, so an existing
 /// install keeps its keys. Only copies; a legacy entry is deleted once its value
 /// is safely stored again. Returns how many moved.
