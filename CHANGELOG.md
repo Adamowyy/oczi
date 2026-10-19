@@ -2,6 +2,15 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.4.2 — 2026-10-19
+
+- New Games pill: type a title and get its price — the cheapest key right now next
+  to what Steam charges, and each one's record low.
+- Prices come from the gg.deals API with your own key, which you generate in your
+  gg.deals settings; the region field sets the currency, so Poland gets złoty.
+- The cover and the title lookup come from Steam, and the card opens the gg.deals
+  page for the game, where every shop offer is listed.
+
 ## 0.4.1 — 2026-10-19
 
 - Reminders and routines can repeat monthly now, on the same day of the month and
