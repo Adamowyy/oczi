@@ -428,9 +428,15 @@ function answer(actions: ViewActions) {
 }
 
 /** The i18n key for each repeat, so the card can say what comes back. */
-const CYCLE: Record<string, TextKey> = { daily: "rem.daily", weekdays: "rem.weekdays", weekly: "rem.weekly" };
+const CYCLE: Record<string, TextKey> = {
+  daily: "rem.daily",
+  weekdays: "rem.weekdays",
+  weekly: "rem.weekly",
+  monthly: "rem.monthly",
+};
 
-/** How a repeat reads on a card, from the one word Rust sends: `daily`/`weekdays`/`weekly`, or
+/** How a repeat reads on a card, from the one word Rust sends: `daily`/`weekdays`/`weekly`/
+ *  `monthly`, or
  *  `every:<minutes>`. An interval needs its own phrase rather than a key lookup, because "co 45
  *  minut" is a number and a unit that inflects — "co 2 minuty" and "co 5 minut" are not the same
  *  word, and neither is "co godzinę". */

@@ -183,8 +183,8 @@ export interface ReminderEvent {
   /** It was already due when Oczi started: it came up while the app was not there
    *  to show it, whatever the number of seconds. */
   missed: boolean;
-  /** `daily`, `weekdays` or `weekly` when it comes back; absent for a one-off. */
-  repeat?: "daily" | "weekdays" | "weekly";
+  /** `daily`, `weekdays`, `weekly` or `monthly` when it comes back; absent for a one-off. */
+  repeat?: "daily" | "weekdays" | "weekly" | "monthly";
 }
 
 /** A routine that has just run: Rust did the work, the island reports it. */
@@ -195,7 +195,7 @@ export interface RoutineEvent {
   lateSeconds: number;
   /** It never ran — it came due while Oczi was off, or a run was interrupted. */
   missed: boolean;
-  repeat?: "daily" | "weekdays" | "weekly";
+  repeat?: "daily" | "weekdays" | "weekly" | "monthly";
   /** One entry per step, in the order it ran; `arg` is the name it acted on. */
   outcomes: { tool: string; arg: string; ok: boolean }[];
 }

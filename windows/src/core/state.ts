@@ -50,7 +50,7 @@ export interface DueReminder {
   lateSeconds: number;
   /** Already due when Oczi started, so it came up while the app was not running. */
   missed: boolean;
-  /** How it comes back, absent for a one-off: `daily`, `weekdays`, `weekly`, or `every:<minutes>`
+  /** How it comes back, absent for a one-off: `daily`, `weekdays`, `weekly`, `monthly`, or `every:<minutes>`
    *  for an interval counted from the last time it was due. */
   repeat?: string;
 }
@@ -74,7 +74,7 @@ export interface DueRoutine {
   lateSeconds: number;
   /** It never ran: it came due while Oczi was off, or a run was interrupted. */
   missed: boolean;
-  /** As Rust sends it: `daily`, `weekdays`, `weekly`, or `every:<minutes>` for an interval. */
+  /** As Rust sends it: `daily`, `weekdays`, `weekly`, `monthly`, or `every:<minutes>` for an interval. */
   repeat?: string;
   outcomes: RoutineStep[];
 }

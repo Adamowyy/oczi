@@ -21,9 +21,9 @@ const FORMS: &str =
 
 /// How a repeating reminder comes back. Anything else is a one-off.
 ///
-/// Serialized as one plain word — `"daily"`, `"weekdays"`, `"weekly"`, or `"every:45"` for an
-/// interval in minutes — because the same string is what the island reads to phrase the card,
-/// what the reminder file stores, and what `list_reminders` hands back to the model.
+/// Serialized as one plain word — `"daily"`, `"weekdays"`, `"weekly"`, `"monthly"`, or `"every:45"`
+/// for an interval in minutes — because the same string is what the island reads to phrase the
+/// card, what the reminder file stores, and what `list_reminders` hands back to the model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Repeat {
     /// Every day at the same clock time.
@@ -32,6 +32,8 @@ pub enum Repeat {
     Weekdays,
     /// The same weekday, every week.
     Weekly,
+    /// The same day of the month, every month — clamped to the month's last day when it is short.
+    Monthly,
     /// Every N minutes, counted from the last time it was due.
     Every(i64),
 }
@@ -42,6 +44,7 @@ impl Serialize for Repeat {
             Repeat::Daily => "daily".to_string(),
             Repeat::Weekdays => "weekdays".to_string(),
             Repeat::Weekly => "weekly".to_string(),
+            Repeat::Monthly => "monthly".to_string(),
             Repeat::Every(minutes) => format!("every:{minutes}"),
         })
     }
@@ -54,6 +57,7 @@ impl<'de> Deserialize<'de> for Repeat {
             "daily" => Ok(Repeat::Daily),
             "weekdays" => Ok(Repeat::Weekdays),
             "weekly" => Ok(Repeat::Weekly),
+            "monthly" => Ok(Repeat::Monthly),
             other => match other.strip_prefix("every:") {
                 Some(minutes) => minutes
                     .parse::<i64>()
@@ -81,8 +85,31 @@ impl Repeat {
                 }
                 next
             }
+            Repeat::Monthly => next_month(at),
             Repeat::Every(minutes) => at + minutes * 60,
         }
+    }
+}
+
+/// The same day of the month, one month on, at the same clock time. A day the month does not
+/// have falls back to its last one — the 31st becomes the 30th in April, the 28th or 29th in
+/// February — so a monthly reminder never skips a month or slides into the next one.
+fn next_month(at: i64) -> i64 {
+    let days = at.div_euclid(86_400);
+    let clock = at.rem_euclid(86_400);
+    let (y, m, d) = civil_from_days(days);
+    let (y, m) = if m == 12 { (y + 1, 1) } else { (y, m + 1) };
+    let d = d.min(days_in_month(y, m));
+    days_from_civil(y, m, d) * 86_400 + clock
+}
+
+/// How many days a month has, leap years included.
+fn days_in_month(y: i64, m: i64) -> i64 {
+    match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        _ if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 => 29,
+        _ => 28,
     }
 }
 
@@ -129,11 +156,15 @@ pub fn parse_repeat(spec: &str) -> Result<Option<Repeat>, String> {
         "weekly" | "week" | "every week" | "co tydzien" | "co tydzień" | "tygodniowo" => {
             Some(Repeat::Weekly)
         }
+        "monthly" | "month" | "every month" | "once a month" | "co miesiac" | "co miesiąc"
+        | "miesiecznie" | "miesięcznie" | "raz w miesiacu" | "raz w miesiącu" => {
+            Some(Repeat::Monthly)
+        }
         other => match parse_every(other)? {
             Some(minutes) => Some(Repeat::Every(minutes)),
             None => {
                 return Err(format!(
-                    "Nie znam powtarzania „{other}” — użyj daily, weekdays, weekly albo odstępu, np. „co 45 minut”."
+                    "Nie znam powtarzania „{other}” — użyj daily, weekdays, weekly, monthly albo odstępu, np. „co 45 minut”."
                 ))
             }
         },
@@ -195,6 +226,7 @@ pub fn repeat_word(repeat: Repeat) -> String {
         Repeat::Daily => "codziennie".to_string(),
         Repeat::Weekdays => "w dni robocze".to_string(),
         Repeat::Weekly => "co tydzień".to_string(),
+        Repeat::Monthly => "co miesiąc".to_string(),
         // Minutes, the unit the model itself passes back in: no plural rules to get wrong here.
         Repeat::Every(minutes) => format!("co {minutes} min"),
     }
@@ -895,6 +927,9 @@ mod tests {
         assert_eq!(parse_repeat("codziennie"), Ok(Some(Repeat::Daily)));
         assert_eq!(parse_repeat("dni robocze"), Ok(Some(Repeat::Weekdays)));
         assert_eq!(parse_repeat("weekly"), Ok(Some(Repeat::Weekly)));
+        assert_eq!(parse_repeat("monthly"), Ok(Some(Repeat::Monthly)));
+        assert_eq!(parse_repeat("raz w miesiącu"), Ok(Some(Repeat::Monthly)));
+        assert_eq!(parse_repeat("co miesiąc"), Ok(Some(Repeat::Monthly)));
         assert!(parse_repeat("co drugi dzień").is_err());
         // An interval, however it gets written — including the form `list_reminders` hands back.
         assert_eq!(parse_repeat("co 45 minut"), Ok(Some(Repeat::Every(45))));
@@ -907,6 +942,23 @@ mod tests {
         // being guessed into minutes.
         assert!(parse_repeat("co 45").is_err());
         assert!(parse_repeat("co 0 minut").is_err());
+    }
+
+    #[test]
+    fn a_monthly_reminder_keeps_its_day_of_the_month() {
+        let day = 86_400;
+        let at = |y, m, d| days_from_civil(y, m, d) * day + 19 * 3600;
+        // The 19th stays the 19th, and the clock time never moves.
+        let start = at(2026, 10, 19);
+        assert_eq!(next_month(start), at(2026, 11, 19));
+        assert_eq!(next_month(at(2026, 12, 19)), at(2027, 1, 19));
+        // A day the month does not have falls back to its last one instead of skipping a month.
+        assert_eq!(next_month(at(2027, 1, 31)), at(2027, 2, 28));
+        assert_eq!(next_month(at(2028, 1, 31)), at(2028, 2, 29), "2028 is a leap year");
+        assert_eq!(next_month(at(2027, 3, 31)), at(2027, 4, 30));
+        // Answered late, it lands on the next future occurrence, not one that has gone.
+        let now = at(2026, 12, 20);
+        assert_eq!(next_after(start, Repeat::Monthly, now), at(2027, 1, 19));
     }
 
     #[test]
@@ -936,7 +988,7 @@ mod tests {
             serde_json::to_string(&Repeat::Every(45)).unwrap(),
             "\"every:45\""
         );
-        for spec in ["daily", "weekdays", "weekly", "every:45", "every:1"] {
+        for spec in ["daily", "weekdays", "weekly", "monthly", "every:45", "every:1"] {
             let back: Repeat = serde_json::from_str(&format!("\"{spec}\"")).unwrap();
             assert_eq!(serde_json::to_string(&back).unwrap(), format!("\"{spec}\""));
             assert!(!repeat_word(back).is_empty());

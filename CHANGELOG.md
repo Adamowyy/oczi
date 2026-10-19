@@ -2,6 +2,18 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## Unreleased
+
+### Reminders
+
+- Reminders and routines can repeat monthly now, on the same day of the month
+  and at the same clock time.
+- A day a month does not have falls back to its last one, so something set for
+  the 31st comes back on the 30th in April and on the 28th in February instead
+  of skipping a month.
+- `monthly` joins `daily`, `weekdays`, `weekly` and the minute intervals, on the
+  card and in what Oczi lists back.
+
 ## 0.4.0 — 2026-10-13
 
 **Oczi became smarter.** It now does things later by itself, and plays what you

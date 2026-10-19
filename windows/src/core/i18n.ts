@@ -176,6 +176,7 @@ const EN = {
   "rem.daily": "every day",
   "rem.weekdays": "Mon–Fri",
   "rem.weekly": "every week",
+  "rem.monthly": "every month",
   // An interval needs its own words: the card reads "every 45 minutes", and an hour is worth
   // saying as an hour.
   "rem.hourly": "every hour",
@@ -366,6 +367,7 @@ const PL: Record<TextKey, string> = {
   "rem.daily": "codziennie",
   "rem.weekdays": "dni robocze",
   "rem.weekly": "co tydzień",
+  "rem.monthly": "co miesiąc",
   // Odstęp ma własne słowa, bo polski odmienia je inaczej niż angielski: „co 45 minut",
   // „co minutę", „co godzinę", „co 2 godziny", „co 5 godzin".
   "rem.hourly": "co godzinę",
