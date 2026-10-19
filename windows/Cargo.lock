@@ -2519,7 +2519,7 @@ dependencies = [
 
 [[package]]
 name = "oczi"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "keyring",
  "png 0.17.16",
