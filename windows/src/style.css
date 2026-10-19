@@ -2295,4 +2295,6 @@ html.asleep *::after {
 .pr-actions {
   display: flex;
   gap: 8px;
+  /* A nudge down off the numbers, no more: the row still reads as theirs. */
+  margin-top: 8px;
 }
