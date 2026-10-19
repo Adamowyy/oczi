@@ -27,6 +27,10 @@ Drop a file, chat through the DeepSeek API, snap a region screenshot — all wit
 </tr>
 </table>
 
+<img src="docs/integration-games.jpg" alt="The Games card: a title search, the cover, the cheapest key beside Steam's price, and both record lows" width="640">
+
+*Games — a title in, and the cheapest key right now beside what Steam charges, with both record lows. Prices from GG.deals on your own key, artwork from Steam.*
+
 <img src="docs/reminder-card.jpg" alt="A reminder card: Reminder, what to remember, when it is due, and the +10 min and OK buttons" width="640">
 
 *A reminder comes up as a card of its own: what to remember, when it is due, and the two answers.*
