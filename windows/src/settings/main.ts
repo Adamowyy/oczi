@@ -650,10 +650,10 @@ async function main() {
 
   const hasKey = (await Bridge.secretPresent("deepseek-api-key")) ?? false;
 
+  // Read from the tables that build the rows: the hand-kept copy here missed the Games keys.
   const keys = [
-    "stripe-api-key", "github-token", "vercel-token",
-    "n8n-url", "n8n-api-key", "resend-api-key", "notion-api-key", "calcom-api-key",
-    "brave-api-key", "tavily-api-key",
+    ...SEARCH_KEYS.map((f) => f.key),
+    ...INTEGRATIONS.flatMap((def) => def.fields.map((f) => f.key)),
   ];
   const present: Record<string, boolean> = {};
   for (const k of keys) present[k] = (await Bridge.secretPresent(k)) ?? false;
