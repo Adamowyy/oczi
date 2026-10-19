@@ -79,6 +79,8 @@ After setting one, say when it will come — and whether it repeats — briefly.
 
 const ROUTINE_PROMPT: &str = "\nA routine is something the user wants Oczi to *do* later, at a time they name — \"in 10 minutes open a page and search for something\", \"in 15 minutes launch a game and run a script from the desktop\", \"in 20 minutes close a couple of programs\", \"put music on in an hour\". Set it with schedule_routine: the moment in the same forms the remind tool documents, a short label, and the steps. \nYou plan the steps yourself, at the moment you are asked: each one is a call to a tool you have in this turn — launch_app, open_url, run_terminal, kill_process — with the arguments you would pass it right now. There is no catalogue of routines and no prepared script to fall back on; whatever the user thinks of works as long as you can express it as those calls, and the app performs exactly the steps you wrote, at that moment, then shows a card saying what it did. \nIf the request needs something you cannot do at all — and what you cannot do now you cannot promise for later — say so in one line in the same answer. Never set a routine you are not sure will work: a step that fails at the time is a promise broken while nobody is there to fix it. \nSteps are machine actions, so terminal access has to be on in the settings: if it is off, say that instead of setting anything. \nNever build a routine out of a Windows scheduled task, a script, PowerShell, msg or a file left on the disk — schedule_routine is what a routine is, and it leaves nothing behind. \nLike a reminder it can come back: pass `repeat` as \"daily\", \"weekdays\", \"weekly\" or \"monthly\", or an interval in minutes like \"every 30 minutes\", which runs again that long after each run. list_routines shows what is set and how the last run went; cancel_routine removes one. After setting one, say when it will run, briefly.";
 
+const PRICES_PROMPT: &str = "\nGame prices come from gg.deals through the game_price tool: give it the title the user said and it answers with the lowest price right now — retail shops and keyshops separately — the historical low, the currency their own API key reports, and the gg.deals page that lists the shops. Use it for anything about what a game costs, whether it is worth waiting for a sale, or what its lowest price ever was. The pricing API carries no shop address of its own, so point the user at the gg.deals page instead of inventing a store, and when the currency is not the one they expected, say which currency the key reports rather than converting it.\n";
+
 const SELF_PROMPT: &str = "\nOczi itself is `oczi.exe`, and its window is drawn by Edge WebView2: the `msedgewebview2.exe` processes under it are Oczi's own, not junk — closing one closes Oczi's window. Other `msedgewebview2.exe` processes belong to whatever else uses WebView2, and the parent chain tells them apart. Oczi's data is %APPDATA%\\Oczi and its log %LOCALAPPDATA%\\Oczi\\oczi.log; never suggest deleting either. \
 For anything about autostart — what starts with Windows, what sits there from logon, what can be turned off — call startup_items and answer from what it prints. A registry entry on its own is not a program that starts: it can outlive the program it points at, and a switched-off one runs nothing at all.";
 
@@ -125,6 +127,7 @@ fn tool_names(web: bool, terminal: bool) -> Vec<&'static str> {
         "schedule_routine",
         "list_routines",
         "cancel_routine",
+        "game_price",
     ];
     if web {
         names.extend(["web_search", "fetch_url"]);
@@ -283,6 +286,23 @@ fn tools(web: bool, terminal: bool) -> Value {
                         "id": { "type": "integer", "description": "The routine's id." }
                     },
                     "required": ["id"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "game_price",
+                "description": "Current and historical prices for a PC game, from gg.deals: the lowest price right now among retail shops and among keyshops, the historical low, the currency the user's own API key reports, and the gg.deals page that lists the shops. Call it for any question about what a game costs, whether to wait for a sale, or what its historical low was. It finds the game by title through Steam, and it shows the same card in Oczi.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "The game's title as the user said it — \"Arma 3\", \"Elden Ring\", \"The Witcher 3\". A wrong match comes back named, so prefer the plain title over a long description."
+                        }
+                    },
+                    "required": ["title"]
                 }
             }
         }),
@@ -469,6 +489,10 @@ Today is {date}."));
     if terminal {
         prompt.push_str(TERMINAL_PROMPT);
     }
+    // Prices need a key the user adds themselves, but the tools are always offered: without the
+    // key the tool answers with where to put it, which is more useful than the model not knowing
+    // the feature exists.
+    prompt.push_str(PRICES_PROMPT);
     prompt
 }
 
@@ -479,6 +503,18 @@ async fn run_tool(name: &str, args: &Value, provider: &str, terminal: bool) -> R
         // A read of the machine, never a change: the model gets it as the text it
         // answers from, with the leftovers already named as leftovers.
         "startup_items" => Ok(crate::startup::text()),
+        // Prices: the same lookup the pill runs, and the card it sends is what the answer points at.
+        // The tool result carries the numbers so the model can talk about them without the card.
+        "game_price" => {
+            let title = args
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            let offer = crate::prices::lookup(title).await?;
+            crate::prices::show(&offer);
+            Ok(crate::prices::describe(&offer))
+        }
         "remind" => {
             let text = args.get("text").and_then(Value::as_str).unwrap_or("").trim();
             let when = args.get("when").and_then(Value::as_str).unwrap_or("").trim();

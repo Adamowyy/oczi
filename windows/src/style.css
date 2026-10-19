@@ -2170,3 +2170,129 @@ html.asleep *::after {
 .int-card.detail {
   padding-top: 8px;
 }
+
+/* ── Prices ─────────────────────────────────────────────────────────────────
+   The Games pill's card: a title on the left, then the lowest price big enough to read at a
+   glance, four smaller numbers under it, and two ways out. The cover is Steam's header
+   (460×215), so it sits wide rather than tall. */
+
+.pr {
+  /* Tighter at the bottom than the top: the buttons belong to the numbers above them, not to a
+     block of their own. */
+  padding: 12px 16px 10px 104px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.pr-top {
+  display: flex;
+  gap: 8px;
+}
+
+.pr-input {
+  flex: 1;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.pr-input:focus {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.pr-go {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pr-go:disabled {
+  opacity: 0.5;
+}
+
+.pr-body {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.pr-cover {
+  width: 132px;
+  height: 62px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex: none;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.pr-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* The comparison: a key's price against Steam's, the same size, side by side. */
+.pr-bigs {
+  display: flex;
+  gap: 20px;
+}
+
+.pr-bigwrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pr-big {
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.12;
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-cap {
+  font-size: 11px;
+  opacity: 0.5;
+}
+
+/* The record lows: one line each, quiet, but on the same baseline as the numbers they belong to. */
+.pr-lows {
+  display: flex;
+  gap: 20px;
+  font-size: 11.5px;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-note {
+  font-size: 11px;
+  opacity: 0.6;
+  line-height: 1.35;
+}
+
+.pr-note.bad {
+  color: #ff8a80;
+  opacity: 1;
+}
+
+.pr-actions {
+  display: flex;
+  gap: 8px;
+}

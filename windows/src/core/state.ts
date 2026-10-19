@@ -1,6 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
+import type { PricesOffer } from "./bridge";
 import type { EyeShape } from "../bot/engine";
 import type { Lang } from "./i18n";
 
@@ -109,6 +110,8 @@ export const INTEGRATION_AGENTS: AgentTask[] = [
   task("integration_stripe", "Stripe", "#0570DE"),
   // The machine itself: no account, no key, no request — always available.
   task("integration_pc", "PC", "#4CC2FF"),
+  // Game prices: gg.deals with the user's own API key, found by title through Steam.
+  task("integration_prices", "Games", "#E4A11B"),
   // One pill for whatever player Windows says is playing — see src-tauri/media.rs.
   task("integration_music", "Music", "#F472B6"),
 ];
@@ -241,6 +244,11 @@ class AppState {
    *  would hide the island. */
   reminderShownAt = 0;
   noteMessage: string | null = null;
+
+  /** The last price card — whatever the Games pill or the model last looked up. */
+  prices: PricesOffer | null = null;
+  pricesBusy = false;
+  pricesError: string | null = null;
   searchResult: SearchResult | null = null;
   chatHistory: ChatMessage[] = [];
   /** Wall-clock ms of the last chat turn — drives the one-hour session timeout. */

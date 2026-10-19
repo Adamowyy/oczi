@@ -14,6 +14,9 @@ const KEY_FOR: Record<string, string> = {
   integration_resend: "resend-api-key",
   integration_notion: "notion-api-key",
   integration_calcom: "calcom-api-key",
+  // Prices: the key is what makes the Games pill usable at all, so the card says "no key" until
+  // this one is in the Credential Manager.
+  integration_prices: "ggdeals-api-key",
 };
 
 const clearTimers = new Map<string, number>();

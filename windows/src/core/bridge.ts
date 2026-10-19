@@ -47,8 +47,28 @@ export interface UpdateInfo {
   url: string;
 }
 
+/** One game's prices, as the Rust side reports them — see `src-tauri/src/prices.rs`. Prices are
+ *  strings exactly as the API sent them, and `currency` is the code the user's own key reports:
+ *  no conversion happens anywhere, so a PLN key and a USD key each see their own numbers. */
+export interface PricesOffer {
+  title: string;
+  appId: number;
+  image: string | null;
+  currency: string;
+  best: string | null;
+  bestFrom: "retail" | "keyshops" | null;
+  retail: string | null;
+  keyshops: string | null;
+  historicalRetail: string | null;
+  historicalKeyshops: string | null;
+  url: string | null;
+}
+
 export const Bridge = {
   boot: () => call<BootInfo>("boot"),
+
+  /** Prices for a game title: Steam finds it, gg.deals prices it. Throws the reason it could not. */
+  pricesLookup: (title: string) => callOrThrow<PricesOffer>("prices_lookup", { title }),
 
   /** The connected displays, for the settings window's monitor picker. */
   listMonitors: () => call<MonitorOption[]>("list_monitors"),

@@ -298,6 +298,15 @@ const INTEGRATIONS: IntegrationDef[] = [
   { id: "integration_pc", name: "PC", color: "#4CC2FF", fields: [] },
   // Nor this one: Windows itself reports what is playing, whatever the player.
   { id: "integration_music", name: "Music", color: "#F472B6", fields: [] },
+  // Prices: gg.deals' own API with the key the user generates in their account (Settings → API).
+  // Steam does the title lookup, which is why no other field is needed.
+  { id: "integration_prices", name: "Games", color: "#E4A11B",
+    fields: [
+      { key: "ggdeals-api-key", labelKey: "set.ggdealsKey", placeholder: "…", secret: true },
+      // The region decides the currency: `pl` gives PLN, and leaving it empty follows the
+      // interface language.
+      { key: "ggdeals-region", labelKey: "set.ggdealsRegion", placeholder: "pl", secret: false },
+    ] },
 ];
 
 const MAX_ACTIVE = 4;

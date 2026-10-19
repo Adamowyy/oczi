@@ -97,7 +97,7 @@ const ROOT = join(HERE, "..");
 // and the log — belongs here rather than behind a marker on every line. `text_tools`
 // parses calls the model wrote out in four languages, `reminders` and `routines` answer
 // the model about a plan, and the cards the user reads are translated on the island.
-const RUST_SKIP = new Set(["text_tools.rs", "reminders.rs", "routines.rs", "youtube.rs"]);
+const RUST_SKIP = new Set(["text_tools.rs", "reminders.rs", "routines.rs", "youtube.rs", "prices.rs"]);
 
 function scan(files) {
   for (const file of files) {

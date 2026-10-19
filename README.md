@@ -76,9 +76,16 @@ Oczi is a soft little crystal with three shards orbiting her, living at the top 
 - 🫥 **Invisible when idle** — hides into the top edge and peeks out when you hover it. `Ctrl+Alt+M` summons it from anywhere; `Ctrl+Alt+Shift+S` starts a snip. Both chords are yours to change: Settings → General records whatever you press.
 - 🔒 **Private by design** — no telemetry, no account. Keys live in the Windows Credential Manager. The app only talks to the services you plug in.
 - 🌍 **English by default** — Polish is one setting away; another language is one table in `src/core/i18n.ts`.
+- 🏷️ **Game prices** — a **Games** pill: type a title and it shows the cheapest key right now beside what Steam charges, with each one's record low, the cover and a way to the shops. Prices come from the **[GG.deals API](https://gg.deals/api/prices/)** on your own free key; the title lookup and the artwork come from Steam. The region field picks the currency — `pl` means złoty.
 - 🖥️ **Terminal, off by default** — turn it on and the chat can run commands on your PC, in the background too. It warns you first, and every command lands in the app log.
 
 See [`windows/README.md`](windows/README.md) for how everything works under the hood.
+
+### Game prices and GG.deals
+
+The **Games** pill needs a free API key from [gg.deals](https://gg.deals/settings/) (Settings → API) and a region code (`pl`, `de`, `gb`, `us`…), which is what decides the currency of every number on the card — Poland gets złoty, and without a region the API answers in dollars. Free GG.deals keys are meant for personal, hobby and open-source use, so Oczi shows the link back to the game's GG.deals page that their terms ask for.
+
+The card itself reads only two public endpoints: GG.deals' `prices/by-steam-app-id` for the numbers, and Steam's store search for the title and the artwork. Nothing is scraped, and nothing about your library leaves the machine.
 
 ## Build from source
 

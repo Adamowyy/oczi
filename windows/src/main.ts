@@ -1,7 +1,7 @@
 // Entry point: boot the bridge, wire the island, start the greeting.
 
 import "./style.css";
-import { Bridge, IS_TAURI, onEvent, type ReminderEvent, type RoutineEvent } from "./core/bridge";
+import { Bridge, IS_TAURI, onEvent, type PricesOffer, type ReminderEvent, type RoutineEvent } from "./core/bridge";
 import { Sound } from "./core/sound";
 import { State, routineView, type Settings } from "./core/state";
 import { currentLang, setLang, storedLang, t } from "./core/i18n";
@@ -83,6 +83,16 @@ async function main() {
   await onEvent<null>("hotkey-voice", () => {
     setPaused(false);
     island.dictateStart();
+  });
+
+  // A price card, sent either by the Games pill's own lookup or by the model's game_price tool.
+  // Both land here, so the card the chat talks about and the card the pill shows are the same one.
+  await onEvent<PricesOffer>("prices", (offer) => {
+    State.prices = offer;
+    State.pricesError = null;
+    State.pricesBusy = false;
+    State.setFocus("integration_prices");
+    island.alert("prices");
   });
 
   // A click anywhere else in Windows. The island cannot hear it — it is click-through

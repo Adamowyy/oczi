@@ -17,6 +17,8 @@ pub const KNOWN_KEYS: &[&str] = &[
     "stripe-api-key",
     "resend-api-key",
     "notion-api-key",
+    "ggdeals-api-key",
+    "ggdeals-region",
     "calcom-api-key",
 ];
 

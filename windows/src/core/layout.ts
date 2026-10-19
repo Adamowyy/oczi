@@ -21,7 +21,8 @@ export type IslandViewName =
   | "routineFull"
   | "whatsnew"
   | "settings"
-  | "greeting";
+  | "greeting"
+  | "prices";
 
 export type BotStateName =
   | "idle"
@@ -101,6 +102,9 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   whatsnew: { height: 208, botX: 60, botY: null, botDiameter: 50, agentMode: "none" },
   settings: { height: 160, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
+  // Prices: a search field, the cover, four numbers and two buttons. Taller than the greeting
+  // because the numbers are the point and a card that clips them is worse than no card.
+  prices: { height: 250, botX: 60, botY: null, botDiameter: 52, agentMode: "none" },
 };
 
 // The upload views above are the fallback geometry; a dropped file is drawn elsewhere.

@@ -173,6 +173,12 @@ export class Island {
       setFocus: (id) => {
         State.setFocus(id);
         Sound.play("blip");
+        // The Games pill leads to its own card: a price needs a title typed in, and a pill that
+        // only lit up would be a dead end.
+        if (id === "integration_prices") {
+          this.holdOpen(0);
+          this.setView("prices");
+        }
       },
       // The ↗ button — same targets as openAgentTarget() on macOS.
       openTarget: () => {

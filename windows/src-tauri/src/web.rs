@@ -18,7 +18,7 @@ const PAGE_CHARS: usize = 12_000;
 const PAGE_BYTES: usize = 512 * 1024;
 /// A page larger than this is refused before it is downloaded.
 const MAX_PAGE_BYTES: u64 = 4 * 1024 * 1024;
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+pub(crate) const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
                           (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 /// Backends the settings window offers, in display order.

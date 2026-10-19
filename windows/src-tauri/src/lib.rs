@@ -7,6 +7,7 @@ mod island;
 mod log;
 mod media;
 mod pc;
+mod prices;
 mod reminders;
 mod routines;
 mod secrets;
@@ -44,6 +45,15 @@ pub struct Shared {
     pub gate: Arc<PollGate>,
 }
 
+/// The window handle, for the modules that reach the island from a place that has none — a tool
+/// call runs with nothing but its arguments, and the price card is sent from exactly there.
+static APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
+
+/// The app handle, once `setup` has run. Before that there is no island to send anything to.
+pub fn app() -> Option<AppHandle> {
+    APP.get().cloned()
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BootInfo {
@@ -68,6 +78,12 @@ fn boot(app: AppHandle, shared: State<Shared>) -> BootInfo {
 #[tauri::command]
 fn list_monitors(app: AppHandle) -> Vec<island::MonitorInfo> {
     island::list_monitors(&app)
+}
+
+/// The price pill's own lookup: Steam finds the game, gg.deals prices it, the card is the answer.
+#[tauri::command]
+async fn prices_lookup(title: String) -> Result<prices::Offer, String> {
+    prices::lookup(&title).await
 }
 
 /// Is there a newer release than the one running? Called once per launch, see
@@ -889,9 +905,12 @@ pub fn run() {
             set_paused,
             set_island_anchor,
             voice_transcribe,
+            prices_lookup,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+            // The price card is emitted from a tool call, which has no window handle of its own.
+            let _ = APP.set(handle.clone());
             tray::build(&handle, &loaded.language)?;
             // Before the island: see create_settings_window.
             create_settings_window(&handle, &loaded);

@@ -295,9 +295,15 @@ function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
     {
       class: "pill",
       // The tab is gone, so a pill is the doorway to the overview: focus the
-      // service and show its card.
+      // service and show its card. Prices are the exception: a price needs a title typed in, so
+      // that pill opens the card with the field instead of an overview entry with nothing in it.
       onclick: () => {
         actions.setFocus(task.id);
+        if (task.id === "integration_prices") {
+          actions.holdOpen(0);
+          actions.setView("prices");
+          return;
+        }
         actions.setView("overview");
       },
     },
@@ -732,6 +738,149 @@ function buildPlaceholder(title: string, sub: string): ViewHost {
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 
+// ── Prices ────────────────────────────────────────────────────────────────────
+
+/** A game's price card: the title in, the numbers from gg.deals out. The cover is Steam's own
+ *  header for the App ID the lookup settled on, so a wrong match is visible at a glance — and it
+ *  is a plain remote image (the CSP lets that host through), hidden until it has decoded so a
+ *  cover that never arrives leaves no empty frame behind. */
+function buildPrices(actions: ViewActions): ViewHost {
+  const input = h("input", {
+    class: "pr-input",
+    type: "text",
+    placeholder: t("prices.placeholder"),
+    spellcheck: "false",
+  }) as HTMLInputElement;
+  const go = h("button", { class: "pr-go" }, t("prices.go"));
+
+  const cover = h("img", { class: "pr-cover", alt: "" }) as HTMLImageElement;
+  cover.style.display = "none";
+  cover.addEventListener("load", () => {
+    cover.style.display = "";
+  });
+  cover.addEventListener("error", () => {
+    cover.style.display = "none";
+  });
+
+  const title = h("div", { class: "title" });
+  // Two numbers side by side, because the whole point is the comparison: what a key costs today
+  // against what Steam charges for it. The record lows sit underneath, once each.
+  const keyNow = h("div", { class: "pr-big" });
+  const steamNow = h("div", { class: "pr-big" });
+  const keyLow = h("div", { class: "pr-low" });
+  const steamLow = h("div", { class: "pr-low" });
+  const note = h("div", { class: "pr-note" });
+  const body = h(
+    "div",
+    { class: "pr-body" },
+    cover,
+    h(
+      "div",
+      { class: "pr-main" },
+      title,
+      h(
+        "div",
+        { class: "pr-bigs" },
+        h("div", { class: "pr-bigwrap" }, keyNow, h("div", { class: "pr-cap" }, t("prices.keyshops"))),
+        h("div", { class: "pr-bigwrap" }, steamNow, h("div", { class: "pr-cap" }, t("prices.shops"))),
+      ),
+      h("div", { class: "pr-lows" }, keyLow, steamLow),
+    ),
+  );
+  const openPage = btn(t("prices.open"), "primary", () => {
+    const url = State.prices?.url;
+    if (url) actions.openUrl(url);
+  });
+  const openSteam = btn(t("prices.steam"), "secondary", () => {
+    const id = State.prices?.appId;
+    if (id) actions.openUrl(`https://store.steampowered.com/app/${id}/`);
+  });
+  const actionsRow = h("div", { class: "pr-actions" }, openPage, openSteam);
+
+  /** A price with the currency the key reports — never a converted one. */
+  const money = (value: string | null | undefined): string =>
+    value ? `${value.replace(".", ",")} ${State.prices?.currency ?? ""}`.trim() : "—";
+
+  async function search() {
+    const text = input.value.trim();
+    void Bridge.log(`prices search: „${text}”`);
+    if (!text) {
+      State.pricesError = t("prices.empty");
+      paint();
+      return;
+    }
+    if (State.pricesBusy) return;
+    State.pricesBusy = true;
+    State.pricesError = null;
+    // A lookup is a request: the island has to stay out while it runs, or the answer lands on a
+    // card nobody can see.
+    actions.holdOpen(0);
+    paint();
+    try {
+      State.prices = await Bridge.pricesLookup(text);
+    } catch (e) {
+      State.pricesError = e instanceof Error ? e.message : String(e);
+    } finally {
+      State.pricesBusy = false;
+      paint();
+      // Long enough to read four numbers, not so long the card squats on the screen.
+      actions.holdOpen(45);
+    }
+  }
+
+  function paint() {
+    const offer = State.prices;
+    const has = Boolean(offer);
+    body.style.display = has ? "" : "none";
+    actionsRow.style.display = has ? "" : "none";
+    go.disabled = State.pricesBusy;
+
+    // The loudest line wins: an error, then the lookup running, then what the card is for.
+    note.textContent = State.pricesError
+      ? State.pricesError
+      : State.pricesBusy
+        ? t("prices.busy")
+        : has
+          ? ""
+          : t("prices.hint");
+    note.classList.toggle("bad", Boolean(State.pricesError));
+    note.style.display = note.textContent ? "" : "none";
+
+    if (!offer) return;
+    title.textContent = offer.title;
+    keyNow.textContent = money(offer.keyshops);
+    steamNow.textContent = money(offer.retail);
+    keyLow.textContent = `${t("prices.lowKeyshops")} ${money(offer.historicalKeyshops)}`;
+    steamLow.textContent = `${t("prices.lowShops")} ${money(offer.historicalRetail)}`;
+    if (offer.image) {
+      if (cover.dataset.for !== offer.image) {
+        cover.dataset.for = offer.image;
+        cover.style.display = "none";
+        cover.src = offer.image;
+      }
+    } else {
+      cover.style.display = "none";
+    }
+  }
+
+  go.addEventListener("click", () => void search());
+  input.addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") void search();
+  });
+
+  const el = h("div", { class: "view" }, card("amber", h("div", { class: "pr" },
+    h("div", { class: "pr-top" }, input, go), body, note, actionsRow)));
+
+  return {
+    el,
+    sync: paint,
+    focus() {
+      input.focus();
+      input.select();
+    },
+  };
+}
+
 export function buildViews(
   actions: ViewActions,
   onChatHeightChange: () => void,
@@ -752,6 +901,7 @@ export function buildViews(
   map.set("upload", buildUpload());
   map.set("uploading", buildUploading());
   map.set("choose", buildChoose(actions));
+  map.set("prices", buildPrices(actions));
   // Not in the Windows v1: sending a file by email, window attach + web result.
   map.set("mail", buildPlaceholder(t("empty.noEmail"), ""));
   map.set("searching", buildPlaceholder(t("view.searching"), ""));
