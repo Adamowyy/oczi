@@ -1519,7 +1519,16 @@ function buildWatch(actions: ViewActions): ViewHost {
           );
         } else if (watch.busiest) {
           body.append(
-            h("div", { class: "panel-advice", text: t("watch.busiest", watch.busiest, Math.round(watch.busiestPct)) }),
+            h("div", {
+              class: "panel-advice",
+              text: t(
+                "watch.busiest",
+                watch.busiest,
+                Math.round(watch.busiestPct),
+                watch.cores ?? 1,
+                Math.round(watch.cpuAvg),
+              ),
+            }),
           );
         }
       }

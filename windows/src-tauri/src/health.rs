@@ -164,6 +164,8 @@ pub struct Report {
     pub cpu_max: f64,
     pub mem_avg: f64,
     pub mem_max: f64,
+    /// Logical processors, so a share can be read against the machine it belongs to.
+    pub cores: u32,
     /// The process that used the most CPU during the burst.
     #[serde(default)]
     pub hog: String,
@@ -576,6 +578,7 @@ pub struct Watch {
     pub started: i64,
     pub started_text: String,
     pub samples: u32,
+    pub cores: u32,
     pub stalls: Vec<Stall>,
     pub cpu_avg: f64,
     pub cpu_peak: f64,
@@ -634,6 +637,7 @@ pub fn watch(minutes: u32) -> Watch {
     let mut system = SYSTEM_INFO::default();
     unsafe { GetSystemInfo(&mut system) };
     let cores = system.dwNumberOfProcessors.max(1) as f64;
+    out.cores = cores as u32;
 
     while begin.elapsed() < total {
         std::thread::sleep(std::time::Duration::from_millis(1_000));
@@ -674,6 +678,8 @@ pub fn watch(minutes: u32) -> Watch {
         out.cpu_avg += cpu;
         out.cpu_peak = out.cpu_peak.max(cpu);
         out.mem_peak = out.mem_peak.max(mem);
+        // Every process number here is a share of the whole machine.
+        let top = top.map(|(name, pct)| (name, pct / cores));
         if let Some((name, pct)) = &top {
             // Same rule as the scan: Windows' own processes never get to be "the busiest", because
             // naming one is a true sentence that helps nobody.
@@ -761,8 +767,8 @@ pub fn describe_watch(watch: &Watch) -> String {
     }
     if !watch.busiest.is_empty() {
         out.push_str(&format!(
-            "Najwięcej CPU: {} ({:.0}% rdzenia)\n",
-            watch.busiest, watch.busiest_pct
+            "Najwięcej CPU: {} ({:.0}% mocy maszyny, {} rdzeni)\n",
+            watch.busiest, watch.busiest_pct, watch.cores
         ));
     }
     for stall in &watch.stalls {
@@ -773,7 +779,7 @@ pub fn describe_watch(watch: &Watch) -> String {
             stall.at_text,
             stall.ms,
             stall.dpc,
-            if stall.top.is_empty() { "nieznany".to_string() } else { format!("{} ({:.0}% rdzenia)", stall.top, stall.top_pct) }
+            if stall.top.is_empty() { "nieznany".to_string() } else { format!("{} ({:.0}% mocy maszyny)", stall.top, stall.top_pct) }
         ));
     }
     out
@@ -1394,8 +1400,15 @@ pub fn scan(deep: bool) -> Report {
         cpu_max: load.cpu_peak(),
         mem_avg: load.mem_avg(),
         mem_max: load.mem_max,
+        cores: load.cores,
         hog: load.hog.clone().map(|(n, _)| n).unwrap_or_default(),
-        hog_pct: load.hog.as_ref().map(|(_, p)| *p).unwrap_or(0.0),
+        // Share of the whole machine, not of one core: "100 % of a core" on sixteen reads as a
+        // machine at its limit, which is the opposite of what it means.
+        hog_pct: load
+            .hog
+            .as_ref()
+            .map(|(_, p)| p / load.cores.max(1) as f64)
+            .unwrap_or(0.0),
         findings,
         checks,
         advice: String::new(),

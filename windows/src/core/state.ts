@@ -115,6 +115,8 @@ export interface HealthReport {
   cpuMax: number;
   memAvg: number;
   memMax: number;
+  /** Logical processors: a process share is always of the whole machine, never of one core. */
+  cores: number;
   /** The process that ate the most CPU during the scan, and its share of one core. */
   hog: string;
   hogPct: number;
@@ -143,6 +145,7 @@ export interface WatchReport {
   started: number;
   startedText: string;
   samples: number;
+  cores: number;
   stalls: Stall[];
   cpuAvg: number;
   cpuPeak: number;
