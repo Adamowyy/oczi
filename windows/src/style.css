@@ -2386,11 +2386,16 @@ html.asleep *::after {
   min-width: 0;
 }
 
-/* The score and the watch button on one line: the number is what he reads, the button is a tool. */
+/* The score on its own line, the watch button centred under the two tiles. */
 .pc-when-row {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.pc-watch-row {
+  display: flex;
+  justify-content: center;
 }
 
 .pc-watch {
@@ -2406,6 +2411,11 @@ html.asleep *::after {
 .pc-watch:hover {
   color: inherit;
   background: rgba(255, 255, 255, 0.1);
+}
+
+.pc-watch:disabled {
+  opacity: 0.7;
+  cursor: default;
 }
 
 .pc-when {

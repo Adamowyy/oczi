@@ -817,11 +817,13 @@ function buildPc(actions: ViewActions): ViewHost {
       State.notify();
     },
   });
+  // The watch sits under the two tiles, centred: beside the score it read as part of the number.
   const right = card(
     null,
     h("div", { class: "pc-actions" }, healthTile, debloatTile),
+    h("div", { class: "pc-watch-row" }, watchBtn),
     h("div", { class: "pc-stats" },
-      h("div", { class: "pc-meta" }, h("div", { class: "pc-when-row" }, score, watchBtn), when, note),
+      h("div", { class: "pc-meta" }, h("div", { class: "pc-when-row" }, score), when, note),
     ),
   );
   const el = h(
@@ -854,6 +856,11 @@ function buildPc(actions: ViewActions): ViewHost {
           leftBody.append(renderIntegrationCard(task, hooks));
         }
       }
+
+      // The watch button says when a watch is running, and stops taking presses: a second one would
+      // be ignored, and a button that does nothing is worse than one that says why.
+      watchBtn.textContent = State.watching ? t("pc.watchRunning") : t("pc.watchTitle");
+      (watchBtn as HTMLButtonElement).disabled = State.watching;
 
       // The tiles say what they are doing; a scan takes a few seconds and a tile that looked dead
       // for three of them is a tile that gets pressed twice.
@@ -1335,6 +1342,9 @@ function buildDebloat(actions: ViewActions): ViewHost {
  *  deadline so the view cannot sit in "watching" for ever. */
 async function runWatch(minutes: number, actions: ViewActions) {
   if (State.watching) return;
+  // The arm that opened the explanation is spent the moment the run starts; leaving it set is what
+  // put the start screen back on top of a finished report.
+  State.watchPending = null;
   State.watching = true;
   State.watchMinutes = minutes;
   State.watchStartAt = Date.now();
@@ -1357,6 +1367,7 @@ async function runWatch(minutes: number, actions: ViewActions) {
     void Bridge.log(`watch failed: ${e instanceof Error ? e.message : String(e)}`);
   } finally {
     State.watching = false;
+    State.watchPending = null;
     State.notify();
     // A watch runs for minutes, so its result must come to the user rather than wait in a view they
     // have to remember to open.
@@ -1381,7 +1392,11 @@ function buildWatch(actions: ViewActions): ViewHost {
     tick() {
       // The one thing that changes every second: how much of the watch is left. Past zero the
       // samples are still coming back, so the line says that instead of a frozen clock.
-      if (!State.watching) return;
+      if (!State.watching) {
+        // A finished watch keeps its last countdown for ever unless it is taken away.
+        if (progress.textContent !== "") progress.textContent = "";
+        return;
+      }
       const total = State.watchMinutes * 60;
       const done = Math.floor((Date.now() - State.watchStartAt) / 1000);
       const left = Math.max(0, total - done);

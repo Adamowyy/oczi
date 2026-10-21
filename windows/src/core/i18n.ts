@@ -43,6 +43,7 @@ const EN = {
   "pc.health": "Health",
   // Watching for a freeze: one bounded pass, started by a button and ending by itself.
   "pc.watchTitle": "Watch",
+  "pc.watchRunning": "Watching…",
   "pc.watchSub": "look for a freeze",
   "pc.watch": "Watch 15 min",
   "watch.eyebrow": "Watching",
@@ -411,6 +412,7 @@ const PL: Record<TextKey, string> = {
   "pc.health": "Health",
   // Obserwacja zacinania: jeden przebieg na klik, kończy się sam.
   "pc.watchTitle": "Obserwuj",
+  "pc.watchRunning": "Trwa obserwacja…",
   "pc.watchSub": "szukaj zacinania",
   "pc.watch": "Obserwuj 15 min",
   "watch.eyebrow": "Obserwacja",
