@@ -373,6 +373,8 @@ class AppState {
   health: HealthReport | null = null;
   /** A scan is running: the tiles say so instead of looking dead. */
   healthBusy = false;
+  /** Which scan is running, so the card can say "a deep scan, about a minute". */
+  healthDeep = false;
   /** Why the last scan could not finish, if it could not. */
   healthError: string | null = null;
 

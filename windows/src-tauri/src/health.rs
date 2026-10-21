@@ -212,6 +212,10 @@ struct Burst {
     /// and that average is what the numbers on the card are.
     totals: HashMap<String, f64>,
     hog: Option<(String, f64)>,
+    /// Whoever was on the processor in the sample that reached the highest load, as a share of the
+    /// machine. A spike that no average can explain still has a name, and without it "CPU hit 99 %"
+    /// is a number that tells nobody anything.
+    peak_top: Option<(String, f64)>,
 }
 
 fn ticks(t: FILETIME) -> u64 {
@@ -387,6 +391,13 @@ fn odd_processes() -> Vec<String> {
 /// Folds one sample in. Pure, so the arithmetic behind "CPU was pegged at 98 %" is testable
 /// without pegging anything.
 fn fold(b: &mut Burst, cpu: f64, mem: f64, top: Option<(String, f64)>) {
+    if cpu > b.cpu_max {
+        if let Some((name, pct)) = &top {
+            if !NOISE.contains(&name.to_lowercase().as_str()) {
+                b.peak_top = Some((name.clone(), pct / b.cores.max(1) as f64));
+            }
+        }
+    }
     b.samples += 1;
     b.cpu_sum += cpu;
     b.cpu_max = b.cpu_max.max(cpu);
@@ -1186,13 +1197,16 @@ fn event_findings(events: &[Event]) -> Vec<Finding> {
 /// counts as "heavy" sit in one place, above the event log's story.
 fn load_findings(load: &Burst) -> Vec<Finding> {
     let mut out = Vec::new();
-    if load.cpu_max >= 95.0 {
-        out.push(finding(
-            "cpuHigh",
-            "warn",
-            "",
-            &format!("{:.0}", load.cpu_max),
-        ));
+    // The trimmed peak, the same number the card prints: a finding that says 99 % beside a footer
+    // that says 88 % is the kind of contradiction that makes a tool look broken.
+    let peak = load.cpu_peak();
+    if peak >= 95.0 {
+        let mut f = finding("cpuHigh", "warn", "", &format!("{:.0}", peak));
+        // Naming the process is the whole difference between "something happened" and an answer.
+        if let Some((name, _)) = &load.peak_top {
+            f.cause = format!("peak.{name}");
+        }
+        out.push(f);
     }
     if load.mem_max >= 92.0 {
         out.push(finding(

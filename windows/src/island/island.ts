@@ -476,6 +476,7 @@ export class Island {
   private async runHealth(deep: boolean) {
     if (State.healthBusy) return;
     State.healthBusy = true;
+    State.healthDeep = deep;
     State.healthError = null;
     State.notify();
     try {

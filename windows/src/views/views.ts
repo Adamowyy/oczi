@@ -787,7 +787,11 @@ function buildPc(actions: ViewActions): ViewHost {
     "button",
     {
       class: "pc-tile",
-      onclick: () => actions.healthScan(false),
+      // Clicking always leads somewhere: mid-scan to the card that says the scan is running, which
+      // is also where the length of the run is written. A tile that ignores presses during the one
+      // moment you want to look inside it is a tile that feels broken.
+      onclick: () =>
+        State.healthBusy || State.health ? actions.setView("report") : actions.healthScan(false),
     },
     h("span", { class: "big", text: t("pc.health") }),
     h("span", { class: "small", text: t("pc.healthSub") }),
@@ -992,13 +996,42 @@ function buildReport(actions: ViewActions): ViewHost {
       const report = State.health;
       // Repaint only when the report or the busy flag changed: this runs every frame, and
       // rebuilding a list of findings sixty times a second is how a card starts to stutter.
-      const next = report ? `${report.at}-${State.healthBusy}-${report.score}` : `none-${State.healthBusy}`;
+      const next = report
+        ? `${report.at}-${State.healthBusy}-${State.healthDeep}-${report.score}`
+        : `none-${State.healthBusy}-${State.healthDeep}`;
       if (next === key) return;
       key = next;
 
       clear(head);
       clear(scroll);
       clear(foot);
+
+      // A scan in progress owns the card: the previous report stays in memory, but printing it next
+      // to a running scan reads as "these numbers are from the scan you just started".
+      if (State.healthBusy) {
+        scroll.append(
+          h(
+            "div",
+            { class: "scan-wait" },
+            h("div", { class: "scan-dot" }),
+            h("div", { class: "scan-title", text: t("health.scanRunning") }),
+            h("div", {
+              class: "scan-note",
+              text: t(State.healthDeep ? "health.scanRunningDeep" : "health.scanRunningShort"),
+            }),
+          ),
+        );
+        // One way out, because a folded card during a two-second wait only loses his place.
+        foot.append(
+          h("button", {
+            class: "ghost close",
+            text: "×",
+            title: t("health.close"),
+            onclick: () => actions.collapse(),
+          }),
+        );
+        return;
+      }
 
       head.append(
         h(
@@ -1037,7 +1070,15 @@ function buildReport(actions: ViewActions): ViewHost {
                   findingText(f),
                   // Naming the culprit is the difference between "it crashed" and "this module
                   // crashed it" — and it costs one dim line under the finding, not a window.
-                  f.cause ? h("span", { class: "cause", text: t(("health.cause." + f.cause) as TextKey) }) : null,
+                  f.cause
+                    ? h("span", {
+                        class: "cause",
+                        // A peak carries the name of whoever was on the processor then.
+                        text: f.cause.startsWith("peak.")
+                          ? t("health.cause.peak", f.cause.slice(5))
+                          : t(("health.cause." + f.cause) as TextKey),
+                      })
+                    : null,
                 ),
                 f.fixable
                   ? h("button", {
