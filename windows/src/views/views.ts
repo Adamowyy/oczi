@@ -3,13 +3,14 @@
 import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
 import { Bridge } from "../core/bridge";
-import { State, ROUTINE_VIEWS, type AgentTask } from "../core/state";
+import { State, HEADERLESS_VIEWS, type AgentTask } from "../core/state";
 import { washRGBA, type IslandViewName, type Wash } from "../core/layout";
 import { t, type TextKey } from "../core/i18n";
 import { createMiniBot, pruneMiniBots } from "../bot/minibots";
 import { buildPrompt, bubble } from "./chat";
 import { buildChoose, buildUpload, buildUploading } from "./upload";
 import { renderIntegrationCard, type IntegrationCardHooks } from "./integrations";
+import { debloatLabel } from "../core/debloat-labels";
 
 export interface ViewActions {
   setView(v: IslandViewName): void;
@@ -28,6 +29,10 @@ export interface ViewActions {
   setAutoClose(seconds: number): void;
   setNotchHide(seconds: number): void;
   openSettingsWindow(): void;
+  /** One health scan, on demand. `deep` takes a minute of samples instead of three seconds. */
+  healthScan(deep: boolean): void;
+  /** The watch has ended: put it on screen and hold it there until it is acknowledged. */
+  watchFinished(): void;
   blip(): void;
 }
 
@@ -97,7 +102,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
       // A routine's report is a notice, not a place to navigate from: the tabs and the gear are
       // hidden *and* take up no room, so the card fills the island instead of sitting under a
       // strip of controls that have nothing to do with what just happened.
-      el.style.display = ROUTINE_VIEWS.has(v) ? "none" : "";
+      el.style.display = HEADERLESS_VIEWS.has(v) ? "none" : "";
     },
   };
 }
@@ -302,6 +307,13 @@ function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
         if (task.id === "integration_prices") {
           actions.holdOpen(0);
           actions.setView("prices");
+          return;
+        }
+        // The PC pill opens its own screen, not the overview: the buttons it carries are the whole
+        // point, and an `overview` here would put the old pills-plus-field column back a moment
+        // after `setFocus` had already moved to `pc`.
+        if (task.id === "integration_pc") {
+          actions.setView("pc");
           return;
         }
         actions.setView("overview");
@@ -738,6 +750,820 @@ function buildPlaceholder(title: string, sub: string): ViewHost {
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 
+// ── PC: the machine's own screen ──────────────────────────────────────────────
+
+/** A finding as one line of text. The wording is a template per kind, so the same scan reads in
+ *  whichever language the island is in — `subject` is the program, service or drive the finding is
+ *  about and `value` is the number that goes with it. */
+function findingText(f: { kind: string; subject: string; value: string }): string {
+  const key = `health.f.${f.kind}` as TextKey;
+  return f.subject ? t(key, f.subject, f.value) : t(key, f.value);
+}
+
+/** How loud a score is: the number decides the colour, so a glance is enough. */
+function scoreColor(score: number): string {
+  return score >= 90 ? "#22c55e" : score >= 70 ? "#f5a524" : "#f4505e";
+}
+
+/** "12 minutes ago", from the seconds Rust counted — the island does the arithmetic once rather
+ *  than keeping a clock of its own. */
+function agoText(seconds: number): string {
+  if (seconds < 90) return t("health.justNow");
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return t("health.agoMin", minutes);
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return t("health.agoHour", hours);
+  return t("health.agoDay", Math.round(hours / 24));
+}
+
+/** The right half of the PC screen: two things worth doing with a machine, and what is already
+ *  known about it. It replaces the pills and the chat field, which the other pills keep — this
+ *  screen is not a doorway to anything, it is the machine's own page. */
+function buildPc(actions: ViewActions): ViewHost {
+  const leftBody = h("div", { class: "left-body" });
+  const left = card(null, leftBody);
+
+  const healthTile = h(
+    "button",
+    {
+      class: "pc-tile",
+      onclick: () => actions.healthScan(false),
+    },
+    h("span", { class: "big", text: t("pc.health") }),
+    h("span", { class: "small", text: t("pc.healthSub") }),
+  );
+  const debloatTile = h(
+    "button",
+    { class: "pc-tile", onclick: () => actions.setView("debloat") },
+    h("span", { class: "big", text: t("pc.debloat") }),
+    h("span", { class: "small", text: t("pc.debloatSub") }),
+  );
+
+  const score = h("button", { class: "pc-score", onclick: () => actions.setView("report") });
+  const when = h("div", { class: "pc-when" });
+  const note = h("div", { class: "pc-note" });
+
+  // The watch is a small button, not a third tile: two big tasks fit the card, three pushed the
+  // frame out of the island and clipped the top of it.
+  const watchBtn = h("button", {
+    class: "pc-watch",
+    text: t("pc.watchTitle"),
+    title: t("pc.watchSub"),
+    // Opens the watch and arms the explanation — it does not start anything. A run that begins on a
+    // single click, with the length still to be chosen, is a click that cannot be taken back.
+    onclick: () => {
+      actions.setView("watch");
+      State.watchPending = 15;
+      State.notify();
+    },
+  });
+  const right = card(
+    null,
+    h("div", { class: "pc-actions" }, healthTile, debloatTile),
+    h("div", { class: "pc-stats" },
+      h("div", { class: "pc-meta" }, h("div", { class: "pc-when-row" }, score, watchBtn), when, note),
+    ),
+  );
+  const el = h(
+    "div",
+    { class: "view overview pc" },
+    h("div", { class: "left" }, left),
+    h("div", { class: "right pc-right" }, right),
+  );
+
+  const hooks: IntegrationCardHooks = {
+    get detailOpen() {
+      return false;
+    },
+    openDetail() {},
+    closeDetail() {},
+    openSettings: () => actions.openSettingsWindow(),
+  };
+  let cardKey = "";
+
+  return {
+    el,
+    sync() {
+      const task = State.tasks.find((t) => t.id === "integration_pc");
+      if (task) {
+        const info = State.integrations[task.id];
+        const key = [task.state, info?.loaded, info?.error, JSON.stringify(info?.data ?? {})].join("~");
+        if (key !== cardKey) {
+          cardKey = key;
+          clear(leftBody);
+          leftBody.append(renderIntegrationCard(task, hooks));
+        }
+      }
+
+      // The tiles say what they are doing; a scan takes a few seconds and a tile that looked dead
+      // for three of them is a tile that gets pressed twice.
+      healthTile.classList.toggle("busy", State.healthBusy);
+      (healthTile.querySelector(".small") as HTMLElement).textContent = State.healthBusy
+        ? t("pc.healthBusy")
+        : t("pc.healthSub");
+
+      const report = State.health;
+      score.textContent = report ? `${report.score}%` : "—";
+      score.style.color = report ? scoreColor(report.score) : "";
+      if (!report) {
+        when.textContent = t("pc.never");
+        note.textContent = "";
+        return;
+      }
+      score.title = t("pc.openReport");
+      const ago = Math.max(0, localNowSeconds() - report.at);
+      when.textContent = t("pc.lastScan", agoText(ago));
+      const problems = report.findings.filter((f) => f.severity !== "info").length;
+      note.textContent = problems > 0 ? t("pc.problems", problems) : t("pc.allGood");
+      note.classList.toggle("bad", problems > 0);
+    },
+  };
+}
+
+/** Now, in the same flavour Rust counts in: *local* wall-clock seconds since the epoch, because a
+ *  plain `Date.now()` is UTC and the two differ by the time-zone offset. */
+function localNowSeconds(): number {
+  return Math.floor(Date.now() / 1000) - new Date().getTimezoneOffset() * 60;
+}
+
+/** The findings a check is responsible for. Its tooltip lists them, which is the answer to "what
+ *  does this dot mean" — the number beside it stays a number, as it was. */
+function checkFindings<T extends { kind: string }>(id: string, findings: T[]): T[] {
+  const kinds: Record<string, string[]> = {
+    events: ["restart", "bugcheck", "hardware", "driverReset", "service", "appCrash", "appHang", "throttle", "diskError"],
+    disks: ["diskFull"],
+    startup: ["startupLeftover"],
+    load: ["cpuHigh", "memHigh", "hog"],
+    origin: ["oddProcess"],
+    wer: ["bugcheck", "crashModule", "hangModule"],
+    reboot: ["reboot"],
+  };
+  const wanted = kinds[id];
+  if (!wanted) return [];
+  return findings.filter((f) => wanted.includes(f.kind));
+}
+
+/** The verdict after a scan: the score, the loudest findings and the way on to the full report.
+ *  Pinned by the caller, because it is read — and its buttons are what close it. */
+function buildHealth(actions: ViewActions): ViewHost {
+  const eyebrow = h("div", { class: "eyebrow" });
+  const title = h("div", { class: "title" });
+  const when = h("div", { class: "sub" });
+  const lines = h("div", { class: "health-lines" });
+  const note = h("div", { class: "detail" });
+
+  const details = btn(t("health.details"), "primary", () => actions.setView("report"));
+  const deeper = btn(t("health.deeper"), "secondary", () => actions.healthScan(true));
+  const close = btn(t("health.close"), "secondary", () => actions.collapse());
+  const buttons = h("div", { class: "health-actions" }, details, deeper, close);
+
+  // No header on this card, so the text starts where the tabs used to end: the mascot has the
+  // corner to itself and nothing is drawn over a line of text.
+  const shell = card(null, h("div", { class: "stack", style: "padding:0 18px 0 66px" },
+    eyebrow, title, when, lines, note, buttons));
+  const el = h("div", { class: "view" }, shell);
+
+  return {
+    el,
+    sync() {
+      const report = State.health;
+      if (!report) {
+        eyebrow.textContent = t("health.eyebrow");
+        title.textContent = t("health.none");
+        when.textContent = "";
+        lines.replaceChildren();
+        note.textContent = State.healthError ?? "";
+        return;
+      }
+      const loud = report.findings.filter((f) => f.severity !== "info");
+      eyebrow.textContent = t("health.eyebrow");
+      title.textContent = t("health.score", report.score);
+      title.style.color = scoreColor(report.score);
+      when.textContent = t("health.took", report.atText, (report.tookMs / 1000).toFixed(1));
+      // Three at most: the card is a glance, the window is the list.
+      lines.replaceChildren(
+        ...report.findings.slice(0, 3).map((f) =>
+          h("div", { class: `health-line ${f.severity}` },
+            h("i", { class: "health-dot" }), findingText(f)),
+        ),
+      );
+      // The card is the verdict, not the essay: the model's reading runs to several sentences and
+      // clamping it here cut it mid-word and left it on screen after the card was put away. It
+      // lives in the report, which is one press away.
+      note.textContent = loud.length === 0 ? t("health.clean") : "";
+      (deeper.querySelector("span") as HTMLElement).textContent = State.healthBusy
+        ? t("health.scanning")
+        : t("health.deeper");
+      (deeper as HTMLButtonElement).disabled = State.healthBusy;
+    },
+  };
+}
+
+// ── Full-panel views: the report and the debloat list ─────────────────────────
+
+/** The whole report, in the island instead of a window of its own. The panel is 640 × 320, so the
+ *  list scrolls; everything the card summarises is here in one column, loudest first. */
+function buildReport(actions: ViewActions): ViewHost {
+  const head = h("div", { class: "panel-head" });
+  const scroll = h("div", { class: "panel-body" });
+  const foot = h("div", { class: "panel-foot" });
+  const el = h(
+    "div",
+    { class: "view" },
+    card(null, h("div", { class: "panel-view" }, head, scroll, foot)),
+  );
+  let key = "";
+
+  return {
+    el,
+    sync() {
+      const report = State.health;
+      // Repaint only when the report or the busy flag changed: this runs every frame, and
+      // rebuilding a list of findings sixty times a second is how a card starts to stutter.
+      const next = report ? `${report.at}-${State.healthBusy}-${report.score}` : `none-${State.healthBusy}`;
+      if (next === key) return;
+      key = next;
+
+      clear(head);
+      clear(scroll);
+      clear(foot);
+
+      head.append(
+        h(
+          "div",
+          { class: "grow" },
+          h("div", { class: "eyebrow", text: t("health.eyebrow") }),
+          h("div", { class: "title", text: report ? t("health.score", report.score) : t("health.none") }),
+          report ? h("div", { class: "sub", text: report.atText }) : null,
+        ),
+        // The header is hidden here, so leaving is a button rather than an icon in the corner.
+        h("button", { class: "ghost close", text: "×", title: t("health.close"), onclick: () => actions.collapse() }),
+      );
+
+      if (!report) {
+        scroll.append(h("div", { class: "panel-advice", text: State.healthError ?? t("health.none") }));
+      } else {
+        // The model gets its own label, because an unlabelled paragraph under an unlabelled
+        // paragraph is two verdicts arguing: one is the scan's, the other is the model's reading.
+        if (report.advice) {
+          scroll.append(
+            h("div", { class: "eyebrow", text: t("health.adviceTitle") }),
+            h("div", { class: "panel-advice", text: report.advice }),
+          );
+        }
+        const shown = report.findings.slice(0, 4);
+        const rest = report.findings.length - shown.length;
+        const rows = report.findings.length
+          ? shown.map((f) =>
+              h(
+                "div",
+                { class: `panel-row ${f.severity}` },
+                h("i", { class: "sev" }),
+                h(
+                  "span",
+                  { class: "text" },
+                  findingText(f),
+                  // Naming the culprit is the difference between "it crashed" and "this module
+                  // crashed it" — and it costs one dim line under the finding, not a window.
+                  f.cause ? h("span", { class: "cause", text: t(("health.cause." + f.cause) as TextKey) }) : null,
+                ),
+                f.fixable
+                  ? h("button", {
+                      text: t(f.action === "disableStartup" ? "health.fixDisable" : "health.fixClose"),
+                      onclick: () => {
+                        // The browser's own confirm: one press, one sentence, and the outcome is
+                        // the app's text — the fix never runs because a scan said so.
+                        if (!window.confirm(t("health.fixAsk", f.subject))) return;
+                        void Bridge.healthFix(f.action, f.arg).then((message) => {
+                          void Bridge.log(`health fix: ${message}`);
+                        });
+                      },
+                    })
+                  : null,
+              ),
+            )
+          : [
+              // …and "nothing to report" is not repeated under a paragraph that already said it.
+              report.advice ? "" : h("div", { class: "panel-advice", text: t("health.noFindings") }),
+            ];
+        scroll.append(...rows);
+        // Everything past the fourth finding is a number, not a line: the strip has room for four
+        // and the tool text has them all.
+        if (rest > 0) scroll.append(h("div", { class: "panel-advice", text: t("health.more", rest) }));
+        // Each check names itself and its state — a row of coloured dots with the words hidden in a
+        // tooltip is a legend nobody reads.
+        // A dot that is not green says how much stands behind it, and the findings above say what
+        // it is: an amber dot next to a bare label was the thing nobody could act on.
+        scroll.append(
+          h(
+            "div",
+            { class: "panel-checks" },
+            ...report.checks.map((c) => {
+              const behind = checkFindings(c.id, report.findings);
+              const label = t(("health.check." + c.id) as TextKey);
+              return h(
+                "span",
+                {
+                  class: c.state === "ok" ? "on" : c.state === "skip" ? "mute" : "off",
+                  // The dot and its number stay as they were; hovering names what was found, so a
+                  // coloured area with a count is never a mystery.
+                  title: behind.length
+                    ? `${label}: ${behind.map((f) => findingText(f)).join("; ")}`
+                    : label,
+                },
+                h("i", { class: "dot" }),
+                behind.length > 0 ? `${label} · ${behind.length}` : label,
+              );
+            }),
+          ),
+        );
+      }
+
+      // One button at a time: while a scan runs there is nothing to press, so the deep option
+      // steps aside instead of sitting there greyed out beside a label that already says "scanning".
+      const controls: HTMLElement[] = State.healthBusy
+        ? [h("button", { class: "primary busy", disabled: "true" as unknown as boolean, text: t("health.scanning") })]
+        : [
+            h("button", {
+              class: "primary",
+              text: t("health.rescan"),
+              onclick: () => actions.healthScan(false),
+            }),
+            h("button", {
+              class: "ghost",
+              text: t("health.rescanDeep"),
+              onclick: () => actions.healthScan(true),
+            }),
+          ];
+      // The repair itself is the conversation: the model already has the machine's tools and the
+      // rule that it asks before changing anything, so this hands it the findings and lets it work
+      // there — rather than a hidden auto-fixer nobody can watch.
+      if (!State.healthBusy && report && report.findings.some((f) => f.severity !== "info")) {
+        controls.push(
+          h("button", {
+            class: "primary",
+            text: t("health.repair"),
+            onclick: () => {
+              const list = report.findings
+                .filter((f) => f.severity !== "info")
+                .slice(0, 4)
+                .map((f) => findingText(f))
+                .join("; ");
+              actions.setView("prompt");
+              // The chat field belongs to its own view; the seed is written into it once it is on
+              // screen, where the caret goes anyway.
+              window.setTimeout(() => {
+                const field = document.querySelector(".chat-input") as HTMLInputElement | null;
+                if (!field) return;
+                field.value = t("health.repairAsk", list);
+                field.focus();
+                field.setSelectionRange(field.value.length, field.value.length);
+                State.notify();
+              }, 160);
+            },
+          }),
+        );
+      }
+      foot.append(
+        h("span", {
+          class: "count",
+          text: report
+            ? t("health.loadLine", Math.round(report.cpuAvg), Math.round(report.cpuMax), Math.round(report.memMax))
+            : "",
+        }),
+        ...controls,
+      );
+    },
+  };
+}
+
+/** The debloat list, in the island. Reading it is `debloat_list`; nothing here decides anything
+ *  without a tick and a confirmation naming what will go. */
+async function loadDebloat() {
+  const previous = State.debloat;
+  State.debloat = {
+    items: previous?.items ?? [],
+    history: previous?.history ?? [],
+    ticked: previous?.ticked ?? [],
+    loading: true,
+    busy: false,
+    pending: [],
+    result: previous?.result ?? null,
+  };
+  State.notify();
+  try {
+    const items = await Bridge.debloatList();
+    const history = (await Bridge.debloatHistory()) ?? [];
+    // A fresh reading is the truth about what is installed, so the ticks start from it: the safe
+    // packages pre-ticked, the careful ones never.
+    State.debloat = {
+      items,
+      history,
+      ticked: items.filter((i) => i.tier === "safe").map((i) => i.name),
+      loading: false,
+      busy: false,
+      pending: [],
+      result: State.debloat?.result ?? null,
+    };
+  } catch (e) {
+    State.debloat = {
+      items: [],
+      history: [],
+      ticked: [],
+      loading: false,
+      busy: false,
+      pending: [],
+      result: { removed: [], failed: [], error: e instanceof Error ? e.message : String(e) },
+    };
+  }
+  State.notify();
+}
+
+async function removeDebloat() {
+  const d = State.debloat;
+  if (!d || d.busy || d.pending.length === 0) return;
+  d.busy = true;
+  State.notify();
+  try {
+    const outcome = await Bridge.debloatRemove(d.pending);
+    d.result = { removed: outcome.removed, failed: outcome.failed };
+    d.pending = [];
+    void Bridge.log(`debloat: ${outcome.removed.length} removed, ${outcome.failed.length} kept`);
+  } catch (e) {
+    d.result = { removed: [], failed: [], error: e instanceof Error ? e.message : String(e) };
+  }
+  d.busy = false;
+  await loadDebloat();
+}
+
+function buildDebloat(actions: ViewActions): ViewHost {
+  const head = h("div", { class: "panel-head" });
+  const scroll = h("div", { class: "panel-body" });
+  const foot = h("div", { class: "panel-foot" });
+  const el = h(
+    "div",
+    { class: "view" },
+    card(null, h("div", { class: "panel-view" }, head, scroll, foot)),
+  );
+  let key = "";
+  let asked = false;
+
+  return {
+    el,
+    sync() {
+      // The first time the view is shown the list is read; after that it is cached until a removal.
+      if (!State.debloat && !asked) {
+        asked = true;
+        void loadDebloat();
+      }
+      const d = State.debloat;
+      const next = d
+        ? [d.loading, d.busy, d.items.length, d.ticked.join(","), d.pending.length, JSON.stringify(d.result)].join("|")
+        : "none";
+      if (next === key) return;
+      key = next;
+      clear(head);
+      clear(scroll);
+      clear(foot);
+
+      head.append(
+        h(
+          "div",
+          { class: "grow" },
+          h("div", { class: "eyebrow", text: t("debloat.title") }),
+          h("div", { class: "sub", text: t("debloat.sub") }),
+        ),
+        h("button", { class: "ghost close", text: "×", title: t("health.close"), onclick: () => actions.collapse() }),
+      );
+
+      if (!d || d.loading) {
+        scroll.append(h("div", { class: "panel-advice", text: "…" }));
+        return;
+      }
+
+      if (d.pending.length > 0) {
+        scroll.append(
+          h("div", { class: "panel-advice", text: t("debloat.confirm", d.pending.length) }),
+          h("div", { class: "panel-advice", text: d.pending.map(debloatLabel).join(", ") }),
+        );
+        foot.append(
+          h("span", { class: "count", text: t("debloat.ticked", d.ticked.length) }),
+          h("button", { class: "primary", text: d.busy ? t("debloat.busy") : t("debloat.confirmYes"), onclick: () => void removeDebloat() }),
+          h("button", {
+            text: t("debloat.cancel"),
+            onclick: () => {
+              d.pending = [];
+              State.notify();
+            },
+          }),
+        );
+        return;
+      }
+
+      if (d.items.length === 0) {
+        scroll.append(h("div", { class: "panel-advice", text: t("debloat.empty") }));
+      }
+      // One column and a scrolling list: the package id is long enough that two columns clipped the
+      // tier word, and a machine nobody has cleaned has far more than fits in a strip this tall.
+      const grid = h("div", { class: "panel-list" });
+      scroll.append(grid);
+      for (const item of d.items) {
+        const box = h("input", { type: "checkbox" }) as HTMLInputElement;
+        box.checked = d.ticked.includes(item.name);
+        box.addEventListener("change", () => {
+          d.ticked = box.checked
+            ? [...d.ticked, item.name]
+            : d.ticked.filter((n) => n !== item.name);
+          State.notify();
+        });
+        grid.append(
+          h(
+            "label",
+            { class: "deb-row" },
+            box,
+            h(
+              "span",
+              { class: "name" },
+              h("strong", { text: debloatLabel(item.name) }),
+              h("span", { class: "pkg", text: item.name }),
+            ),
+            // Only the careful tier needs saying out loud: everything else in this list is a
+            // consumer app nothing depends on.
+            item.tier === "careful" ? h("span", { class: "tier", text: t("debloat.careful") }) : null,
+          ),
+        );
+      }
+
+      if (d.result) {
+        scroll.append(
+          h("div", {
+            class: "panel-advice",
+            text: [
+              d.result.removed.length ? t("debloat.done", d.result.removed.map(debloatLabel).join(", ")) : "",
+              d.result.failed.length ? t("debloat.failed", d.result.failed.map(debloatLabel).join(", ")) : "",
+              d.result.error ?? "",
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          }),
+        );
+      }
+
+      foot.append(
+        h("span", { class: "count", text: t("debloat.ticked", d.ticked.length) }),
+        h("button", {
+          class: "primary",
+          text: d.busy ? t("debloat.busy") : t("debloat.remove", d.ticked.length),
+          onclick: () => {
+            if (d.ticked.length === 0) return;
+            d.pending = [...d.ticked];
+            State.notify();
+          },
+        }),
+      );
+    },
+  };
+}
+
+/** One watch, on demand. It runs on a worker thread for as many minutes as it was asked for and
+ *  then stops by itself — there is no timer left behind, which is the difference between this and
+ *  monitoring the machine all day.
+ *
+ *  Two things this used to get wrong: the countdown read a start time from a previous run, and a
+ *  promise that never settled left "0:00" on screen with the stop button still showing. Both are
+ *  handled here — the start is written when the run begins, and the wait is raced against a
+ *  deadline so the view cannot sit in "watching" for ever. */
+async function runWatch(minutes: number, actions: ViewActions) {
+  if (State.watching) return;
+  State.watching = true;
+  State.watchMinutes = minutes;
+  State.watchStartAt = Date.now();
+  State.notify();
+  const deadline = new Promise<null>((resolve) => {
+    window.setTimeout(() => resolve(null), (minutes * 60 + 45) * 1000);
+  });
+  try {
+    const result = await Promise.race([Bridge.healthWatch(minutes), deadline]);
+    if (result === null) {
+      void Bridge.log(`watch ${minutes} min: no answer past its deadline`);
+    } else {
+      State.watch = result;
+      const longest = result.stalls.reduce((max, s) => Math.max(max, s.ms), 0);
+      void Bridge.log(
+        `watch ${minutes} min: ${result.stalls.length} stalls, longest ${longest} ms${result.cancelled ? ", cancelled" : ""}`,
+      );
+    }
+  } catch (e) {
+    void Bridge.log(`watch failed: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    State.watching = false;
+    State.notify();
+    // A watch runs for minutes, so its result must come to the user rather than wait in a view they
+    // have to remember to open.
+    if (State.watch) actions.watchFinished();
+  }
+}
+
+function buildWatch(actions: ViewActions): ViewHost {
+  const head = h("div", { class: "panel-head" });
+  const body = h("div", { class: "panel-body" });
+  const foot = h("div", { class: "panel-foot" });
+  const progress = h("div", { class: "sub" });
+  const el = h(
+    "div",
+    { class: "view" },
+    card(null, h("div", { class: "panel-view" }, head, body, foot)),
+  );
+  let key = "";
+
+  return {
+    el,
+    tick() {
+      // The one thing that changes every second: how much of the watch is left. Past zero the
+      // samples are still coming back, so the line says that instead of a frozen clock.
+      if (!State.watching) return;
+      const total = State.watchMinutes * 60;
+      const done = Math.floor((Date.now() - State.watchStartAt) / 1000);
+      const left = Math.max(0, total - done);
+      if (left === 0) {
+        progress.textContent = t("watch.finishing");
+        return;
+      }
+      const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+      progress.textContent = t("watch.running", clock);
+    },
+    sync() {
+      const watch = State.watch;
+      const next = [
+        State.watching,
+        State.watchPending ?? 0,
+        watch?.started ?? 0,
+        watch?.stalls.length ?? -1,
+        watch?.minutes ?? 0,
+      ].join("|");
+      if (next === key) return;
+      key = next;
+      clear(head);
+      clear(body);
+      clear(foot);
+
+      head.append(
+        h(
+          "div",
+          { class: "grow" },
+          h("div", { class: "eyebrow", text: t("watch.eyebrow") }),
+          h("div", {
+            class: "title",
+            text: State.watching
+              ? t("watch.watching")
+              : watch
+                ? t("watch.stalls", watch.stalls.length, watch.stalls.reduce((max, s) => Math.max(max, s.ms), 0))
+                : t("watch.title"),
+          }),
+          progress,
+        ),
+        h("button", { class: "ghost close", text: "×", title: t("health.close"), onclick: () => actions.collapse() }),
+      );
+
+      // One short paragraph before it starts: what a watch does, and that the machine stays usable.
+      // Two sentences and two buttons, so the decision is made without reading a manual.
+      if (State.watchPending !== null && !State.watching) {
+        body.append(
+          h("div", { class: "panel-advice tall", text: t("watch.intro") }),
+        );
+        // The two lengths are the confirmation: pressing one says "I read this, start it".
+        foot.append(
+          h("button", {
+            class: "primary",
+            text: t("watch.minutes", 15),
+            onclick: () => {
+              State.watchPending = null;
+              void runWatch(15, actions);
+            },
+          }),
+          h("button", {
+            class: "primary",
+            text: t("watch.minutes", 30),
+            onclick: () => {
+              State.watchPending = null;
+              void runWatch(30, actions);
+            },
+          }),
+          h("button", {
+            class: "ghost",
+            text: t("health.cancel"),
+            onclick: () => {
+              State.watchPending = null;
+              State.notify();
+            },
+          }),
+        );
+        return;
+      }
+
+      if (!watch) {
+        body.append(h("div", { class: "panel-advice", text: State.watching ? "" : t("watch.none") }));
+      } else {
+        if (watch.stalls.length === 0) {
+          body.append(h("div", { class: "panel-advice", text: t("watch.clean") }));
+        }
+        for (const stall of watch.stalls.slice(0, 5)) {
+          body.append(
+            h(
+              "div",
+              { class: "panel-row warn" },
+              h("i", { class: "sev" }),
+              h(
+                "span",
+                { class: "text" },
+                t("watch.stallLine", stall.atText, stall.ms),
+                // A stop with heavy driver time is a driver's stop, and saying so is the whole point
+                // of measuring DPC: audiodg at 4 % is not what holds a machine for three seconds.
+                stall.dpc >= 8
+                  ? h("span", { class: "cause", text: t("watch.dpc", Math.round(stall.dpc)) })
+                  : stall.top
+                    ? h("span", {
+                        class: "cause",
+                        text: t("watch.culprit", stall.top, Math.round(stall.topPct)),
+                      })
+                    : null,
+              ),
+            ),
+          );
+        }
+        // The summary line: driver time first when it is high, because that is the answer to "why did
+        // everything stop" far more often than any program name.
+        if (watch.dpcPeak >= 8) {
+          body.append(
+            h("div", { class: "panel-advice", text: t("watch.dpcPeak", Math.round(watch.dpcPeak)) }),
+          );
+        } else if (watch.busiest) {
+          body.append(
+            h("div", { class: "panel-advice", text: t("watch.busiest", watch.busiest, Math.round(watch.busiestPct)) }),
+          );
+        }
+      }
+
+      // While it runs the only useful button is the one that stops it; when it is done the report
+      // stays on screen until "Jasne".
+      const controls: HTMLElement[] = State.watching
+        ? [
+            h("button", {
+              class: "ghost",
+              text: t("watch.cancel"),
+              onclick: () => void Bridge.healthWatchCancel(),
+            }),
+          ]
+        : [
+            // Two lengths, because a freeze can be hours apart: fifteen minutes for "it happens all
+            // the time", half an hour for "I will leave it running while I work".
+            // One way in. The length is chosen on the explanation itself, which is where the person
+            // has just read what a watch does — not two clicks earlier, guessing.
+            h("button", {
+              class: "ghost",
+              text: t("watch.start"),
+              onclick: () => {
+                State.watchPending = 15;
+                State.notify();
+              },
+            }),
+          ];
+      if (!State.watching && watch && watch.stalls.length > 0) {
+        controls.push(
+          h("button", {
+            class: "primary",
+            text: t("health.repair"),
+            onclick: () => {
+              const list = watch.stalls
+                .slice(0, 3)
+                .map((stall) => t("watch.stallLine", stall.atText, stall.ms))
+                .join("; ");
+              actions.setView("prompt");
+              window.setTimeout(() => {
+                const field = document.querySelector(".chat-input") as HTMLInputElement | null;
+                if (!field) return;
+                field.value = t("watch.repairAsk", list);
+                field.focus();
+                field.setSelectionRange(field.value.length, field.value.length);
+                State.notify();
+              }, 160);
+            },
+          }),
+        );
+      }
+      if (!State.watching) {
+        controls.push(
+          h("button", { class: "primary", text: t("watch.ok"), onclick: () => actions.collapse() }),
+        );
+      }
+      foot.append(
+        h("span", { class: "count", text: watch ? watch.startedText : "" }),
+        ...controls,
+      );
+    },
+  };
+}
+
 // ── Prices ────────────────────────────────────────────────────────────────────
 
 /** A game's price card: the title in, the numbers from gg.deals out. The cover is Steam's own
@@ -902,6 +1728,11 @@ export function buildViews(
   map.set("uploading", buildUploading());
   map.set("choose", buildChoose(actions));
   map.set("prices", buildPrices(actions));
+  map.set("pc", buildPc(actions));
+  map.set("health", buildHealth(actions));
+  map.set("report", buildReport(actions));
+  map.set("debloat", buildDebloat(actions));
+  map.set("watch", buildWatch(actions));
   // Not in the Windows v1: sending a file by email, window attach + web result.
   map.set("mail", buildPlaceholder(t("empty.noEmail"), ""));
   map.set("searching", buildPlaceholder(t("view.searching"), ""));

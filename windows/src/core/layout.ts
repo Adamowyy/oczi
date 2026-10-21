@@ -22,7 +22,12 @@ export type IslandViewName =
   | "whatsnew"
   | "settings"
   | "greeting"
-  | "prices";
+  | "prices"
+  | "pc"
+  | "health"
+  | "report"
+  | "debloat"
+  | "watch";
 
 export type BotStateName =
   | "idle"
@@ -105,6 +110,22 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   // Prices: a search field, the cover, four numbers and two buttons. Taller than the greeting
   // because the numbers are the point and a card that clips them is worse than no card.
   prices: { height: 250, botX: 60, botY: null, botDiameter: 52, agentMode: "none" },
+  // The PC pill's own screen: the machine card on the left, and on the right the two things a
+  // person wants from that pill — a health scan and the debloat list — with the numbers already
+  // known about them. Same geometry as `overview`, which it is a variant of.
+  pc: { height: 228, botX: 68, botY: null, botDiameter: 58, agentMode: "none" },
+  // The verdict after a scan: the score, the loudest findings and the two buttons that lead on.
+  // The card hides the header, so the mascot sits in the corner it freed — at 122 it stood on the
+  // text it was supposed to sit beside.
+  health: { height: 232, botX: 30, botY: 30, botDiameter: 26, agentMode: "none" },
+  // The full report, drawn inside the island instead of a window of its own: the card was a
+  // summary and the second window was one window too many. It fills the panel and scrolls.
+  report: { height: 312, botX: 26, botY: 28, botDiameter: 22, agentMode: "none" },
+  // The same for the debloat list: a checkbox list tall enough for the usual handful of packages,
+  // scrolling for the rest.
+  debloat: { height: 312, botX: 26, botY: 28, botDiameter: 22, agentMode: "none" },
+  // A watch reports the same way the scan does, so it uses the same shape.
+  watch: { height: 312, botX: 26, botY: 28, botDiameter: 22, agentMode: "none" },
 };
 
 // The upload views above are the fallback geometry; a dropped file is drawn elsewhere.

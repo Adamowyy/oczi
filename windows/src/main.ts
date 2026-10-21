@@ -3,7 +3,7 @@
 import "./style.css";
 import { Bridge, IS_TAURI, onEvent, type PricesOffer, type ReminderEvent, type RoutineEvent } from "./core/bridge";
 import { Sound } from "./core/sound";
-import { State, routineView, type Settings } from "./core/state";
+import { State, routineView, type HealthReport, type Settings } from "./core/state";
 import { currentLang, setLang, storedLang, t } from "./core/i18n";
 import { newsKey } from "./core/whats-new";
 import { Island } from "./island/island";
@@ -23,6 +23,11 @@ async function main() {
     State.settings = { ...State.settings, ...boot.settings };
     setLang(State.settings.language);
   }
+
+  // The last verdict ever taken, so the PC pill's stats line is true the moment the app opens —
+  // the scan itself is always one press away and never runs by itself.
+  State.health = await Bridge.healthLast();
+  State.watch = await Bridge.healthLastWatch();
   // The home view is built a line above, before the boot reply lands. If the
   // stored choice differs from the one the page was built in, loading it again is
   // the honest fix. The second half of the test is what keeps a page whose storage
@@ -138,6 +143,15 @@ async function main() {
     island.alert(view);
     island.autoFoldIn(view);
     void Bridge.log(`routine #${r.id} report shown ${view} mode=${State.mode}`);
+  });
+
+  // A scan that finished anywhere is the number everywhere: the report window runs one too, and
+  // the card used to keep showing the score from the scan before it.
+  await onEvent<HealthReport>("health", (r) => {
+    State.health = r;
+    State.healthBusy = false;
+    State.notify();
+    if (r.advice) void Bridge.log("health advice arrived");
   });
 
   // The settings window writes preferences; apply them here without a restart.

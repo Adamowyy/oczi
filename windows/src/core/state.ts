@@ -80,9 +80,116 @@ export interface DueRoutine {
   outcomes: RoutineStep[];
 }
 
+/** One thing a health scan found. `kind` is a token — the wording lives in the language tables,
+ *  see `health.f.<kind>`. Src: `src-tauri/src/health.rs`. */
+export interface HealthFinding {
+  kind: string;
+  severity: "crit" | "warn" | "info";
+  subject: string;
+  value: string;
+  /** What it most likely means — a token, `health.cause.<cause>` — or empty. */
+  cause: string;
+  /** The app can act on this, so the report offers a button — never without the user pressing it. */
+  fixable: boolean;
+  action: string;
+  arg: string;
+}
+
+/** One part of the scan, so the report can show what was looked at rather than only what broke. */
+export interface HealthCheck {
+  id: string;
+  state: "ok" | "warn" | "bad" | "skip";
+}
+
+/** The verdict of one scan. Nothing of it runs in the background: it is a snapshot, taken when
+ *  the user asked for one. */
+export interface HealthReport {
+  score: number;
+  /** Local wall-clock seconds, and the same moment as text — a local stamp cannot be turned into
+   *  a date on this side without shifting it by the time zone. */
+  at: number;
+  atText: string;
+  tookMs: number;
+  samples: number;
+  cpuAvg: number;
+  cpuMax: number;
+  memAvg: number;
+  memMax: number;
+  /** The process that ate the most CPU during the scan, and its share of one core. */
+  hog: string;
+  hogPct: number;
+  findings: HealthFinding[];
+  checks: HealthCheck[];
+  /** A deep scan's reading, written by the model when a key is connected — empty otherwise. */
+  advice: string;
+}
+
+/** One moment the machine stopped, as a watch saw it. Src: `src-tauri/src/health.rs`. */
+export interface Stall {
+  at: number;
+  atText: string;
+  /** How long the machine was gone, past the second the sample was due. */
+  ms: number;
+  /** The process on the processor when it came back — the closest thing to a culprit. */
+  top: string;
+  topPct: number;
+  /** Share of processor time spent in driver code around the stop — high means a driver. */
+  dpc: number;
+}
+
+/** The result of one watch: a bounded pass that looks for a freeze while it happens. */
+export interface WatchReport {
+  minutes: number;
+  started: number;
+  startedText: string;
+  samples: number;
+  stalls: Stall[];
+  cpuAvg: number;
+  cpuPeak: number;
+  memPeak: number;
+  busiest: string;
+  busiestPct: number;
+  /** Peaks of driver and interrupt time: the trace a driver-shaped stutter leaves. */
+  dpcPeak: number;
+  interruptPeak: number;
+  /** Stopped by the user before its time. */
+  cancelled: boolean;
+}
+
+/** One package the debloat view can offer. Src: `src-tauri/src/debloat.rs`. */
+export interface DebloatItem {
+  name: string;
+  tier: "safe" | "careful";
+}
+
+/** The debloat view's state: the list Windows reports, what is ticked, and what the last removal
+ *  did. Kept here rather than inside the view so a repaint cannot lose a tick. */
+export interface DebloatState {
+  items: DebloatItem[];
+  history: { name: string; at: number }[];
+  ticked: string[];
+  loading: boolean;
+  busy: boolean;
+  /** Names waiting for the confirmation panel, and the outcome of the last run. */
+  pending: string[];
+  result: { removed: string[]; failed: string[]; error?: string } | null;
+}
+
 /** The two shapes a routine's report can take, in one place: the island hides its header for
  *  both, and the view the report is shown in comes from `routineView`. */
 export const ROUTINE_VIEWS: ReadonlySet<IslandViewName> = new Set(["routine", "routineFull"]);
+
+/** Views that draw over the whole island and so hide the header: a report and a checklist are
+ *  places with their own title, not tabs to navigate from — and the header's icons are what the
+ *  mascot used to sit on. */
+export const HEADERLESS_VIEWS: ReadonlySet<IslandViewName> = new Set([
+  "routine",
+  "routineFull",
+  "report",
+  "debloat",
+  "watch",
+  "health",
+]);
 
 /** Which report card a routine's result needs. The slim one is the usual case: it says what ran
  *  and nothing else. Anything with something to explain — a step that failed, or a run that never
@@ -244,6 +351,27 @@ class AppState {
    *  would hide the island. */
   reminderShownAt = 0;
   noteMessage: string | null = null;
+
+  /** The last watch: read back from disk at boot, replaced when a new one runs. */
+  watch: WatchReport | null = null;
+  /** A watch is running: the hub says so and counts down instead of looking dead. */
+  watching = false;
+  /** When the running watch started (Date.now()), and how long it was asked for. Both live here so
+   *  a repaint cannot restart the countdown from a different origin. */
+  watchStartAt = 0;
+  watchMinutes = 15;
+  /** A length picked but not started yet: the explanation is on screen waiting for "go". */
+  watchPending: number | null = null;
+
+  /** The debloat list, once it has been read. `null` until the view is opened for the first time. */
+  debloat: DebloatState | null = null;
+
+  /** The last health scan — from this session, or read back from disk when there is one. */
+  health: HealthReport | null = null;
+  /** A scan is running: the tiles say so instead of looking dead. */
+  healthBusy = false;
+  /** Why the last scan could not finish, if it could not. */
+  healthError: string | null = null;
 
   /** The last price card — whatever the Games pill or the model last looked up. */
   prices: PricesOffer | null = null;

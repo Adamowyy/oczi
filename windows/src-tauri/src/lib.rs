@@ -1,7 +1,9 @@
 // Oczi, app wiring and the commands the island calls.
 
+mod debloat;
 mod deepseek;
 mod files;
+mod health;
 mod integrations;
 mod island;
 mod log;
@@ -594,6 +596,47 @@ fn settings_title(language: &str) -> &'static str {
     }
 }
 
+/// A page inside the bundled frontend, or the dev server while running with `dev`.
+fn page_url(app: &AppHandle, page: &str) -> WebviewUrl {
+    #[cfg(dev)]
+    if let Some(mut base) = app.config().build.dev_url.clone() {
+        base.set_path(&format!("/{page}"));
+        return WebviewUrl::External(base);
+    }
+    let _ = app;
+    WebviewUrl::App(page.into())
+}
+
+/// The health report and the debloat list: two windows of their own, created hidden at launch and
+/// only ever shown — the same reason as the settings window, opening one has to feel instant.
+fn create_pc_windows(app: &AppHandle) {
+    for (label, page) in [("health", "health.html"), ("debloat", "debloat.html")] {
+        match WebviewWindowBuilder::new(app, label, page_url(app, page))
+            .additional_browser_args(BROWSER_ARGS)
+            .title("Oczi")
+            .inner_size(600.0, 720.0)
+            .min_inner_size(460.0, 420.0)
+            .resizable(true)
+            .focused(false)
+            .visible(false)
+            .center()
+            .build()
+        {
+            Ok(win) => {
+                // Closing must only hide it, or it could never be reopened.
+                let hidden = win.clone();
+                win.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = hidden.hide();
+                    }
+                });
+            }
+            Err(err) => log::line(format!("{label} window failed: {err}")),
+        }
+    }
+}
+
 fn create_settings_window(app: &AppHandle, settings: &Settings) {
     let url = settings_page_url(app);
     match WebviewWindowBuilder::new(app, "settings", url)
@@ -678,6 +721,103 @@ fn create_snip_window(app: &AppHandle) {
         Ok(_) => log::line(format!("snip overlay ready — desktop {x},{y} {w}x{h} @{scale}x")),
         Err(err) => log::line(format!("snip overlay failed: {err}")),
     }
+}
+
+/// A health scan. One pass, on demand: a few seconds of load samples plus the event log, which is
+/// the slow half. It runs on a worker thread because a couple of seconds of reading the log on the
+/// main thread is a frozen window — and nothing of it survives the call.
+#[tauri::command]
+async fn health_scan(deep: bool) -> health::Report {
+    let mut report = tauri::async_runtime::spawn_blocking(move || health::scan(deep))
+        .await
+        .unwrap_or_default();
+    // A deep scan can be read, not just measured: the model is shown the findings and says which
+    // one matters. It costs a call, so it happens for the pass the user asked to be deeper — and a
+    // missing key or a failed call simply leaves the report without the extra paragraph.
+    if deep {
+        match deepseek::advice(&health::describe(&report)).await {
+            Ok(text) => report.advice = text,
+            Err(e) => log::line(format!("health advice skipped: {e}")),
+        }
+    }
+    health::show(&report);
+    report
+}
+
+/// One watch for a freeze: samples the machine once a second for `minutes` and reports the moments
+/// it stopped. Bounded by design — the loop ends by itself and leaves nothing running.
+#[tauri::command]
+async fn health_watch(minutes: u32) -> health::Watch {
+    tauri::async_runtime::spawn_blocking(move || health::watch(minutes))
+        .await
+        .unwrap_or_default()
+}
+
+/// Stops the watch that is running. The loop ends between samples and returns what it saw.
+#[tauri::command]
+fn health_watch_cancel() {
+    health::cancel();
+}
+
+/// The last watch ever run, so a freeze report survives a restart.
+#[tauri::command]
+fn health_last_watch() -> Option<health::Watch> {
+    health::last_watch()
+}
+
+/// The verdict from the last scan, for the hub's stats line. `None` until the first one ever.
+#[tauri::command]
+fn health_last() -> Option<health::Report> {
+    health::last()
+}
+
+/// The one place a scan can change something, and only for the action the user picked after
+/// reading the finding.
+#[tauri::command]
+fn health_fix(action: String, arg: String) -> Result<String, String> {
+    health::fix(&action, &arg)
+}
+
+/// The packages Windows ships that the catalogue is willing to offer, as installed right now.
+/// The Appx cmdlets take a second or two, so this runs off the main thread like the scan.
+#[tauri::command]
+async fn debloat_list() -> Result<Vec<debloat::AppItem>, String> {
+    tauri::async_runtime::spawn_blocking(debloat::list)
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+/// Removes the packages the user ticked, then reports what Windows says is actually gone.
+#[tauri::command]
+async fn debloat_remove(names: Vec<String>) -> Result<debloat::Removal, String> {
+    tauri::async_runtime::spawn_blocking(move || debloat::remove(&names))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+/// What this app has taken away, newest first — the window's history.
+#[tauri::command]
+fn debloat_history() -> Vec<debloat::Removed> {
+    debloat::removed_history()
+}
+
+/// Shows one of the two PC windows. Both exist from launch and are only ever hidden, so opening
+/// one is instant and the page keeps whatever the last scan left in it.
+#[tauri::command]
+fn open_pc_window(app: AppHandle, which: String) {
+    if !matches!(which.as_str(), "health" | "debloat") {
+        log::line(format!("open_pc_window: unknown window {which}"));
+        return;
+    }
+    let Some(win) = app.get_webview_window(&which) else {
+        log::line(format!("{which} window missing"));
+        return;
+    };
+    let _ = win.unminimize();
+    let _ = win.show();
+    let _ = win.set_focus();
+    // The page lives on between visits; tell it to re-read what it shows.
+    let _ = win.emit("pc-shown", ());
 }
 
 #[tauri::command]
@@ -826,6 +966,36 @@ pub fn run() {
         return;
     }
 
+    // The debloat list, without a window: what the catalogue is willing to offer, read from
+    // Windows right now — the same enumeration the window draws.
+    if std::env::args().any(|arg| arg == "--debloat") {
+        match debloat::list() {
+            Ok(items) => println!("{}", debloat::describe(&items)),
+            Err(e) => println!("debloat: {e}"),
+        }
+        return;
+    }
+
+    // The health scan, without a window: `oczi.exe --health` prints exactly what the tool hands
+    // the model, so a verdict can be read and compared against the machine it is about.
+    // A watch without a window: `oczi.exe --watch 15` samples for fifteen minutes and prints the
+    // report, which is the only way to test the sampler on a real freeze without the island.
+    if let Some(at) = std::env::args().position(|arg| arg == "--watch") {
+        let minutes = std::env::args()
+            .nth(at + 1)
+            .and_then(|raw| raw.trim().parse::<u32>().ok())
+            .unwrap_or(15);
+        let watch = health::watch(minutes);
+        println!("{}", health::describe_watch(&watch));
+        return;
+    }
+
+    if std::env::args().any(|arg| arg == "--health") {
+        let report = health::scan(std::env::args().any(|arg| arg == "--deep"));
+        println!("{}", health::describe(&report));
+        return;
+    }
+
     // A panic in the release build aborts the process, so this hook is the only
     // chance to leave a trace of it. Without it a crash was a log that simply
     // stopped, and the reason had to be guessed at.
@@ -914,6 +1084,16 @@ pub fn run() {
             set_island_anchor,
             voice_transcribe,
             prices_lookup,
+            health_scan,
+            health_watch,
+            health_watch_cancel,
+            health_last_watch,
+            health_last,
+            health_fix,
+            debloat_list,
+            debloat_remove,
+            debloat_history,
+            open_pc_window,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -922,6 +1102,8 @@ pub fn run() {
             tray::build(&handle, &loaded.language)?;
             // Before the island: see create_settings_window.
             create_settings_window(&handle, &loaded);
+            // The two PC windows, for the same reason: created once, then shown.
+            create_pc_windows(&handle);
             // Same reason, and the overlay must exist before anything can ask for it.
             create_snip_window(&handle);
 

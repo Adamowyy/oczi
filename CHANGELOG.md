@@ -2,6 +2,24 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.0 — 2026-10-21
+
+**The PC pill became a toolbox** instead of a page of numbers.
+
+- **Health** checks the machine on demand: the load right now, three days of the event log, autostart
+  leftovers, disks, a waiting restart. It answers with a score and a list where every line says what
+  it means.
+- **Deeper** reads a week of crash reports, names the module that took a program down, explains what
+  the bugcheck code is about, and asks the model for a plan — a paragraph above the list, not a
+  separate window.
+- **Debloat** lists what Windows brought with it, split into safe and careful, and removes only the
+  packages you tick.
+- **A freeze watch**: fifteen or thirty minutes of sampling once a second, writing down every moment
+  the machine stopped, with the process — or the driver time — behind it. It ends by itself and
+  nothing keeps running.
+- Empty autostart entries can be switched off the way Task Manager does it, so they can be switched
+  back on.
+
 ## 0.4.2 — 2026-10-19
 
 - New Games pill: type a title and get its price — the cheapest key right now next

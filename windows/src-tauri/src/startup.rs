@@ -7,9 +7,9 @@ use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{ERROR_MORE_DATA, ERROR_SUCCESS};
 use windows::Win32::System::Environment::ExpandEnvironmentStringsW;
 use windows::Win32::System::Registry::{
-    RegCloseKey, RegEnumKeyExW, RegEnumValueW, RegOpenKeyExW, RegQueryValueExW, HKEY,
-    HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY, REG_BINARY, REG_DWORD,
-    REG_EXPAND_SZ, REG_SAM_FLAGS, REG_SZ, REG_VALUE_TYPE,
+    RegCloseKey, RegEnumKeyExW, RegEnumValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
+    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_SET_VALUE, KEY_WOW64_64KEY,
+    REG_BINARY, REG_DWORD, REG_EXPAND_SZ, REG_SAM_FLAGS, REG_SZ, REG_VALUE_TYPE,
 };
 
 /// The three Run keys Windows offers, with the view each one has to be read in.
@@ -403,6 +403,110 @@ fn service_entries() -> Vec<String> {
         ));
     }
     out
+}
+
+/// Opens a key for writing. Only the StartupApproved keys are ever written, and only to switch an
+/// entry off — this module has no business editing anything else.
+fn open_write(root: HKEY, sub: &str) -> Option<Key> {
+    let path = wide(sub);
+    let mut out = HKEY::default();
+    if unsafe { RegOpenKeyExW(root, PCWSTR(path.as_ptr()), None, KEY_SET_VALUE, &mut out) }
+        != ERROR_SUCCESS
+    {
+        return None;
+    }
+    Some(Key(out))
+}
+
+/// Switches an autostart entry off the way Task Manager does: a 12-byte value under
+/// `StartupApproved`, first byte 3 meaning disabled. Windows and the Task Manager both read that
+/// switch, so the entry really stops starting — and flipping it back on is the same write with a 2.
+/// The Run value itself is left alone, which is what makes this the safe version of "remove".
+pub(crate) fn disable(name: &str) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Puste." .to_string());
+    }
+    // 3 = disabled, then the moment it was disabled, as FILETIME — zeros are accepted.
+    let mut data = [0u8; 12];
+    data[0] = 3;
+    let mut written = false;
+    for (root, path) in [
+        (
+            HKEY_CURRENT_USER,
+            "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
+        ),
+        (
+            HKEY_CURRENT_USER,
+            "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\StartupFolder",
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
+        ),
+    ] {
+        let Some(key) = open_write(root, path) else {
+            continue;
+        };
+        let wide_name = wide(name);
+        let result = unsafe {
+            RegSetValueExW(
+                key.0,
+                PCWSTR(wide_name.as_ptr()),
+                None,
+                REG_BINARY,
+                Some(&data),
+            )
+        };
+        if result == ERROR_SUCCESS {
+            written = true;
+        }
+    }
+    // The Startup folders are switched by file name, which is the same string.
+    if written {
+        crate::log::line(format!("startup switched off: {name}"));
+        Ok(())
+    } else {
+        // i18n-ok: model-facing error, translated where it is shown.
+        Err(format!("Nie udało się wyłączyć wpisu {name}."))
+    }
+}
+
+/// The two facts a health scan wants from here: how many entries are switched on, and the names of
+/// the ones pointing at a program that is no longer on the disk. Both are read out of the very
+/// lists `text()` prints, by the same functions — a format change breaks its own consumer in this
+/// file instead of quietly going wrong across modules.
+pub(crate) fn health_facts() -> (usize, Vec<String>) {
+    let mut enabled = 0usize;
+    let mut leftovers = Vec::new();
+    for line in run_entries().into_iter().chain(folder_entries()) {
+        let mut parts = line.splitn(2, ", ");
+        let head = parts.next().unwrap_or_default();
+        let tail = parts.next().unwrap_or_default();
+        if !head.ends_with(" on") {
+            continue;
+        }
+        enabled += 1;
+        if tail.starts_with("file MISSING") {
+            // `- Name (user) on` → `Name`
+            let name = head
+                .trim_start_matches("- ")
+                .split(" (")
+                .next()
+                .unwrap_or_default()
+                .trim();
+            if !name.is_empty() {
+                leftovers.push(name.to_string());
+            }
+        }
+    }
+    (enabled, leftovers)
+}
+
+/// Whether a registry key exists, for the "is a restart waiting" question. Any view: Windows
+/// writes these under the 64-bit one.
+pub(crate) fn key_exists(path: &str) -> bool {
+    open(HKEY_LOCAL_MACHINE, path, KEY_WOW64_64KEY.0).is_some()
 }
 
 /// The whole picture as the text the model reads, and as the answer to

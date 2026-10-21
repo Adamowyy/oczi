@@ -179,6 +179,11 @@ export class Island {
           this.holdOpen(0);
           this.setView("prices");
         }
+        // The PC pill is a page of its own: health, debloat and the machine's numbers, instead of
+        // the list of the other pills and the chat field.
+        if (id === "integration_pc") {
+          this.setView("pc");
+        }
       },
       // The ↗ button — same targets as openAgentTarget() on macOS.
       openTarget: () => {
@@ -211,6 +216,13 @@ export class Island {
         State.notify();
       },
       openSettingsWindow: () => void Bridge.openSettingsWindow(),
+      healthScan: (deep) => void this.runHealth(deep),
+      // A finished watch is a report to read, not a card that folds away: it stays until "Jasne".
+      watchFinished: () => {
+        State.isPinned = true;
+        this.alert("watch");
+        this.holdOpen(0);
+      },
       blip: () => Sound.play("blip"),
     };
 
@@ -457,6 +469,40 @@ export class Island {
     void Bridge.log(`routine #${next.id} report shown ${view} (${State.queuedRoutines.length} more)`);
     this.alert(view);
     this.autoFoldIn(view);
+  }
+
+  /** One health scan, on demand. Never on a timer and never in the background: the promise is a
+   *  snapshot, so it is taken while the user watches and nothing survives it. */
+  private async runHealth(deep: boolean) {
+    if (State.healthBusy) return;
+    State.healthBusy = true;
+    State.healthError = null;
+    State.notify();
+    try {
+      const report = await Bridge.healthScan(deep);
+      State.health = report;
+      State.healthBusy = false;
+      void Bridge.log(
+        `health scan${deep ? " deep" : ""}: ${report.score}% ${report.findings.length} findings`,
+      );
+      // Started from the report, the scan ends in the report: switching to the card mid-way would
+      // take the list away from under the person who asked for it.
+      if (State.view === "report") {
+        State.isPinned = true;
+        this.holdOpen(0);
+        return;
+      }
+      // The card is read, and its buttons are what close it: it waits for him rather than folding
+      // away on a countdown he never got to act on.
+      State.isPinned = true;
+      this.alert("health");
+      this.holdOpen(0);
+    } catch (e) {
+      State.healthBusy = false;
+      State.healthError = e instanceof Error ? e.message : String(e);
+      State.notify();
+      void Bridge.log(`health scan failed: ${State.healthError}`);
+    }
   }
 
   collapse() {

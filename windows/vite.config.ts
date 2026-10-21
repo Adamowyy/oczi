@@ -17,6 +17,9 @@ export default defineConfig({
         // The screen-selection overlay: its own page, its own styles, so the island
         // stylesheet can never affect it.
         snip: resolve(__dirname, "snip.html"),
+        // The two PC windows — the health report and the debloat list — each a page of its own.
+        health: resolve(__dirname, "health.html"),
+        debloat: resolve(__dirname, "debloat.html"),
       },
     },
   },

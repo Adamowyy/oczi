@@ -2,7 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { Settings } from "./state";
+import type { HealthReport, Settings, WatchReport } from "./state";
 
 export const IS_TAURI =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -50,6 +50,25 @@ export interface UpdateInfo {
 /** One game's prices, as the Rust side reports them — see `src-tauri/src/prices.rs`. Prices are
  *  strings exactly as the API sent them, and `currency` is the code the user's own key reports:
  *  no conversion happens anywhere, so a PLN key and a USD key each see their own numbers. */
+/** One package the debloat window can offer, and how safe it is to take away. */
+export interface DebloatItem {
+  name: string;
+  tier: "safe" | "careful";
+}
+
+/** What a removal actually did — asked of Windows afterwards, not reported by the script. */
+export interface DebloatRemoval {
+  removed: string[];
+  failed: string[];
+  took: number;
+}
+
+/** One package this app has taken away, kept for the window's history. */
+export interface DebloatRemoved {
+  name: string;
+  at: number;
+}
+
 export interface PricesOffer {
   title: string;
   appId: number;
@@ -69,6 +88,36 @@ export const Bridge = {
 
   /** Prices for a game title: Steam finds it, gg.deals prices it. Throws the reason it could not. */
   pricesLookup: (title: string) => callOrThrow<PricesOffer>("prices_lookup", { title }),
+
+  /** One health scan, on demand: a few seconds of load samples plus the event log. */
+  healthScan: (deep: boolean) => callOrThrow<HealthReport>("health_scan", { deep }),
+
+  /** One watch for a freeze: samples once a second for `minutes` and reports the gaps. */
+  healthWatch: (minutes: number) => callOrThrow<WatchReport>("health_watch", { minutes }),
+
+  /** Stops the watch that is running; it returns what it saw up to that moment. */
+  healthWatchCancel: () => call<void>("health_watch_cancel"),
+
+  /** The last watch ever run, so a freeze report survives a restart. */
+  healthLastWatch: () => call<WatchReport>("health_last_watch"),
+
+  /** The verdict of the last scan ever taken — what the PC pill shows before anything else. */
+  healthLast: () => call<HealthReport>("health_last"),
+
+  /** The one repair the report can offer, and only after the user pressed its button. */
+  healthFix: (action: string, arg: string) => callOrThrow<string>("health_fix", { action, arg }),
+
+  /** The packages Windows ships that the catalogue is willing to offer, as installed right now. */
+  debloatList: () => callOrThrow<DebloatItem[]>("debloat_list"),
+
+  /** Removes the ticked packages and reports what Windows says is really gone. */
+  debloatRemove: (names: string[]) => callOrThrow<DebloatRemoval>("debloat_remove", { names }),
+
+  /** What this app has taken away, newest first. */
+  debloatHistory: () => call<DebloatRemoved[]>("debloat_history"),
+
+  /** Shows one of the two PC windows: `health` or `debloat`. */
+  openPcWindow: (which: "health" | "debloat") => call<void>("open_pc_window", { which }),
 
   /** The connected displays, for the settings window's monitor picker. */
   listMonitors: () => call<MonitorOption[]>("list_monitors"),
@@ -246,6 +295,7 @@ export type BridgeEvent =
   | { name: "snip-done"; payload: SnipInfo }
   | { name: "reminder"; payload: ReminderEvent }
   | { name: "routine"; payload: RoutineEvent }
+  | { name: "health"; payload: HealthReport }
   | { name: "screen-changed"; payload: null };
 
 export interface DragDropPayload {

@@ -1,0 +1,364 @@
+/* The two PC windows — the health report and the debloat list — same palette as the
+   settings window, laid out as a normal application window rather than a card. */
+
+:root {
+  color-scheme: dark;
+  --font: system-ui, "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  --mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  --ink: #f5f6f8;
+  --dim: #9398a1;
+  --dim-2: #6b7079;
+  --bg: #0b0c0e;
+  --card: #141518;
+  --card-2: #1b1c20;
+  --hairline: rgba(255, 255, 255, 0.07);
+  --green: #22c55e;
+  --red: #f4505e;
+  --amber: #f5a524;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 13px/1.45 var(--font);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+#pc-root {
+  padding: 20px 22px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+header .grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+h1 {
+  font: 600 17px var(--font);
+  letter-spacing: -0.01em;
+}
+
+.sub {
+  font: 400 12px var(--font);
+  color: var(--dim);
+  margin-top: 3px;
+}
+
+h2 {
+  font: 600 12px var(--font);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim-2);
+  margin-bottom: 10px;
+}
+
+section {
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+
+button {
+  font: 500 12.5px var(--font);
+  color: var(--ink);
+  background: var(--card-2);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 7px 13px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+button:hover {
+  background: #23252a;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+button.primary {
+  background: #2f6df6;
+  border-color: #2f6df6;
+  color: #fff;
+}
+
+button.primary:hover {
+  background: #3f7bff;
+}
+
+button.ghost {
+  background: transparent;
+}
+
+button.danger {
+  color: var(--red);
+  border-color: rgba(244, 80, 94, 0.35);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── Health ─────────────────────────────────────────────────────────────── */
+
+.score-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.score {
+  font: 700 44px var(--font);
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.score-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.score-meta .line {
+  font: 400 12.5px var(--font);
+  color: var(--dim);
+}
+
+.finding {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.finding:first-of-type {
+  border-top: 0;
+}
+
+.finding .sev {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--dim-2);
+}
+
+.finding.crit .sev {
+  background: var(--red);
+}
+
+.finding.warn .sev {
+  background: var(--amber);
+}
+
+.f-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.finding.crit .f-text {
+  font-weight: 500;
+}
+
+.f-ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 0 10px 16px;
+  font: 400 12px var(--font);
+  color: var(--dim);
+}
+
+.f-result {
+  font: 400 12px var(--font);
+  color: var(--dim);
+  padding: 0 0 8px 16px;
+}
+
+/* Two columns of a fixed minimum, each check stacked as label-over-status: side by side, the
+   status broke mid-phrase ("w porządku" became "w" / "porządku") and read as a mistake. */
+.checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px 16px;
+}
+
+.check {
+  display: grid;
+  grid-template-columns: 8px 1fr;
+  column-gap: 8px;
+  align-items: center;
+  font: 400 12px var(--font);
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.check strong {
+  grid-column: 2;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.check span {
+  grid-column: 2;
+  color: var(--dim-2);
+}
+
+.check .dot {
+  grid-row: 1 / span 2;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dim-2);
+}
+
+.check.ok .dot {
+  background: var(--green);
+}
+
+.check.warn .dot {
+  background: var(--amber);
+}
+
+.check.bad .dot {
+  background: var(--red);
+}
+
+.check strong {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* ── Debloat ────────────────────────────────────────────────────────────── */
+
+.hint {
+  font: 400 12px var(--font);
+  color: var(--dim-2);
+  margin-bottom: 10px;
+}
+
+.app {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.app:first-of-type {
+  border-top: 0;
+}
+
+.app input {
+  width: 15px;
+  height: 15px;
+  accent-color: #2f6df6;
+  cursor: pointer;
+}
+
+.app .name {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.app .name strong {
+  font-weight: 400;
+  color: var(--ink);
+}
+
+/* The package id is context, not content: under the name in a small monospace, rather than pushed
+   to the right edge where a shorter name left a ragged gap. */
+.app .pkg {
+  font: 400 11px var(--mono);
+  color: var(--dim-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(180deg, rgba(11, 12, 14, 0) 0%, var(--bg) 45%);
+  padding: 12px 0 4px;
+}
+
+.footer .count {
+  flex: 1 1 auto;
+  font: 400 12px var(--font);
+  color: var(--dim);
+}
+
+.confirm {
+  border: 1px solid rgba(244, 80, 94, 0.35);
+  background: rgba(244, 80, 94, 0.08);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.confirm .names {
+  font: 400 12px var(--mono);
+  color: var(--dim);
+  white-space: pre-wrap;
+}
+
+.confirm .row {
+  display: flex;
+  gap: 8px;
+}
+
+.result {
+  font: 400 12px var(--font);
+  color: var(--dim);
+}
+
+.result .bad {
+  color: var(--red);
+}
+
+.history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.history .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 400 12px var(--font);
+  color: var(--dim);
+}
+
+.history .row .name {
+  flex: 1 1 auto;
+}

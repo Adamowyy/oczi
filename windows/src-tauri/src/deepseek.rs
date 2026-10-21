@@ -79,6 +79,8 @@ After setting one, say when it will come — and whether it repeats — briefly.
 
 const ROUTINE_PROMPT: &str = "\nA routine is something the user wants Oczi to *do* later, at a time they name — \"in 10 minutes open a page and search for something\", \"in 15 minutes launch a game and run a script from the desktop\", \"in 20 minutes close a couple of programs\", \"put music on in an hour\". Set it with schedule_routine: the moment in the same forms the remind tool documents, a short label, and the steps. \nYou plan the steps yourself, at the moment you are asked: each one is a call to a tool you have in this turn — launch_app, open_url, run_terminal, kill_process — with the arguments you would pass it right now. There is no catalogue of routines and no prepared script to fall back on; whatever the user thinks of works as long as you can express it as those calls, and the app performs exactly the steps you wrote, at that moment, then shows a card saying what it did. \nIf the request needs something you cannot do at all — and what you cannot do now you cannot promise for later — say so in one line in the same answer. Never set a routine you are not sure will work: a step that fails at the time is a promise broken while nobody is there to fix it. \nSteps are machine actions, so terminal access has to be on in the settings: if it is off, say that instead of setting anything. \nNever build a routine out of a Windows scheduled task, a script, PowerShell, msg or a file left on the disk — schedule_routine is what a routine is, and it leaves nothing behind. \nLike a reminder it can come back: pass `repeat` as \"daily\", \"weekdays\", \"weekly\" or \"monthly\", or an interval in minutes like \"every 30 minutes\", which runs again that long after each run. list_routines shows what is set and how the last run went; cancel_routine removes one. After setting one, say when it will run, briefly.";
 
+const HEALTH_PROMPT: &str = "\nThis computer's health is a real capability, not a guess: call health_report before answering anything about what is wrong with the machine, why it freezes or stutters, what crashed, what a bugcheck code means, or what the scan found. It returns the last scan — the score, the load, and every finding with its cause — and it changes nothing. If there is no report yet, say the Health button in the PC pill is where a scan starts instead of inventing an answer. The debloat list lives in the same pill and is the user's to tick; never claim to have removed anything.\n";
+
 const PRICES_PROMPT: &str = "\nGame prices come from gg.deals through the game_price tool: give it the title the user said and it answers with the lowest price right now — retail shops and keyshops separately — the historical low, the currency their own API key reports, and the gg.deals page that lists the shops. Use it for anything about what a game costs, whether it is worth waiting for a sale, or what its lowest price ever was. The pricing API carries no shop address of its own, so point the user at the gg.deals page instead of inventing a store, and when the currency is not the one they expected, say which currency the key reports rather than converting it.\n";
 
 const SELF_PROMPT: &str = "\nOczi itself is `oczi.exe`, and its window is drawn by Edge WebView2: the `msedgewebview2.exe` processes under it are Oczi's own, not junk — closing one closes Oczi's window. Other `msedgewebview2.exe` processes belong to whatever else uses WebView2, and the parent chain tells them apart. Oczi's data is %APPDATA%\\Oczi and its log %LOCALAPPDATA%\\Oczi\\oczi.log; never suggest deleting either. \
@@ -128,6 +130,9 @@ fn tool_names(web: bool, terminal: bool) -> Vec<&'static str> {
         "list_routines",
         "cancel_routine",
         "game_price",
+        // The machine's own verdict: always offered, like the reminder tools, because a question
+        // about "why does it stutter" is the app's oldest use and needs no key or switch.
+        "health_report",
     ];
     if web {
         names.extend(["web_search", "fetch_url"]);
@@ -163,6 +168,18 @@ fn tools(web: bool, terminal: bool) -> Value {
                 "parameters": {
                     "type": "object",
                     "properties": {}
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "health_report",
+                "description": "The verdict of the last health scan of this computer, as text: the score, the load it measured, and every finding with its program, service or drive, its count and what it most likely means (a bugcheck code's cause, the module that crashed a program, an autostart entry pointing at nothing). Call it for any question about what is wrong with this PC, why it freezes, what crashed, or what it found. It changes nothing on the machine — the scan is read-only. If there is no report yet it says so; a fresh scan is the Health button in the PC pill.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
                 }
             }
         }),
@@ -486,6 +503,9 @@ Today is {date}."));
     // stops the model from promising one it cannot build out of the tools it has.
     prompt.push_str(ROUTINE_PROMPT);
     prompt.push_str(SELF_PROMPT);
+    // Always, like the reminder text: a question about the machine has to reach the scan's answer
+    // whether or not the user ever opened the PC pill in this conversation.
+    prompt.push_str(HEALTH_PROMPT);
     if terminal {
         prompt.push_str(TERMINAL_PROMPT);
     }
@@ -505,6 +525,8 @@ async fn run_tool(name: &str, args: &Value, provider: &str, terminal: bool) -> R
         "startup_items" => Ok(crate::startup::text()),
         // Prices: the same lookup the pill runs, and the card it sends is what the answer points at.
         // The tool result carries the numbers so the model can talk about them without the card.
+        // What the last scan found, from the same text the app itself reads back.
+        "health_report" => Ok(crate::health::describe_last()),
         "game_price" => {
             let title = args
                 .get("title")
@@ -778,6 +800,49 @@ pub enum ChatContext {
 #[serde(rename_all = "camelCase")]
 pub struct ChatReply {
     pub text: String,
+}
+
+/// One question, one answer, and no conversation carried in or out.
+///
+/// This is what a deep health scan asks the model about its own findings: the report is already
+/// written, so what is worth a call is the reading of it — which line matters and what to do — in a
+/// couple of sentences. A fresh `Chat` on purpose: the user's conversation must not grow a health
+/// report nobody typed a question for, and the answer must not become context for the next thing
+/// they ask.
+pub(crate) async fn advice(report_text: &str) -> Result<String, String> {
+    // No key means no advice; the findings are the report, and a missing key is not an error worth
+    // showing anyone.
+    if secrets::get("deepseek-api-key").is_none() {
+        return Err("no key".to_string());
+    }
+    let settings = crate::settings::load();
+    let chat = Chat::default();
+    let query = format!(
+        "Below is the result of a health scan of this computer. The user is looking at the score and\
+         the findings already, so do not repeat numbers, the percentage or the list. In two or three\
+         short sentences say what matters most and what to do about it — and if nothing is wrong, say\
+         that in one short sentence without quoting the score. When a finding names a bugcheck code or\
+         a module, name it and give the steps a person takes next (which driver or program to update,\
+         what to check), and say plainly when something cannot be fixed from here.\n\n{report_text}"
+    );
+    let reply = send(
+        &chat,
+        Options {
+            model: &settings.model,
+            // A reading of a few findings does not need the reasoning pass, and the scan already
+            // made the user wait for the samples.
+            thinking: false,
+            web: false,
+            provider: &settings.search_provider,
+            terminal: false,
+            language: &settings.language,
+        },
+        query,
+        None,
+        None,
+    )
+    .await?;
+    Ok(reply.text)
 }
 
 /// One chat turn. With web or terminal access on this is a small agent loop:

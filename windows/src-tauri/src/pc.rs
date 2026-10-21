@@ -239,6 +239,19 @@ fn top_processes() -> Vec<Value> {
         .collect()
 }
 
+/// What the health scan wants from the disks: how many fixed drives there are, and the letters of
+/// the ones that are nearly full. The card shows every drive; the scan only needs the worry, so
+/// the threshold is high enough that a normal machine reports nothing at all.
+pub(crate) fn disk_health() -> (usize, Vec<String>) {
+    let all = disks();
+    let low = all
+        .iter()
+        .filter(|d| d.get("usedPercent").and_then(Value::as_f64).unwrap_or(0.0) >= 90.0)
+        .filter_map(|d| d.get("mount").and_then(Value::as_str).map(str::to_string))
+        .collect();
+    (all.len(), low)
+}
+
 /// One sample of the machine, as the card's data blob.
 pub fn sample() -> Value {
     let mut info = SYSTEM_INFO::default();

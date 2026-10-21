@@ -97,7 +97,10 @@ const ROOT = join(HERE, "..");
 // and the log — belongs here rather than behind a marker on every line. `text_tools`
 // parses calls the model wrote out in four languages, `reminders` and `routines` answer
 // the model about a plan, and the cards the user reads are translated on the island.
-const RUST_SKIP = new Set(["text_tools.rs", "reminders.rs", "routines.rs", "youtube.rs", "prices.rs"]);
+// Files whose Polish is model-facing text, log lines or event data rather than UI copy: what the
+// model reads back from a tool is Polish by design (the island translates what it shows), and the
+// health scan's verdict is described in Polish for exactly that reason.
+const RUST_SKIP = new Set(["text_tools.rs", "reminders.rs", "routines.rs", "youtube.rs", "prices.rs", "health.rs", "debloat.rs"]);
 
 function scan(files) {
   for (const file of files) {
