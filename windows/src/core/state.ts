@@ -157,6 +157,12 @@ export interface WatchReport {
   interruptPeak: number;
   /** Stopped by the user before its time. */
   cancelled: boolean;
+  /** Each name once, with how many stops it showed up in — not one line per stop. */
+  culprits: { name: string; count: number; pct: number }[];
+  /** Stops where driver time, not a program, was the story. */
+  driverStalls: number;
+  /** Stops where nothing could be named at all. */
+  blindStalls: number;
 }
 
 /** One package the debloat view can offer. Src: `src-tauri/src/debloat.rs`. */

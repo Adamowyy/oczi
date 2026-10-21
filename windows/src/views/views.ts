@@ -1530,7 +1530,30 @@ function buildWatch(actions: ViewActions): ViewHost {
         if (watch.stalls.length === 0) {
           body.append(h("div", { class: "panel-advice", text: t("watch.clean") }));
         }
-        for (const stall of watch.stalls.slice(0, 5)) {
+        // What the stops had in common, in one line. Twelve timestamps with the same program under
+        // each of them is a wall of text that never says the thing it is trying to say.
+        const parts: string[] = [];
+        for (const c of watch.culprits ?? []) {
+          parts.push(t("watch.part", c.name, c.count, Math.round(c.pct)));
+        }
+        if (watch.driverStalls) parts.push(t("watch.partDriver", watch.driverStalls));
+        if (watch.blindStalls) parts.push(t("watch.partBlind", watch.blindStalls));
+        if (parts.length) {
+          body.append(
+            h("div", { class: "panel-advice", text: t("watch.summary", watch.stalls.length, parts.join(" · ")) }),
+          );
+        }
+
+        const shownStalls = watch.stalls.slice(0, 5);
+        shownStalls.forEach((stall, i) => {
+          // The culprit is printed only where it changes: five identical lines say nothing the
+          // summary above has not already said.
+          const previous = i > 0 ? shownStalls[i - 1] : null;
+          const sameCulprit =
+            previous !== null &&
+            previous.top === stall.top &&
+            Math.round(previous.topPct) === Math.round(stall.topPct) &&
+            (previous.dpc >= 8) === (stall.dpc >= 8);
           body.append(
             h(
               "div",
@@ -1542,16 +1565,26 @@ function buildWatch(actions: ViewActions): ViewHost {
                 t("watch.stallLine", stall.atText, stall.ms),
                 // A stop with heavy driver time is a driver's stop, and saying so is the whole point
                 // of measuring DPC: audiodg at 4 % is not what holds a machine for three seconds.
-                stall.dpc >= 8
-                  ? h("span", { class: "cause", text: t("watch.dpc", Math.round(stall.dpc)) })
-                  : stall.top
-                    ? h("span", {
-                        class: "cause",
-                        text: t("watch.culprit", stall.top, Math.round(stall.topPct)),
-                      })
-                    : null,
+                sameCulprit
+                  ? null
+                  : stall.dpc >= 8
+                    ? h("span", { class: "cause", text: t("watch.dpc", Math.round(stall.dpc)) })
+                    : stall.top
+                      ? h("span", {
+                          class: "cause",
+                          text: t("watch.culprit", stall.top, Math.round(stall.topPct)),
+                        })
+                      : null,
               ),
             ),
+          );
+        });
+        if (watch.stalls.length > shownStalls.length) {
+          body.append(
+            h("div", {
+              class: "panel-advice",
+              text: t("watch.more", watch.stalls.length - shownStalls.length),
+            }),
           );
         }
         // The summary line: driver time first when it is high, because that is the answer to "why did
@@ -1559,6 +1592,13 @@ function buildWatch(actions: ViewActions): ViewHost {
         if (watch.dpcPeak >= 8) {
           body.append(
             h("div", { class: "panel-advice", text: t("watch.dpcPeak", Math.round(watch.dpcPeak)) }),
+          );
+        } else if ((watch.culprits?.length ?? 0) === 1 && (watch.culprits[0].count ?? 0) >= 2) {
+          body.append(
+            h("div", {
+              class: "panel-advice",
+              text: t("watch.sameCulprit", watch.culprits[0].name),
+            }),
           );
         } else if (watch.busiest) {
           body.append(

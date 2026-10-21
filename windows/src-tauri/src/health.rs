@@ -605,6 +605,24 @@ pub struct Watch {
     /// The user stopped it before its time; the numbers cover what ran.
     #[serde(default)]
     pub cancelled: bool,
+    /// Who was on the processor across all the stops, counted once per stop: the same name under
+    /// twelve timestamps is twelve lines of nothing, and the count is the actual finding.
+    #[serde(default)]
+    pub culprits: Vec<Culprit>,
+    /// Stops where driver time, not a program, was the story.
+    #[serde(default)]
+    pub driver_stalls: u32,
+    /// Stops where nothing could be named at all.
+    #[serde(default)]
+    pub blind_stalls: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Culprit {
+    pub name: String,
+    pub count: u32,
+    /// The highest share of the machine this name held in any one stop.
+    pub pct: f64,
 }
 
 impl Watch {
@@ -718,6 +736,34 @@ pub fn watch(minutes: u32) -> Watch {
     if out.samples > 0 {
         out.cpu_avg /= out.samples as f64;
     }
+
+    // One entry per name instead of one line per stop.
+    let mut by_name: Vec<Culprit> = Vec::new();
+    for stall in &out.stalls {
+        if stall.dpc >= 8.0 {
+            out.driver_stalls += 1;
+            continue;
+        }
+        if stall.top.is_empty() {
+            out.blind_stalls += 1;
+            continue;
+        }
+        match by_name.iter_mut().find(|c| c.name == stall.top) {
+            Some(c) => {
+                c.count += 1;
+                c.pct = c.pct.max(stall.top_pct);
+            }
+            None => by_name.push(Culprit {
+                name: stall.top.clone(),
+                count: 1,
+                pct: stall.top_pct,
+            }),
+        }
+    }
+    by_name.sort_by(|a, b| b.count.cmp(&a.count).then(b.pct.total_cmp(&a.pct)));
+    by_name.truncate(3);
+    out.culprits = by_name;
+
     log::line(format!(
         "health watch done{}: {} min, {} samples, {} stalls (longest {} ms), busiest {} {:.0}%, dpc peak {:.0}%",
         if out.cancelled { " (cancelled)" } else { "" },
@@ -781,6 +827,22 @@ pub fn describe_watch(watch: &Watch) -> String {
             "Najwięcej CPU: {} ({:.0}% mocy maszyny, {} rdzeni)\n",
             watch.busiest, watch.busiest_pct, watch.cores
         ));
+    }
+    // Who was on the processor at the stops, counted once per name: the model reads this instead
+    // of twelve timestamps and can go straight to the name that keeps appearing.
+    if !watch.culprits.is_empty() || watch.driver_stalls > 0 || watch.blind_stalls > 0 {
+        let mut parts: Vec<String> = watch
+            .culprits
+            .iter()
+            .map(|c| format!("{} ×{} (do {:.0}% maszyny)", c.name, c.count, c.pct))
+            .collect();
+        if watch.driver_stalls > 0 {
+            parts.push(format!("czas sterowników ×{}", watch.driver_stalls));
+        }
+        if watch.blind_stalls > 0 {
+            parts.push(format!("bez nazwy ×{}", watch.blind_stalls));
+        }
+        out.push_str(&format!("Przy zatrzymaniach: {}\n", parts.join(", ")));
     }
     for stall in &watch.stalls {
         // The process named here is the one on the processor when the machine came back — the

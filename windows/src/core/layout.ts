@@ -148,8 +148,12 @@ export function islandSize(
     case "compact":
       return { w: COMPACT_W, h: NOTCH_H };
     case "expanded": {
-      const h = view === "prompt" ? chatPromptHeight(chatCount) : VIEW_LAYOUTS[view].height;
-      return { w: EXPANDED_W, h };
+      const wanted = view === "prompt" ? chatPromptHeight(chatCount) : VIEW_LAYOUTS[view].height;
+      // A laptop is not a desktop: at 150–200 % scaling the card used to grow taller than the
+      // screen it was drawn on, and whatever sat below the fold was simply lost.
+      const room = Math.max(200, window.innerHeight - 20);
+      const width = Math.max(340, Math.min(EXPANDED_W, window.innerWidth - 16));
+      return { w: width, h: Math.min(wanted, room) };
     }
   }
 }

@@ -2386,6 +2386,29 @@ html.asleep *::after {
   min-width: 0;
 }
 
+/* Short screens (a laptop at 150 % scaling, or a card squeezed to the viewport): the card keeps
+   every line by giving up a little air and a little type, never by clipping. */
+@media (max-height: 430px) {
+  .panel-view {
+    padding: 4px 10px 6px 56px;
+    gap: 6px;
+  }
+
+  .panel-advice {
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+
+  .panel-row .text {
+    font-size: 11.5px;
+  }
+
+  .panel-foot button {
+    font-size: 11px;
+    padding: 4px 9px;
+  }
+}
+
 /* The card while a scan runs: one thing in the middle, because there is nothing else to say. */
 .scan-wait {
   display: flex;
@@ -2553,10 +2576,14 @@ html.asleep *::after {
 .panel-body {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  /* A report of twelve stops is longer than any card, and on a small laptop the fifth line was the
+     last one that could be seen with no way down. Here it scrolls instead of being cut. */
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  scrollbar-width: thin;
 }
 
 /* The debloat list scrolls. Two columns were tried and clipped the tier word against the package
@@ -2639,7 +2666,16 @@ html.asleep *::after {
 /* One button shape for the whole panel: a pill, with a real edge and a hover, rather than the flat
    grey rectangle that read as a 2010 toolbar. */
 .panel-row button,
+/* Three buttons on a narrow screen do not fit on one line: wrapping keeps the last one reachable
+   instead of letting it hang outside the card. */
+.panel-foot {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
 .panel-foot button {
+  max-width: 100%;
+  white-space: nowrap;
   font: 500 11.5px var(--font);
   color: inherit;
   background: rgba(255, 255, 255, 0.05);
