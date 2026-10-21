@@ -1021,8 +1021,10 @@ function buildReport(actions: ViewActions): ViewHost {
             }),
           ),
         );
-        // One way out, because a folded card during a two-second wait only loses his place.
-        foot.append(
+        // The way out sits where it sits on every other card: top right. In the footer it drifted to
+        // the bottom left, which is the one corner nobody looks at.
+        head.append(
+          h("div", { class: "grow" }),
           h("button", {
             class: "ghost close",
             text: "×",
