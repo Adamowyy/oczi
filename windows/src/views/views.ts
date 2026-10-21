@@ -1572,7 +1572,13 @@ function buildWatch(actions: ViewActions): ViewHost {
                     : stall.top
                       ? h("span", {
                           class: "cause",
-                          text: t("watch.culprit", stall.top, Math.round(stall.topPct)),
+                          text:
+                            t("watch.culprit", stall.top, Math.round(stall.topPct)) +
+                            // The second name is where an audio suite or an overlay appears: the
+                            // game is always first, and the thing that actually stalled it second.
+                            (stall.tops?.length > 1 && stall.tops[1].pct >= 2
+                              ? t("watch.also", stall.tops[1].name, Math.round(stall.tops[1].pct))
+                              : ""),
                         })
                       : null,
               ),
@@ -1589,10 +1595,28 @@ function buildWatch(actions: ViewActions): ViewHost {
         }
         // The summary line: driver time first when it is high, because that is the answer to "why did
         // everything stop" far more often than any program name.
+        if (watch.stalls.length >= 3 && watch.gapMinutes > 0) {
+          body.append(
+            h("div", {
+              class: "panel-advice",
+              text: t("watch.cadence", watch.gapMinutes),
+            }),
+          );
+        }
         if (watch.dpcPeak >= 8) {
           body.append(
             h("div", { class: "panel-advice", text: t("watch.dpcPeak", Math.round(watch.dpcPeak)) }),
           );
+          // Naming what is installed is the useful half of "it is a driver": the list of driver
+          // suites on this machine is short, and one of them was installed recently.
+          if (watch.suspects?.length) {
+            body.append(
+              h("div", {
+                class: "panel-advice",
+                text: t("watch.suspects", watch.suspects.join(", ")),
+              }),
+            );
+          }
         } else if ((watch.culprits?.length ?? 0) === 1 && (watch.culprits[0].count ?? 0) >= 2) {
           body.append(
             h("div", {

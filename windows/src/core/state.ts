@@ -137,6 +137,10 @@ export interface Stall {
   topPct: number;
   /** Share of processor time spent in driver code around the stop — high means a driver. */
   dpc: number;
+  /** Total machine load at that moment, percent. */
+  cpu: number;
+  /** The three busiest programs then — the second is where a driver's helper shows up. */
+  tops: { name: string; pct: number }[];
 }
 
 /** The result of one watch: a bounded pass that looks for a freeze while it happens. */
@@ -152,6 +156,10 @@ export interface WatchReport {
   memPeak: number;
   busiest: string;
   busiestPct: number;
+  /** Typical spacing between stops, minutes. Zero when there is only one. */
+  gapMinutes: number;
+  /** Driver suites running here, named only when the driver time was high. */
+  suspects: string[];
   /** Peaks of driver and interrupt time: the trace a driver-shaped stutter leaves. */
   dpcPeak: number;
   interruptPeak: number;

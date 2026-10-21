@@ -302,9 +302,9 @@ fn process_list() -> Vec<(u32, String)> {
 }
 
 /// The process that used the most CPU since the previous sample, as a share of one core.
-fn process_cpu(previous: &mut HashMap<u32, u64>, elapsed_secs: f64) -> Option<(String, f64)> {
+fn process_cpu(previous: &mut HashMap<u32, u64>, elapsed_secs: f64) -> Vec<(String, f64)> {
     if elapsed_secs <= 0.0 {
-        return None;
+        return Vec::new();
     }
     let mut next: HashMap<u32, u64> = HashMap::with_capacity(previous.len());
     let mut per_name: HashMap<String, f64> = HashMap::new();
@@ -339,7 +339,7 @@ fn process_cpu(previous: &mut HashMap<u32, u64>, elapsed_secs: f64) -> Option<(S
         *per_name.entry(name).or_insert(0.0) += pct;
     }
     *previous = next;
-    per_name
+    let mut ranked: Vec<(String, f64)> = per_name
         .into_iter()
         // Windows' own plumbing never wins the title: naming audiodg as "the process using the
         // most CPU" is a true line that says nothing, and it was the first false trail this scan
@@ -347,8 +347,10 @@ fn process_cpu(previous: &mut HashMap<u32, u64>, elapsed_secs: f64) -> Option<(S
         .filter(|(name, _)| !NOISE.contains(&name.to_lowercase().as_str()))
         // The share of a single core is capped, so a dozen threads cannot report 900 %.
         .map(|(name, pct)| (name, pct.min(100.0)))
-        .max_by(|a, b| a.1.total_cmp(&b.1))
         .filter(|(_, pct)| *pct >= 1.0)
+        .collect();
+    ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+    ranked
 }
 
 /// Programs running out of a temp or downloads folder — the one thing in a process list that is
@@ -441,7 +443,7 @@ fn burst(steps: u32) -> Burst {
         last_tick = now;
         // The first sample only primes the deltas; reporting it would mean inventing a baseline.
         let raw = system_cpu(&mut previous_system);
-        let top = process_cpu(&mut previous_proc, elapsed);
+        let top = process_cpu(&mut previous_proc, elapsed).into_iter().next();
         let own_now = own_cpu_ticks();
         let own_pct = if elapsed > 0.0 {
             (own_now.saturating_sub(own_previous)) as f64 / (elapsed * 10_000_000.0) * 100.0
@@ -579,6 +581,20 @@ pub struct Stall {
     /// Share of all processor time spent in driver code (DPC) around the stop. Double digits here
     /// is a driver, not a program.
     pub dpc: f64,
+    /// Total machine load at that moment, so "13 % of the machine" has something to sit beside.
+    #[serde(default)]
+    pub cpu: f64,
+    /// The three busiest programs then, as shares of the whole machine. A driver's own helper — the
+    /// audio suite, the overlay — is almost never the first name, and it was the second name that
+    /// would have shown it.
+    #[serde(default)]
+    pub tops: Vec<NameShare>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NameShare {
+    pub name: String,
+    pub pct: f64,
 }
 
 /// The result of one watch: long enough to catch a stutter, short enough to be a button.
@@ -615,6 +631,15 @@ pub struct Watch {
     /// Stops where nothing could be named at all.
     #[serde(default)]
     pub blind_stalls: u32,
+    /// Typical spacing between stops, in minutes — a freeze that returns every ten minutes is a
+    /// different animal from twelve stops in twelve hours.
+    #[serde(default)]
+    pub gap_minutes: u32,
+    /// Driver suites running on this machine, when the driver time was high. Suspects, named as
+    /// suspects: a filter driver can ride on another vendor's code, and guessing would be worse
+    /// than saying nothing.
+    #[serde(default)]
+    pub suspects: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -678,7 +703,10 @@ pub fn watch(minutes: u32) -> Watch {
         let elapsed = now_tick.saturating_sub(previous_tick) as f64 / 1_000.0;
         previous_tick = now_tick;
         let raw = system_cpu(&mut previous_system);
-        let top = process_cpu(&mut previous_proc, elapsed);
+        // The whole ranking, so a stop can say what came second and third as well: an audio suite
+        // or an overlay is the thing behind a stall surprisingly often, and it is rarely first.
+        let ranked = process_cpu(&mut previous_proc, elapsed);
+        let top = ranked.first().map(|(name, pct)| (name.clone(), *pct));
         let own_now = own_cpu_ticks();
         let own_pct = if elapsed > 0.0 {
             own_now.saturating_sub(own_previous) as f64 / (elapsed * 10_000_000.0) * 100.0
@@ -730,6 +758,15 @@ pub fn watch(minutes: u32) -> Watch {
                 top: name,
                 top_pct: pct,
                 dpc: dpc_share,
+                cpu,
+                tops: ranked
+                    .iter()
+                    .take(3)
+                    .map(|(n, p)| NameShare {
+                        name: n.clone(),
+                        pct: p / cores,
+                    })
+                    .collect(),
             });
         }
     }
@@ -737,6 +774,27 @@ pub fn watch(minutes: u32) -> Watch {
         out.cpu_avg /= out.samples as f64;
     }
 
+    settle_stalls(&mut out);
+
+    log::line(format!(
+        "health watch done{}: {} min, {} samples, {} stalls (longest {} ms), busiest {} {:.0}%, dpc peak {:.0}%",
+        if out.cancelled { " (cancelled)" } else { "" },
+        out.minutes,
+        out.samples,
+        out.stalls.len(),
+        out.longest(),
+        out.busiest,
+        out.busiest_pct,
+        out.dpc_peak
+    ));
+    save_watch(&out);
+    out
+}
+
+/// Folds the stops into what they add up to: one entry per name, how often they come, and which
+/// driver suites are on the machine when the driver time was the story. Pure, so the arithmetic
+/// behind "the same thing every ten minutes" is testable without freezing anything.
+fn settle_stalls(out: &mut Watch) {
     // One entry per name instead of one line per stop.
     let mut by_name: Vec<Culprit> = Vec::new();
     for stall in &out.stalls {
@@ -764,18 +822,47 @@ pub fn watch(minutes: u32) -> Watch {
     by_name.truncate(3);
     out.culprits = by_name;
 
-    log::line(format!(
-        "health watch done{}: {} min, {} samples, {} stalls (longest {} ms), busiest {} {:.0}%, dpc peak {:.0}%",
-        if out.cancelled { " (cancelled)" } else { "" },
-        out.minutes,
-        out.samples,
-        out.stalls.len(),
-        out.longest(),
-        out.busiest,
-        out.busiest_pct,
-        out.dpc_peak
-    ));
-    save_watch(&out);
+    // How often the stops come, because "every ten minutes" and "twice in three hours" send you to
+    // completely different places.
+    let mut times: Vec<i64> = out.stalls.iter().map(|s| s.at).collect();
+    times.sort_unstable();
+    if times.len() >= 2 {
+        let mut gaps: Vec<i64> = times.windows(2).map(|w| (w[1] - w[0]) / 60).collect();
+        gaps.sort_unstable();
+        out.gap_minutes = gaps[gaps.len() / 2].max(0) as u32;
+    }
+    // Driver time in double digits is a driver, and the vendors whose filters are the usual
+    // suspects are worth naming — as present on the machine, never as convicted.
+    if out.dpc_peak >= 8.0 {
+        out.suspects = driver_suspects();
+    }
+}
+
+/// Driver suites that live in user space on this machine and are the usual companions of a stall
+/// with heavy driver time. Matched on process names, which is a list of what is running now — the
+/// report says "present", never "guilty".
+fn driver_suspects() -> Vec<String> {
+    const KNOWN: &[(&str, &str)] = &[
+        ("sonar", "SteelSeries Sonar"),
+        ("steelseries", "SteelSeries"),
+        ("nahimic", "Nahimic"),
+        ("rtkauduservice", "Realtek audio"),
+        ("razer", "Razer"),
+        ("voicemeeter", "Voicemeeter"),
+        ("nvcontainer", "NVIDIA"),
+        ("amdfendr", "AMD"),
+        ("logi", "Logitech"),
+    ];
+    let running: Vec<String> = process_list()
+        .into_iter()
+        .map(|(_, name)| name.to_lowercase())
+        .collect();
+    let mut out: Vec<String> = Vec::new();
+    for (needle, label) in KNOWN {
+        if running.iter().any(|n| n.contains(needle)) && !out.iter().any(|o| o == label) {
+            out.push((*label).to_string());
+        }
+    }
     out
 }
 
@@ -844,6 +931,15 @@ pub fn describe_watch(watch: &Watch) -> String {
         }
         out.push_str(&format!("Przy zatrzymaniach: {}\n", parts.join(", ")));
     }
+    if watch.gap_minutes > 0 {
+        out.push_str(&format!("Zatrzymania mniej więcej co {} min\n", watch.gap_minutes));
+    }
+    if !watch.suspects.is_empty() {
+        out.push_str(&format!(
+            "Sterowniki obecne na maszynie (podejrzani, nie winni): {}\n",
+            watch.suspects.join(", ")
+        ));
+    }
     for stall in &watch.stalls {
         // The process named here is the one on the processor when the machine came back — the
         // closest thing to a culprit a sampler can honestly offer.
@@ -854,6 +950,16 @@ pub fn describe_watch(watch: &Watch) -> String {
             stall.dpc,
             if stall.top.is_empty() { "nieznany".to_string() } else { format!("{} ({:.0}% mocy maszyny)", stall.top, stall.top_pct) }
         ));
+        // Whoever came second and third matters more than it looks: the game is always first.
+        if stall.tops.len() > 1 {
+            let also: Vec<String> = stall
+                .tops
+                .iter()
+                .skip(1)
+                .map(|t| format!("{} {:.0}%", t.name, t.pct))
+                .collect();
+            out.push_str(&format!("  obok niego: {}\n", also.join(", ")));
+        }
     }
     out
 }
@@ -1634,6 +1740,34 @@ pub fn describe(report: &Report) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stops_add_up_to_one_name_and_a_rhythm() {
+        let mut watch = Watch::default();
+        watch.dpc_peak = 2.0;
+        let stall = |at: i64, name: &str, pct: f64| Stall {
+            at,
+            at_text: String::new(),
+            ms: 900,
+            top: name.to_string(),
+            top_pct: pct,
+            dpc: 1.0,
+            cpu: 60.0,
+            tops: Vec::new(),
+        };
+        watch.stalls = vec![
+            stall(0, "Overwatch", 13.0),
+            stall(600, "Overwatch", 11.0),
+            stall(1_200, "Overwatch", 13.0),
+        ];
+        settle_stalls(&mut watch);
+        assert_eq!(watch.culprits.len(), 1);
+        assert_eq!(watch.culprits[0].name, "Overwatch");
+        assert_eq!(watch.culprits[0].count, 3);
+        assert_eq!(watch.culprits[0].pct, 13.0);
+        assert_eq!(watch.gap_minutes, 10);
+        assert!(watch.suspects.is_empty());
+    }
 
     #[test]
     fn a_burst_averages_what_it_sampled_and_keeps_the_worst() {
