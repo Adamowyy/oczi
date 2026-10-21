@@ -812,6 +812,12 @@ function buildPc(actions: ViewActions): ViewHost {
     // Opens the watch and arms the explanation — it does not start anything. A run that begins on a
     // single click, with the length still to be chosen, is a click that cannot be taken back.
     onclick: () => {
+      // A watch already running: this button is the way back into its card, where the countdown and
+      // "stop watching" live. Disabling it left the run with no door.
+      if (State.watching) {
+        actions.setView("watch");
+        return;
+      }
       actions.setView("watch");
       State.watchPending = 15;
       State.notify();
@@ -860,7 +866,6 @@ function buildPc(actions: ViewActions): ViewHost {
       // The watch button says when a watch is running, and stops taking presses: a second one would
       // be ignored, and a button that does nothing is worse than one that says why.
       watchBtn.textContent = State.watching ? t("pc.watchRunning") : t("pc.watchTitle");
-      (watchBtn as HTMLButtonElement).disabled = State.watching;
 
       // The tiles say what they are doing; a scan takes a few seconds and a tile that looked dead
       // for three of them is a tile that gets pressed twice.
