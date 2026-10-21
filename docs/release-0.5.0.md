@@ -1,16 +1,24 @@
-## Oczi 0.5.0 — pigułka PC staje się narzędziem
+Oczi for Windows 0.5.0.
 
-Trzy rzeczy, które robią z Ocziego pomocnika, a nie tylko okienko do rozmowy. Wszystkie w pigułce **PC**, bez klucza i bez żadnych dodatków.
+**The PC pill became a toolbox.** Three things now live behind one pill, none of them needing a key.
 
-### 🩺 Health — co komputerowi dolega
-Jedno kliknięcie i masz ocenę stanu: obciążenie, błędy z trzech dni dziennika zdarzeń, puste wpisy autostartu, dyski, czekający restart. Każda linia mówi, co znaczy — bez zaglądania w kody.
+### Health
 
-**Głębiej** czyta tydzień raportów awarii: wskazuje moduł, który wywalił program, tłumaczy kod bluescreena i dokłada akapit od modelu — co jest najgorsze i co z tym zrobić.
+- One click checks the machine and answers with a score and a list: the load right now, three days of the event log, empty autostart entries, disks, a waiting restart. Every line says what it means instead of leaving a code to look up.
+- **Deeper** reads a week of crash reports: the module that took a program down, what the bugcheck code is about, and a paragraph from the model saying what matters and what to do.
+- A question in the chat reaches the last scan too, so "why does it stutter" is answered from the machine rather than from memory.
 
-### 🧹 Debloat — co Windows przyniósł ze sobą
-Lista paczek podzielona na **bezpieczne** i **ostrożne**, z zaznaczaniem. Znika tylko to, co zaznaczysz, a wynik sprawdza sam Windows, a nie skrypt, który to robił.
+### Debloat
 
-### ⏱️ Obserwacja zacinania — gdy problem jest chwilowy
-Zacięcie na trzy sekundy nie zostawia śladu w żadnym logu. Obserwacja próbkuje komputer raz na sekundę przez 15 albo 30 minut i zapisuje każde zatrzymanie razem z procesem, który wtedy był na procesorze — a gdy winny jest sterownik, pokazuje czas DPC. Kończy się sama i nic nie zostaje w tle.
+- What Windows brought with it, split into **safe** and **careful**, with tick boxes. Only what you tick is removed, and the result is read back from Windows instead of being taken from the script that did it.
+- Empty autostart entries can be switched off the way Task Manager does it — and switched back on there.
 
-> Instalatory są niepodpisane, więc SmartScreen może pokazać ostrzeżenie: **More info → Run anyway**.
+### Freeze watch
+
+- A three-second freeze leaves nothing in any log, so the watch samples the machine once a second for fifteen or thirty minutes and writes down every moment it stopped, with the process that was on the processor then — or the driver time, when a driver is what stalled it.
+- You keep using the computer normally. It ends by itself and nothing keeps running afterwards; the result stays on screen until you acknowledge it.
+
+**Oczi-Windows-0.5.0-setup.exe** is the ordinary Oczi, about 2 MB.
+**Oczi-Windows-0.5.0-voice-setup.exe** is the same Oczi with dictation, a few hundred MB because the speech model is inside.
+
+Both installers are unsigned, so Windows shows its SmartScreen warning on the first run.
