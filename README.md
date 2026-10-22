@@ -4,7 +4,7 @@
 
 **Oczi — a tiny crystal that lives at the top of your screen.**
 
-Drop a file, chat through the DeepSeek API, snap a region screenshot — all without leaving what you're doing.
+Drop a file, chat through DeepSeek or Gemini — the Gemini key is free — snap a region screenshot, all without leaving what you're doing.
 
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%2F11-0078D4?logo=windows)
 ![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=black)
@@ -65,15 +65,18 @@ The installer is **not code-signed**, so Windows may show a SmartScreen warning
 reported to Microsoft. Build it yourself from source if that bothers you; the
 whole thing is in this repository.
 
-Oczi asks for a DeepSeek API key on first run (Settings → DeepSeek). Without one
-it can still sit there and look pretty, but it cannot answer anything.
+Oczi asks for a key on first run (Settings → Chat), and it asks you to pick the provider.
+**Gemini** is the free one: a key from [Google AI Studio](https://aistudio.google.com/apikey)
+costs nothing, no card and no billing, and the free tier carries everyday use. **DeepSeek** is
+paid per use. Without a key Oczi can still sit there and look pretty, but she cannot answer
+anything.
 
 ## What it does
 
 Oczi is a soft little crystal with three shards orbiting her, living at the top centre of the screen. She waves hello, follows your cursor with her eyes, gets annoyed when you poke her (and dizzy if you insist), and turns into a box to swallow a file you drop on her.
 
 - 📎 **Drop a file** — Oczi swallows it, then offers to answer questions about it. Dropped files are copied into an inbox so the original is never touched.
-- 💬 **Chat** — ask anything; the answer runs against the OpenAI-compatible DeepSeek API, in Rust, so the key and the file bytes never reach the web view. Pick the model (`deepseek-flash` or `deepseek-v4-pro`) and a **Thinking** switch in Settings.
+- 💬 **Chat** — ask anything; the answer runs against an OpenAI-compatible endpoint (DeepSeek or Gemini, both with your own key), in Rust, so the key and the file bytes never reach the web view. Pick the provider and the model in Settings → Chat; the Gemini key is free, and DeepSeek adds a **Thinking** switch.
 - ⏰ **Reminders** — ask for one in the chat and a card comes up at the right moment, with **OK** and **+10 min**. They can repeat every day, on working days or once a week, and they live in a file of their own, so a new conversation still sees them. Nothing is installed for them and nothing is left behind on the disk.
 - 🖱️ **The eye** — snap a region of the screen and pin it to the next question, like a screenshot you don't have to paste anywhere.
 - 📌 **Pinned screenshots** — `Ctrl+Alt+Shift+P` leaves a dragged region hanging on the screen, above everything and on any monitor. Right-click it to ask about it, copy the text inside, copy or save the picture, fade it, or close every pin at once; the wheel resizes it.
