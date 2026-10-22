@@ -274,6 +274,8 @@ export interface Settings {
   snipHotkey: string;
   /** The chord that starts dictation — the same thing as clicking the microphone. */
   voiceHotkey: string;
+  /** The chord that pins a region to the screen. */
+  pinHotkey: string;
   /** What the speech engine listens for: "auto", "pl" or "en". A wrong fixed language is
    *  worse than detection — Whisper translates instead of transcribing — so auto is the
    *  default and the two others exist for the user who knows better. */
@@ -308,6 +310,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hotkey: "Ctrl+Alt+M",
   snipHotkey: "Ctrl+Alt+Shift+S",
   voiceHotkey: "Ctrl+Shift+Space",
+  pinHotkey: "Ctrl+Alt+Shift+P",
   voiceLanguage: "auto",
   webSearch: true,
   searchProvider: "duckduckgo",

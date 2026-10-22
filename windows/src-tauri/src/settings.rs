@@ -42,6 +42,10 @@ pub struct Settings {
     /// Registered only by the voice build; the ordinary one stores it and ignores it.
     #[serde(default = "default_voice_hotkey")]
     pub voice_hotkey: String,
+    /// The chord that pins a region to the screen — a crop that stays on top of other windows
+    /// instead of becoming a question to the model.
+    #[serde(default = "default_pin_hotkey")]
+    pub pin_hotkey: String,
     /// What the speech engine listens for: "auto", "pl" or "en". Auto is the default
     /// because a wrong pinned language is worse than detection: Whisper translates the
     /// sentence into that language instead of transcribing what was said.
@@ -104,6 +108,12 @@ fn default_voice_hotkey() -> String {
     "Ctrl+Shift+D".to_string()
 }
 
+/// Ctrl+Alt+Shift+P: the snip chord with one more key, so the two can never collide, and a
+/// letter rather than Alt+Shift, which Windows keeps for the keyboard layout switch.
+fn default_pin_hotkey() -> String {
+    "Ctrl+Alt+Shift+P".to_string()
+}
+
 // What the engine is pinned to, unless the user says otherwise.
 fn default_voice_language() -> String {
     "pl".to_string()
@@ -138,6 +148,7 @@ impl Default for Settings {
             thinking: false,
             hotkey: default_hotkey(),
             snip_hotkey: default_snip_hotkey(),
+            pin_hotkey: default_pin_hotkey(),
             voice_hotkey: default_voice_hotkey(),
             voice_language: default_voice_language(),
             web_search: true,
@@ -186,6 +197,9 @@ pub fn load() -> Settings {
             }
             if crate::island::parse_hotkey(&settings.snip_hotkey).is_none() {
                 settings.snip_hotkey = default_snip_hotkey();
+            }
+            if crate::island::parse_hotkey(&settings.pin_hotkey).is_none() {
+                settings.pin_hotkey = default_pin_hotkey();
             }
             // Not just parseable — reachable. A stored Alt+Shift chord parses and registers
             // and then never fires, so it is treated as unusable here rather than left to

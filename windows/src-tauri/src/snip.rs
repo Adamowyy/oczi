@@ -58,6 +58,15 @@ impl Snip {
         self.pending.lock().ok().and_then(|mut p| p.take())
     }
 
+    /// Hands a picture that was written somewhere else to the chat, as the one image the next
+    /// question carries. A pin asks about its own crop without going back through the overlay,
+    /// so this is the way its picture reaches the same slot the eye's does.
+    pub fn park(&self, path: PathBuf) {
+        if let Ok(mut slot) = self.pending.lock() {
+            *slot = Some(path);
+        }
+    }
+
     /// Drops a frozen frame that will never be used, so a cancelled capture does not
     /// keep a full-screen bitmap in memory.
     pub fn discard_frame(&self) {
@@ -142,6 +151,35 @@ pub fn grab(owner: &Snip) -> Result<(), String> {
 /// Crops the frozen frame and writes it out as a PNG. The rectangle is in physical
 /// pixels relative to the desktop origin, which is the space the overlay reports in.
 pub fn finish(owner: &Snip, x: i32, y: i32, w: i32, h: i32) -> Result<SnipInfo, String> {
+    let (info, path) = crop_into(owner, x, y, w, h, "snip.png")?;
+    if let Ok(mut slot) = owner.pending.lock() {
+        *slot = Some(path);
+    }
+    Ok(info)
+}
+
+/// The same crop, written to the pin's own file and handed back instead of being kept for the
+/// chat: a pinned region is not a question, so it must never become the image the next turn
+/// attaches.
+pub fn finish_pin(
+    owner: &Snip,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    index: usize,
+) -> Result<(SnipInfo, PathBuf), String> {
+    crop_into(owner, x, y, w, h, &format!("pin-{}.png", index + 1))
+}
+
+fn crop_into(
+    owner: &Snip,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    name: &str,
+) -> Result<(SnipInfo, PathBuf), String> {
     let frame = owner
         .frame
         .lock()
@@ -171,17 +209,17 @@ pub fn finish(owner: &Snip, x: i32, y: i32, w: i32, h: i32) -> Result<SnipInfo, 
     let bytes = encode_png(w as u32, h as u32, &rgba)?;
     let dir = settings::local_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
-    let path = dir.join("snip.png");
+    let path = dir.join(name);
     std::fs::write(&path, &bytes).map_err(|e| format!("could not save the screenshot: {e}"))?;
 
-    if let Ok(mut slot) = owner.pending.lock() {
-        *slot = Some(path);
-    }
-    Ok(SnipInfo {
-        width: w as u32,
-        height: h as u32,
-        bytes: bytes.len() as u64,
-    })
+    Ok((
+        SnipInfo {
+            width: w as u32,
+            height: h as u32,
+            bytes: bytes.len() as u64,
+        },
+        path,
+    ))
 }
 
 fn encode_png(w: u32, h: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {

@@ -2,6 +2,17 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.1 — 2026-10-22
+
+**A pinned screenshot**: a region that stays on the screen instead of becoming a question.
+
+- Press `Ctrl+Alt+Shift+P`, drag out a region, and it stays exactly where you left it — above
+  everything, across monitors, and over a game running in a window.
+- Right-click it for the menu: ask about it, copy the text inside it, copy the picture, save it,
+  fade it, or close every pin at once. The wheel resizes it, Shift with the wheel fades it.
+- The pin beside the × turns it into an ordinary window, and up to four can hang side by side.
+- The shortcut is set in Settings → General, beside the others.
+
 ## 0.5.0 — 2026-10-21
 
 **The PC pill became a toolbox** instead of a page of numbers.

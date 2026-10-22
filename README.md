@@ -54,7 +54,7 @@ Drop a file, chat through the DeepSeek API, snap a region screenshot — all wit
 
 ## Install
 
-Download **`Oczi-Windows-0.2.0-setup.exe`** from
+Download **`Oczi-Windows-0.5.1-setup.exe`** from
 [Releases](https://github.com/Adamowyy/oczi/releases/latest) and run it. Windows
 10 or 11; WebView2 is already there on a normal install — the installer offers it
 if it is missing.
@@ -76,6 +76,7 @@ Oczi is a soft little crystal with three shards orbiting her, living at the top 
 - 💬 **Chat** — ask anything; the answer runs against the OpenAI-compatible DeepSeek API, in Rust, so the key and the file bytes never reach the web view. Pick the model (`deepseek-flash` or `deepseek-v4-pro`) and a **Thinking** switch in Settings.
 - ⏰ **Reminders** — ask for one in the chat and a card comes up at the right moment, with **OK** and **+10 min**. They can repeat every day, on working days or once a week, and they live in a file of their own, so a new conversation still sees them. Nothing is installed for them and nothing is left behind on the disk.
 - 🖱️ **The eye** — snap a region of the screen and pin it to the next question, like a screenshot you don't have to paste anywhere.
+- 📌 **Pinned screenshots** — `Ctrl+Alt+Shift+P` leaves a dragged region hanging on the screen, above everything and on any monitor. Right-click it to ask about it, copy the text inside, copy or save the picture, fade it, or close every pin at once; the wheel resizes it.
 - 🔌 **Integrations** — Stripe, n8n, GitHub, Vercel, Resend, Notion, Cal.com, plus two that need no key and no account: **PC** (CPU, RAM, disks and battery — it reads your own machine) and **Music** (whatever Windows says is playing — Spotify, a browser tab, VLC — with play/pause and skip). Each one gets its own coloured mini character pill. PC and Music are on out of the box; the rest wait until you pick them.
 - 🫥 **Invisible when idle** — hides into the top edge and peeks out when you hover it. `Ctrl+Alt+M` summons it from anywhere; `Ctrl+Alt+Shift+S` starts a snip. Both chords are yours to change: Settings → General records whatever you press.
 - 🔒 **Private by design** — no telemetry, no account. Keys live in the Windows Credential Manager. The app only talks to the services you plug in.

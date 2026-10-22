@@ -1,5 +1,6 @@
 // Oczi, app wiring and the commands the island calls.
 
+mod clipboard;
 mod debloat;
 mod deepseek;
 mod files;
@@ -8,7 +9,9 @@ mod integrations;
 mod island;
 mod log;
 mod media;
+mod ocr;
 mod pc;
+mod pin;
 mod prices;
 mod reminders;
 mod routines;
@@ -119,6 +122,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) 
         hotkey_changed,
         snip_hotkey_changed,
         voice_hotkey_changed,
+        pin_hotkey_changed,
         language_changed,
     ) = {
         let mut current = shared.settings.lock().unwrap();
@@ -130,6 +134,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) 
         let hotkey_changed = current.hotkey != settings.hotkey;
         let snip_hotkey_changed = current.snip_hotkey != settings.snip_hotkey;
         let voice_hotkey_changed = current.voice_hotkey != settings.voice_hotkey;
+        let pin_hotkey_changed = current.pin_hotkey != settings.pin_hotkey;
         let language_changed = current.language != settings.language;
         *current = settings.clone();
         (
@@ -138,6 +143,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) 
             hotkey_changed,
             snip_hotkey_changed,
             voice_hotkey_changed,
+            pin_hotkey_changed,
             language_changed,
         )
     };
@@ -159,6 +165,9 @@ fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) 
     }
     if snip_hotkey_changed {
         island::update_hotkey(island::HotkeySlot::Snip, &settings.snip_hotkey);
+    }
+    if pin_hotkey_changed {
+        island::update_hotkey(island::HotkeySlot::Pin, &settings.pin_hotkey);
     }
     // Only the voice build has anything to start, and only it registers the chord: the
     // ordinary build stores the setting and leaves the keys to whoever had them.
@@ -356,9 +365,13 @@ fn overlay_metrics(app: &AppHandle) -> (f64, f64, f64) {
     (scale, x, y)
 }
 
-// The eye, step one: freeze the desktop, then put the selection overlay on screen.
+// The eye, step one: freeze the desktop, then put the overlay on screen. `pin_mode` is what the pin
+// chord passes; `finish_snip` reads and clears it.
 #[tauri::command]
-async fn begin_snip(app: AppHandle) -> Result<(), String> {
+async fn begin_snip(app: AppHandle, pin_mode: Option<bool>) -> Result<(), String> {
+    if pin_mode.unwrap_or(false) {
+        pin::start_pin_mode();
+    }
     if let Some(win) = island::window(&app) {
         let _ = win.hide();
     }
@@ -404,13 +417,35 @@ fn finish_snip(
     // to the whole desktop, and the desktop does not start at 0 when a second
     // monitor sits to the left: without this the crop would be off by its width.
     let (vx, vy, ..) = snip::desktop_bounds();
-    let info = snip::finish(
-        &snip,
-        (origin_x - vx as f64 + x * scale).round() as i32,
-        (origin_y - vy as f64 + y * scale).round() as i32,
-        (width * scale).round() as i32,
-        (height * scale).round() as i32,
-    )?;
+    let cx = (origin_x - vx as f64 + x * scale).round() as i32;
+    let cy = (origin_y - vy as f64 + y * scale).round() as i32;
+    let cw = (width * scale).round() as i32;
+    let ch = (height * scale).round() as i32;
+
+    // A pin and a question leave the same overlay, and the difference is the whole of the
+    // flow: a pin keeps its crop on screen, a question hands its crop to the chat.
+    if pin::take_mode() {
+        // The window is picked before the crop is written: the file is named after the slot, and
+        // each pin keeps its own picture, so a new one never eats the pin already on screen.
+        let index = pin::reserve();
+        let (info, _path) = snip::finish_pin(&snip, cx, cy, cw, ch, index)?;
+        log::line(format!(
+            "pin  {} cut {}x{} ({} bytes)",
+            pin::label(index),
+            info.width,
+            info.height,
+            info.bytes
+        ));
+        // The pin goes back exactly over the pixels it was cut from, in desktop
+        // coordinates — the space both the crop and a window position speak.
+        if let Err(err) = pin::show(&app, index, vx + cx, vy + cy, cw, ch) {
+            log::line(format!("pin  could not show: {err}"));
+        }
+        dismiss_snip(&app);
+        return Ok(());
+    }
+
+    let info = snip::finish(&snip, cx, cy, cw, ch)?;
     log::line(format!(
         "snip  {}x{} ({} bytes)",
         info.width, info.height, info.bytes
@@ -427,6 +462,83 @@ fn cancel_snip(app: AppHandle, snip: State<Snip>) {
     log::line("snip  cancelled".to_string());
     let _ = app.emit_to(island::WINDOW_LABEL, "snip-done", snip::SnipInfo::CANCELLED);
     dismiss_snip(&app);
+}
+
+/// Which pinned window a command is about; an unknown label is an error.
+fn pin_slot(label: &str) -> Result<usize, String> {
+    pin::index_of(label).ok_or_else(|| format!("there is no pin called {label}"))
+}
+
+/// The press that starts moving a pin; the loop ends with the button.
+#[tauri::command]
+fn pin_drag_start(app: AppHandle, label: String) {
+    if let Some(index) = pin::index_of(&label) {
+        pin::start_drag(&app, index);
+    }
+}
+
+/// The text a pin shows, through OCR, copied. Async: the engine works on a worker thread.
+#[tauri::command]
+async fn pin_copy_text(label: String) -> Result<String, String> {
+    let index = pin_slot(&label)?;
+    tauri::async_runtime::spawn_blocking(move || pin::copy_text(index))
+        .await
+        .map_err(|e| format!("the text reader crashed: {e}"))?
+}
+
+#[tauri::command]
+fn pin_copy_image(label: String) -> Result<(), String> {
+    pin::copy_image(pin_slot(&label)?)
+}
+
+/// Windows' own save dialog, then the file is written where the user pointed.
+#[tauri::command]
+fn pin_save_as(label: String) -> Result<Option<String>, String> {
+    pin::save_as(pin_slot(&label)?)
+}
+
+/// Ask the chat about the pin without taking it off the screen.
+#[tauri::command]
+fn pin_ask(app: AppHandle, snip: State<Snip>, label: String) -> Result<(), String> {
+    pin::ask(&app, &snip, pin_slot(&label)?)
+}
+
+/// A wheel step over the pin: bigger or smaller, around its own middle.
+#[tauri::command]
+fn pin_scale(app: AppHandle, label: String, step: i32) -> Result<(), String> {
+    pin::scale(&app, pin_slot(&label)?, step)
+}
+
+/// Makes room for the menu; replies with the picture's offset in CSS pixels.
+#[tauri::command]
+fn pin_menu(
+    app: AppHandle,
+    label: String,
+    open: bool,
+    need_w: f64,
+    need_h: f64,
+) -> Result<(f64, f64), String> {
+    pin::menu(&app, pin_slot(&label)?, open, need_w, need_h)
+}
+
+/// Above everything, or an ordinary window — the toggle beside the ×.
+#[tauri::command]
+fn pin_topmost(app: AppHandle, label: String, on: bool) -> Result<(), String> {
+    pin::set_topmost(&app, pin_slot(&label)?, on)
+}
+
+/// Closing every pin at once, from the menu.
+#[tauri::command]
+fn pin_close_all(app: AppHandle) {
+    pin::close_all(&app);
+}
+
+/// Closing a pin. The file goes with the window.
+#[tauri::command]
+fn pin_close(app: AppHandle, label: String) {
+    if let Some(index) = pin::index_of(&label) {
+        pin::close(&app, index);
+    }
 }
 
 #[tauri::command]
@@ -723,6 +835,42 @@ fn create_snip_window(app: &AppHandle) {
     }
 }
 
+fn pin_page_url(app: &AppHandle) -> WebviewUrl {
+    #[cfg(dev)]
+    if let Some(mut base) = app.config().build.dev_url.clone() {
+        base.set_path("/pin.html");
+        return WebviewUrl::External(base);
+    }
+    let _ = app;
+    WebviewUrl::App("pin.html".into())
+}
+
+/// The pins' windows: created at launch and only ever shown and hidden, one per slot.
+fn create_pin_windows(app: &AppHandle) {
+    for index in 0..pin::SLOTS {
+        let label = pin::label(index);
+        match WebviewWindowBuilder::new(app, label.clone(), pin_page_url(app))
+            .additional_browser_args(BROWSER_ARGS)
+            .title("Pin — Oczi")
+            .decorations(false)
+            .resizable(false)
+            .transparent(true)
+            .shadow(false)
+            .skip_taskbar(true)
+            .always_on_top(true)
+            .inner_size(320.0, 200.0)
+            // Hidden and unfocused at launch: nothing may take the foreground from what the user
+            // was typing in, and a pin only appears when one is asked for.
+            .focused(false)
+            .visible(false)
+            .build()
+        {
+            Ok(_) => log::line(format!("pin window {label} ready")),
+            Err(err) => log::line(format!("pin window {label} failed: {err}")),
+        }
+    }
+}
+
 /// A health scan. One pass, on demand: a few seconds of load samples plus the event log, which is
 /// the slow half. It runs on a worker thread because a couple of seconds of reading the log on the
 /// main thread is a frozen window — and nothing of it survives the call.
@@ -911,6 +1059,18 @@ pub fn run() {
         return;
     }
 
+    // The OCR a pin's "copy text" uses, printed for a picture on disk: `oczi.exe --pin-ocr
+    // <file.png>` reads the file and stops. The recognition needs no window and no clipboard, so a
+    // wrong answer on a known picture is answerable without clicking anything.
+    if let Some(file) = flag_value("--pin-ocr") {
+        match ocr::text_from_png(std::path::Path::new(&file)) {
+            Ok(text) if text.is_empty() => println!("(no text)"),
+            Ok(text) => println!("{text}"),
+            Err(err) => println!("failed: {err}"),
+        }
+        return;
+    }
+
     // A read-only look at what starts with this PC, the same text the model gets from
     // startup_items. It is here for support and for checking the reader on a real
     // machine without opening a window: `oczi.exe --startup` prints it and stops.
@@ -1061,6 +1221,16 @@ pub fn run() {
             begin_snip,
             finish_snip,
             cancel_snip,
+            pin_close,
+            pin_drag_start,
+            pin_ask,
+            pin_copy_text,
+            pin_copy_image,
+            pin_save_as,
+            pin_scale,
+            pin_menu,
+            pin_topmost,
+            pin_close_all,
             ingest_file,
             secret_present,
             secret_value,
@@ -1106,7 +1276,6 @@ pub fn run() {
             create_pc_windows(&handle);
             // Same reason, and the overlay must exist before anything can ask for it.
             create_snip_window(&handle);
-
             if let Some(win) = island::window(&handle) {
                 island::make_non_activating(&win);
                 island::apply_geometry(&handle, &loaded.screen, loaded.island_anchor);
@@ -1115,6 +1284,9 @@ pub fn run() {
                 // own_file_drops for why the COM route cannot work here.
                 island::own_file_drops(&handle);
             }
+            // After the island has its real size: four windows built earlier delay `apply_geometry`
+            // and the greeting starts on a 240-pixel-wide window.
+            create_pin_windows(&handle);
             // Last, with every window created: a crash inside WebView2 must not
             // leave the island showing the runtime's own error page. See webview_guard.
             webview_guard::watch(&handle);
@@ -1126,6 +1298,7 @@ pub fn run() {
                 loaded.hotkey.clone(),
                 loaded.snip_hotkey.clone(),
                 voice_chord(&loaded),
+                loaded.pin_hotkey.clone(),
             );
 
             // A previous run may have been killed rather than quit: stop whatever

@@ -538,10 +538,11 @@ function generalSection(): HTMLElement {
   let messageTimer = 0;
 
   function refreshNote() {
-    const same = settings.hotkey === settings.snipHotkey;
+    const chords = [settings.hotkey, settings.snipHotkey, settings.pinHotkey];
+    const same = new Set(chords).size !== chords.length;
     // Ctrl+Alt is AltGr, so a chord built on it takes a diacritic away from
     // whichever app has the focus, worth saying out loud, not worth a warning.
-    const altGr = [settings.hotkey, settings.snipHotkey].some((c) => c.includes("Ctrl+Alt"));
+    const altGr = chords.some((c) => c.includes("Ctrl+Alt"));
     hotkeyNote.textContent = same
       ? t("set.hotkeyConflict")
       : altGr
@@ -594,6 +595,16 @@ function generalSection(): HTMLElement {
     },
     showProblem,
   );
+  // The pin chord: the same recorder, its own field, so it is his to move like the rest.
+  const pinHotkey = hotkeyField(
+    settings.pinHotkey,
+    (chord) => {
+      settings.pinHotkey = chord;
+      void save();
+      refreshNote();
+    },
+    showProblem,
+  );
   // What the engine listens for. Auto is the default and costs a second pass over the
   // audio; pinning the language is faster and better on names, and wrong if he switches
   // language mid-sentence — so it is his choice, with the trade in the hint.
@@ -631,6 +642,7 @@ function generalSection(): HTMLElement {
     h("div", { class: "row" }, h("label", { text: t("set.hotkey") }), hotkey),
     h("div", { class: "row" }, h("label", { text: t("set.hotkeySnip") }), snipHotkey),
     h("div", { class: "row" }, h("label", { text: t("set.hotkeyVoice") }), voiceHotkey),
+    h("div", { class: "row" }, h("label", { text: t("set.hotkeyPin") }), pinHotkey),
     h("div", { class: "row" },
       h("label", { text: t("set.voiceLanguage") }),
       voiceLanguage,

@@ -17,6 +17,9 @@ export default defineConfig({
         // The screen-selection overlay: its own page, its own styles, so the island
         // stylesheet can never affect it.
         snip: resolve(__dirname, "snip.html"),
+        // A pinned crop: its own page for the same reason as the overlay, and because it is
+        // drawn by a window of its own.
+        pin: resolve(__dirname, "pin.html"),
         // The two PC windows — the health report and the debloat list — each a page of its own.
         health: resolve(__dirname, "health.html"),
         debloat: resolve(__dirname, "debloat.html"),

@@ -174,7 +174,9 @@ export const Bridge = {
   chatReset: () => call<void>("chat_reset"),
   /** The eye, step one: freeze the desktop and show the selection overlay.
    *  The result arrives as the `snip-done` event, not this promise's value. */
-  beginSnip: () => callOrThrow<void>("begin_snip"),
+  /** `pinMode` keeps the crop on screen instead of handing it to the chat. */
+  beginSnip: (pinMode?: boolean) =>
+    callOrThrow<void>("begin_snip", { pinMode: pinMode ?? false }),
   /** Copies a dropped file into the inbox. */
   ingestFile: (path: string) => callOrThrow<DroppedFile>("ingest_file", { path }),
   /** Only ever tells you whether a key exists, never its value. */
@@ -290,6 +292,8 @@ export type BridgeEvent =
   | { name: "tray"; payload: string }
   | { name: "hotkey"; payload: null }
   | { name: "hotkey-snip"; payload: null }
+  | { name: "hotkey-pin"; payload: null }
+  | { name: "pin-ask"; payload: { width: number; height: number } }
   | { name: "hotkey-voice"; payload: null }
   | { name: "click-outside"; payload: null }
   | { name: "snip-done"; payload: SnipInfo }

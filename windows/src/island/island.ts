@@ -707,6 +707,14 @@ export class Island {
     waiter?.(info);
   }
 
+  /** A pin the user asked about: the picture waits in the chat exactly as the eye's snip does,
+   *  and the pin itself stays on screen — asking about a reference is not losing it. */
+  attachPin(info: { width: number; height: number }) {
+    State.snip = { width: info.width, height: info.height };
+    this.setView("prompt");
+    window.setTimeout(() => this.views.get("prompt")?.focus?.(), 140);
+  }
+
   /** The screenshot chord, and the eye in the chat bar. */
   snipStart() {
     void this.snipRegion();

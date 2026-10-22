@@ -82,6 +82,23 @@ async function main() {
     island.snipStart();
   });
 
+  // The pin chord, registered by Rust (Ctrl+Alt+Shift+P). The same overlay as the eye, but the
+  // crop stays on the screen instead of becoming a question — the pin window is its own, so the
+  // island has nothing to draw here.
+  await onEvent<null>("hotkey-pin", () => {
+    setPaused(false);
+    void Bridge.beginSnip(true).catch((err) =>
+      Bridge.log(`pin  could not start: ${err}`),
+    );
+  });
+
+  // A pin asked to be explained: the chat opens with that picture attached, and the pin stays
+  // exactly where it was — it is the reference, not the question.
+  await onEvent<{ width: number; height: number }>("pin-ask", (info) => {
+    setPaused(false);
+    island.attachPin(info);
+  });
+
   // The dictation chord, registered by Rust (Ctrl+Shift+Space unless the user recorded
   // another one). One press starts listening, the next one stops it early; otherwise the
   // recording ends itself on a pause and the text goes on its way.

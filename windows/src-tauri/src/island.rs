@@ -51,6 +51,9 @@ const HOTKEY_SNIP_ID: i32 = 0xC0CD;
 /// Ctrl+Shift+Space — the same thing as clicking the microphone. Only the voice build
 /// registers it: without the engine there is nothing for it to start.
 const HOTKEY_VOICE_ID: i32 = 0xC0CE;
+/// Ctrl+Alt+Shift+P — pins a region to the screen. Registered by every build: a pin is drawn by
+/// the app itself, so no engine and no key stands between the chord and the crop.
+const HOTKEY_PIN_ID: i32 = 0xC0CF;
 
 /// Margin around the island that still counts as "on the island", in logical px.
 /// Same margin as the front end's HIT_MARGIN.
@@ -873,6 +876,8 @@ pub enum HotkeySlot {
     Snip,
     /// Start dictation — the same thing as clicking the microphone. Default Ctrl+Shift+Space.
     Voice,
+    /// Pin a region to the screen instead of asking about it. Default Ctrl+Alt+Shift+P.
+    Pin,
 }
 
 impl HotkeySlot {
@@ -881,6 +886,7 @@ impl HotkeySlot {
             HotkeySlot::Summon => HOTKEY_ID,
             HotkeySlot::Snip => HOTKEY_SNIP_ID,
             HotkeySlot::Voice => HOTKEY_VOICE_ID,
+            HotkeySlot::Pin => HOTKEY_PIN_ID,
         }
     }
 
@@ -890,21 +896,24 @@ impl HotkeySlot {
             HotkeySlot::Summon => "summon",
             HotkeySlot::Snip => "screenshot",
             HotkeySlot::Voice => "dictation",
+            HotkeySlot::Pin => "pin",
         }
     }
 }
 
 // Registers one chord under its own id, replacing whatever that id held before.
-unsafe fn apply_hotkey(slot: HotkeySlot, chord: &str, current: &mut [Option<String>; 3]) {
+unsafe fn apply_hotkey(slot: HotkeySlot, chord: &str, current: &mut [Option<String>; 4]) {
     use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
 
     const SUMMON: usize = 0;
     const SNIP: usize = 1;
     const VOICE: usize = 2;
+    const PIN: usize = 3;
     let idx = match slot {
         HotkeySlot::Summon => SUMMON,
         HotkeySlot::Snip => SNIP,
         HotkeySlot::Voice => VOICE,
+        HotkeySlot::Pin => PIN,
     };
     if current[idx].as_deref() == Some(chord) {
         return;
@@ -936,16 +945,23 @@ unsafe fn apply_hotkey(slot: HotkeySlot, chord: &str, current: &mut [Option<Stri
 /// runs its own PeekMessage loop. Every chord lives here — each has its own id, so
 /// any of them can be re-registered at any moment through the channel. The dictation
 /// chord is only wired up by the voice build; without it the slot stays empty.
-pub fn spawn_hotkey(app: AppHandle, summon: String, snip: String, voice: Option<String>) {
+pub fn spawn_hotkey(
+    app: AppHandle,
+    summon: String,
+    snip: String,
+    voice: Option<String>,
+    pin: String,
+) {
     use windows::Win32::UI::WindowsAndMessaging::{PeekMessageW, MSG, PM_REMOVE, WM_HOTKEY};
 
     let (tx, rx) = std::sync::mpsc::channel::<(HotkeySlot, String)>();
     HOTKEY_TX.get_or_init(|| std::sync::Mutex::new(Some(tx)));
 
     std::thread::spawn(move || unsafe {
-        let mut current: [Option<String>; 3] = [None, None, None];
+        let mut current: [Option<String>; 4] = [None, None, None, None];
         apply_hotkey(HotkeySlot::Summon, &summon, &mut current);
         apply_hotkey(HotkeySlot::Snip, &snip, &mut current);
+        apply_hotkey(HotkeySlot::Pin, &pin, &mut current);
         if let Some(chord) = voice.as_deref() {
             apply_hotkey(HotkeySlot::Voice, chord, &mut current);
         }
@@ -962,6 +978,9 @@ pub fn spawn_hotkey(app: AppHandle, summon: String, snip: String, voice: Option<
                     }
                     HOTKEY_VOICE_ID => {
                         let _ = app.emit_to(WINDOW_LABEL, "hotkey-voice", ());
+                    }
+                    HOTKEY_PIN_ID => {
+                        let _ = app.emit_to(WINDOW_LABEL, "hotkey-pin", ());
                     }
                     HOTKEY_ID => {
                         let _ = app.emit_to(WINDOW_LABEL, "hotkey", ());

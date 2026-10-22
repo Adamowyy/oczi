@@ -37,7 +37,14 @@ png = "0.17"
 # must match the version `windows` itself pins.
 windows-core = "0.61"
 windows = { version = "0.61", features = [
+  "Foundation",
+  "Globalization",
+  "Graphics_Imaging",
   "Media_Control",
+  "Media_Ocr",
+  "Storage_Streams",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
   "Win32_Security",
@@ -58,6 +65,7 @@ windows = { version = "0.61", features = [
   "Win32_System_WinRT",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
   "Win32_UI_WindowsAndMessaging",
   "Wdk_System_SystemInformation",
 ] }
