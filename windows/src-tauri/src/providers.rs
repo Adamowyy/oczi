@@ -45,13 +45,9 @@ pub const DEEPSEEK: Provider = Provider {
     reasoning: Reasoning::ThinkingSwitch,
 };
 
-/// ID from ai.google.dev/gemini-api/docs/models (read 2026-10-22). One model on purpose: it is
-/// the only one that answered the app's real body every time it was tried — 1.2–2.0 s, while
-/// 3.1-flash-lite and 3.8-flash returned 503 at capacity and 3.5-flash-lite needed 8–22 s, long
-/// enough in front of the notch to read as a hung app. That means no fallback when this one is
-/// at capacity or its daily quota runs out: the chat then retries three times and says so.
-/// Adding a second name back is a one-line change in this list. The 2.5 family is restricted to
-/// projects that already used it — never start on it.
+/// One model, and it is the only one that answered every time: 1.2-2.0 s here, while
+/// 3.1-flash-lite and 3.8-flash came back 503 and 3.5-flash-lite took 8-22 s.
+/// No fallback when this one is at capacity or out of quota, the chat retries and says so.
 pub const GEMINI: Provider = Provider {
     id: "gemini",
     label: "Gemini",

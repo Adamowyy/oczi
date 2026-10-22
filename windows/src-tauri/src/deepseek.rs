@@ -850,11 +850,8 @@ pub(crate) async fn advice(report_text: &str) -> Result<String, String> {
     Ok(reply.text)
 }
 
-/// Times every Gemini model at the two reasoning levels the app may send, with the app's own
-/// body — system prompt, tool schemas and all. The free tier publishes no latency figure, and a
-/// model that thinks for twenty seconds in front of the notch reads as a hung app, so this is
-/// measured on the real endpoint rather than guessed from the docs. Run with
-/// `oczi.exe --chat-latency`; the key is read from the Credential Manager and never printed.
+/// Times every Gemini model at both reasoning levels with the app's own body, for
+/// `oczi.exe --chat-latency`. The free tier publishes no latency figure.
 pub(crate) async fn latency_probe() {
     let provider = &providers::GEMINI;
     let Some(key) = secrets::get(provider.key_name) else {
