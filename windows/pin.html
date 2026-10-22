@@ -5,10 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pin — Oczi</title>
     <style>
-      /* Self-contained like the snip overlay: this page never loads the island's stylesheet,
-         so nothing done for the island can break a pin. When no menu is open the window is cut to
-         the crop, so the picture fills it exactly — no padding, no scrolling, no layout to get
-         wrong. */
+      /* Self-contained like the snip overlay: this page never loads the island's stylesheet, so
+         nothing done for the island can break a pin. When no menu is open the window is cut to the
+         crop, so the picture fills it exactly. */
       :root {
         color-scheme: dark;
       }
@@ -34,18 +33,29 @@
         height: 100%;
         cursor: move;
         /* Soft corners, always: the window is transparent, so rounding the picture is what makes a
-           pin read as a card stuck on the screen rather than a hole cut in it. The hairline is drawn
-           inside the picture so it never eats layout or gets clipped. */
+           pin read as a card stuck on the screen rather than a hole cut in it. */
         border-radius: 6px;
         box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 10px 30px rgba(0, 0, 0, 0.45);
       }
       #pin-shot[hidden] {
         display: none;
       }
-      #pin-close {
+      /* The marks, drawn in the picture's own pixel grid so a zoom keeps them where they were put. */
+      #pin-ink {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border-radius: 6px;
+        cursor: crosshair;
+      }
+      /* The three corner buttons: tools, keep-above, close. They only appear while the pin is being
+         handled. */
+      #pin-close,
+      #pin-keep,
+      #pin-tools-toggle {
         position: absolute;
         top: 5px;
-        right: 5px;
         width: 20px;
         height: 20px;
         display: grid;
@@ -59,47 +69,149 @@
         opacity: 0;
         transition: opacity 0.12s ease-out;
       }
-      body:hover #pin-close {
-        opacity: 1;
-      }
-      /* While a menu is open the window is bigger than the picture, and the × would be sitting in
-         the empty strip beside it — the menu has its own Close, so this one steps aside. */
-      body.menu #pin-close {
-        display: none;
-      }
-      #pin-close:hover {
-        background: rgba(214, 62, 78, 0.9);
+      #pin-close {
+        right: 5px;
       }
       #pin-keep {
-        position: absolute;
-        top: 5px;
         right: 29px;
-        width: 20px;
-        height: 20px;
-        display: grid;
-        place-items: center;
-        border: 0;
-        border-radius: 50%;
-        background: rgba(10, 11, 14, 0.72);
-        color: rgba(255, 255, 255, 0.9);
-        cursor: pointer;
-        opacity: 0;
-        transition: opacity 0.12s ease-out;
       }
-      body:hover #pin-keep {
+      #pin-tools-toggle {
+        right: 53px;
+      }
+      body:hover #pin-close,
+      body:hover #pin-keep,
+      body:hover #pin-tools-toggle,
+      body.tooling #pin-tools-toggle {
         opacity: 1;
       }
       /* Faded means "an ordinary window": the pin is still there, just not above everything. */
       #pin-keep.off {
         color: rgba(255, 255, 255, 0.4);
       }
-      body.menu #pin-keep {
+      #pin-tools-toggle.on {
+        background: rgba(123, 224, 255, 0.3);
+        color: #d6f2ff;
+      }
+      body.menu #pin-close,
+      body.menu #pin-keep,
+      body.menu #pin-tools-toggle {
         display: none;
       }
-      /* The menu is drawn inside the pinned window itself: a native popup would steal focus and
-         sit outside the crop, and a pin has to stay exactly what it is — a picture. */
+      #pin-close:hover {
+        background: rgba(214, 62, 78, 0.9);
+      }
+      #pin-tools-toggle:hover,
+      #pin-keep:hover {
+        background: rgba(255, 255, 255, 0.18);
+      }
+      /* The tools are a popup under their own button, not a strip across the picture: a pin is a
+         reference, and chrome over it costs the pixels it was pinned for. */
+      #pin-tools {
+        position: absolute;
+        top: 30px;
+        right: 5px;
+        z-index: 3;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 3px;
+        max-width: calc(100% - 10px);
+        padding: 4px;
+        border-radius: 12px;
+        background: rgba(12, 13, 17, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+        cursor: default;
+      }
+      #pin-tools[hidden] {
+        display: none;
+      }
+      #pin-tools button {
+        width: 22px;
+        height: 22px;
+        display: grid;
+        place-items: center;
+        border: 0;
+        border-radius: 50%;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.82);
+        font: 600 12px/1 "Segoe UI", system-ui, sans-serif;
+        cursor: pointer;
+      }
+      #pin-tools button:hover {
+        background: rgba(255, 255, 255, 0.14);
+      }
+      #pin-tools button.on {
+        background: rgba(123, 224, 255, 0.26);
+        color: #d6f2ff;
+      }
+      /* A swatch is a filled circle: the colour it paints, with a ring so a white one is still a
+         circle and not a hole. */
+      #pin-tools .swatch {
+        width: 18px;
+        height: 18px;
+        padding: 0;
+        margin: 0 1px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+      }
+      #pin-tools .swatch span {
+        display: block;
+        width: 14px;
+        height: 14px;
+        margin: 2px auto;
+        border-radius: 50%;
+      }
+      /* The colours come from these rules, not from style attributes on the spans: the window's CSP
+         lets a stylesheet through but not an inline style, and an attribute-styled dot stays empty. */
+      #pin-tools .swatch[data-color="#f4505e"] span {
+        background: #f4505e;
+      }
+      #pin-tools .swatch[data-color="#ffb020"] span {
+        background: #ffb020;
+      }
+      #pin-tools .swatch[data-color="#35d07f"] span {
+        background: #35d07f;
+      }
+      #pin-tools .swatch[data-color="#7be0ff"] span {
+        background: #7be0ff;
+      }
+      #pin-tools .swatch[data-color="#ffffff"] span {
+        background: #ffffff;
+      }
+      #pin-tools .swatch.on {
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+      }
+      #pin-tools .divider {
+        width: 1px;
+        height: 14px;
+        margin: 0 2px;
+        background: rgba(255, 255, 255, 0.16);
+      }
+      /* The caption field sits where the click landed. Fixed, so a field that reaches the edge of a
+         small pin cannot scroll the document and shift the picture under it. */
+      #pin-text-input {
+        position: fixed;
+        -webkit-appearance: none;
+        z-index: 4;
+        min-width: 70px;
+        max-width: calc(100% - 12px);
+        padding: 3px 6px;
+        border: 1px solid rgba(123, 224, 255, 0.85);
+        border-radius: 6px;
+        background: rgba(10, 11, 14, 0.92);
+        color: inherit;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        font-weight: 600;
+        outline: none;
+      }
+      #pin-text-input[hidden] {
+        display: none;
+      }
       #pin-menu {
         position: absolute;
+        z-index: 5;
         min-width: 168px;
         padding: 4px;
         border-radius: 10px;
@@ -164,6 +276,7 @@
       }
       #pin-toast {
         position: absolute;
+        z-index: 6;
         left: 50%;
         bottom: 8px;
         transform: translateX(-50%);
@@ -186,6 +299,8 @@
   </head>
   <body>
     <img id="pin-shot" alt="" draggable="false" hidden />
+    <canvas id="pin-ink"></canvas>
+    <button id="pin-tools-toggle" aria-label="Tools">✎</button>
     <button id="pin-keep" aria-label="Always on top">
       <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true">
         <path
@@ -193,7 +308,32 @@
         />
       </svg>
     </button>
-    <button id="pin-close" title="Close" aria-label="Close">×</button>
+    <button id="pin-close" aria-label="Close">×</button>
+    <div id="pin-tools" hidden>
+      <button data-tool="move">✥</button>
+      <button data-tool="pen">✎</button>
+      <button data-tool="text">T</button>
+      <div class="divider"></div>
+      <button class="swatch on" data-color="#f4505e"><span></span></button>
+      <button class="swatch" data-color="#ffb020"><span></span></button>
+      <button class="swatch" data-color="#35d07f"><span></span></button>
+      <button class="swatch" data-color="#7be0ff"><span></span></button>
+      <button class="swatch" data-color="#ffffff"><span></span></button>
+      <div class="divider"></div>
+      <button data-action="undo">↶</button>
+      <button data-action="clear">⌫</button>
+    </div>
+    <!-- No autocomplete and no spellcheck: the arrow keys resize the caption, and a suggestion
+         list would swallow them and rewrite the words instead. -->
+    <input
+      id="pin-text-input"
+      type="text"
+      autocomplete="off"
+      autocapitalize="off"
+      autocorrect="off"
+      spellcheck="false"
+      hidden
+    />
     <div id="pin-menu" hidden>
       <button data-action="ask"></button>
       <button data-action="copy-text"></button>

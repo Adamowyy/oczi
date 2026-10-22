@@ -521,6 +521,20 @@ fn pin_menu(
     pin::menu(&app, pin_slot(&label)?, open, need_w, need_h)
 }
 
+/// The annotated picture, or nothing when the drawing was cleared. The page composites it, since
+/// the strokes live on its canvas; Rust only stores what it is given.
+#[tauri::command]
+fn pin_mark(label: String, data: String) -> Result<(), String> {
+    let index = pin_slot(&label)?;
+    if data.trim().is_empty() {
+        return pin::set_marked(index, None);
+    }
+    let encoded = data.split_once("base64,").map(|(_, rest)| rest).unwrap_or(&data);
+    let bytes = crate::util::base64_from(encoded)
+        .ok_or_else(|| "the drawing came back unreadable".to_string())?;
+    pin::set_marked(index, Some(bytes))
+}
+
 /// Above everything, or an ordinary window — the toggle beside the ×.
 #[tauri::command]
 fn pin_topmost(app: AppHandle, label: String, on: bool) -> Result<(), String> {
@@ -1230,6 +1244,7 @@ pub fn run() {
             pin_scale,
             pin_menu,
             pin_topmost,
+            pin_mark,
             pin_close_all,
             ingest_file,
             secret_present,

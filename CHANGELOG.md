@@ -8,6 +8,8 @@ All notable changes to **Oczi** are recorded here.
 
 - Press `Ctrl+Alt+Shift+P`, drag out a region, and it stays exactly where you left it — above
   everything, across monitors, and over a game running in a window.
+- Draw on it with the pen or write on it with the text tool, in five colours; a caption takes its
+  size from the arrow keys, wraps inside the picture and can be dragged where it belongs.
 - Right-click it for the menu: ask about it, copy the text inside it, copy the picture, save it,
   fade it, or close every pin at once. The wheel resizes it, Shift with the wheel fades it.
 - The pin beside the × turns it into an ordinary window, and up to four can hang side by side.

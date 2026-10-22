@@ -18,6 +18,52 @@ pub fn base64_for(bytes: &[u8]) -> String {
     out
 }
 
+/// Standard base64 back to bytes, `None` on anything that is not base64. The annotated pin comes
+/// back from the page as one of these.
+pub fn base64_from(text: &str) -> Option<Vec<u8>> {
+    fn value(byte: u8) -> Option<u8> {
+        match byte {
+            b'A'..=b'Z' => Some(byte - b'A'),
+            b'a'..=b'z' => Some(byte - b'a' + 26),
+            b'0'..=b'9' => Some(byte - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let mut out = Vec::with_capacity(text.len() / 4 * 3);
+    let mut slot: u32 = 0;
+    let mut filled = 0;
+    for &byte in text.as_bytes() {
+        if byte == b'=' || byte == b'\n' || byte == b'\r' {
+            continue;
+        }
+        let nibble = value(byte)?;
+        slot = (slot << 6) | nibble as u32;
+        filled += 1;
+        if filled == 4 {
+            out.push((slot >> 16) as u8);
+            out.push((slot >> 8) as u8);
+            out.push(slot as u8);
+            slot = 0;
+            filled = 0;
+        }
+    }
+    match filled {
+        0 => Some(out),
+        2 => {
+            out.push((slot >> 4) as u8);
+            Some(out)
+        }
+        3 => {
+            out.push((slot >> 10) as u8);
+            out.push((slot >> 2) as u8);
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
 /// The weekday names Windows' `wDayOfWeek` indexes into.
 const WEEKDAYS: [&str; 7] = [
     "Sunday",
@@ -64,7 +110,15 @@ fn weekday(day_of_week: u16) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::base64_for;
+    use super::{base64_for, base64_from};
+
+    #[test]
+    fn base64_comes_back_unchanged() {
+        for sample in [b"" as &[u8], b"f", b"fo", b"foo", b"foob", b"fooba", b"foobar"] {
+            assert_eq!(base64_from(&base64_for(sample)).as_deref(), Some(sample));
+        }
+        assert_eq!(base64_from("not base64 at all!"), None);
+    }
 
     #[test]
     fn base64_matches_rfc4648_vectors() {

@@ -32,6 +32,44 @@ pub fn file(index: usize) -> PathBuf {
     settings::local_dir().join(format!("pin-{}.png", index + 1))
 }
 
+/// The picture with its annotations drawn on, written by the page when it has any. Absent means
+/// the pin is the crop as it was cut.
+pub fn marked(index: usize) -> PathBuf {
+    settings::local_dir().join(format!("pin-{}-marked.png", index + 1))
+}
+
+/// The file the actions should read: the annotated one when the user has drawn on the pin.
+pub fn active(index: usize) -> PathBuf {
+    let marked = marked(index);
+    if marked.exists() {
+        marked
+    } else {
+        file(index)
+    }
+}
+
+/// Stores the annotated picture, or clears it when the page has nothing to add.
+pub fn set_marked(index: usize, bytes: Option<Vec<u8>>) -> Result<(), String> {
+    let path = marked(index);
+    match bytes {
+        Some(bytes) => {
+            std::fs::write(&path, bytes).map_err(|e| format!("could not save the drawing: {e}"))?;
+            log::line(format!(
+                "pin  {} annotated ({} bytes)",
+                label(index),
+                std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
+            ));
+        }
+        None => {
+            if path.exists() {
+                let _ = std::fs::remove_file(&path);
+            }
+            log::line(format!("pin  {} drawing cleared", label(index)));
+        }
+    }
+    Ok(())
+}
+
 /// Set when a capture is started by the pin chord rather than by the eye, so `finish_snip` knows
 /// which of the two things to do with the crop.
 static PIN_MODE: AtomicBool = AtomicBool::new(false);
@@ -135,9 +173,10 @@ pub fn close(app: &AppHandle, index: usize) {
     if let Some(win) = app.get_webview_window(&label(index)) {
         let _ = win.hide();
     }
-    let path = file(index);
-    if path.exists() {
-        let _ = std::fs::remove_file(&path);
+    for path in [file(index), marked(index)] {
+        if path.exists() {
+            let _ = std::fs::remove_file(&path);
+        }
     }
     if let Ok(mut guard) = slots().lock() {
         guard[index] = None;
@@ -397,7 +436,7 @@ pub fn copy_text(index: usize) -> Result<String, String> {
 
 /// The pin's pixels as an image, for anything that takes a pasted picture.
 pub fn copy_image(index: usize) -> Result<(), String> {
-    let path = file(index);
+    let path = active(index);
     if !path.exists() {
         return Err("there is no pin to copy".into());
     }
@@ -408,7 +447,7 @@ pub fn copy_image(index: usize) -> Result<(), String> {
 
 /// Hands the pin's picture to the chat and leaves the pin where it is.
 pub fn ask(app: &AppHandle, snip: &crate::snip::Snip, index: usize) -> Result<(), String> {
-    let path = file(index);
+    let path = active(index);
     if !path.exists() {
         return Err("there is no pin to ask about".into());
     }
@@ -439,7 +478,7 @@ pub fn save_as(index: usize) -> Result<Option<String>, String> {
         FileSaveDialog, IFileDialog, IFileSaveDialog, FOS_OVERWRITEPROMPT, SIGDN_FILESYSPATH,
     };
 
-    let source = file(index);
+    let source = active(index);
     if !source.exists() {
         return Err("there is no pin to save".into());
     }
