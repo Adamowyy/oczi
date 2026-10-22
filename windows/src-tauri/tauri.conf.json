@@ -52,7 +52,7 @@
     "copyright": "© Adam Warzecha",
     "category": "DeveloperTool",
     "shortDescription": "Oczi lives at the top of your screen",
-    "longDescription": "Oczi puts Oczi at the top of your screen: a chat that answers through the DeepSeek API, a file you can drop straight onto her, and coloured pills for the services you connect — without leaving what you are doing.",
+    "longDescription": "Oczi puts Oczi at the top of your screen: a chat that answers through DeepSeek or Gemini — the Gemini key is free — a file you can drop straight onto her, and coloured pills for the services you connect, without leaving what you are doing.",
     "windows": {
       "nsis": {
         "installMode": "currentUser",

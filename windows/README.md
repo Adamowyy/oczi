@@ -6,8 +6,8 @@
 
 **No notch on a PC — so Oczi lives at the top of your screen instead.**
 
-Chat through the **DeepSeek API**, drop a file, keep an eye on your services —
-without leaving what you're doing.
+Chat through **DeepSeek or Gemini** — the Gemini key is free — drop a file, keep an eye
+on your services, without leaving what you're doing.
 
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%2F11-0078D4?logo=windows)
 ![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=black)
@@ -181,7 +181,7 @@ windows/
     island/            state machine, hooks, integrations
     views/             every island view
     settings/          the settings window
-  src-tauri/           Rust backend: window, DeepSeek chat, pollers
+  src-tauri/           Rust backend: window, chat client, pollers
   scripts/             icon generator
 ```
 
@@ -194,8 +194,9 @@ problems. It stays on your machine.
 
 - No notch, so the island lives at the top centre of the screen and retracts into
   the top edge instead of hiding in a notch.
-- The chat talks to **DeepSeek**, not the Claude API, and there is no Claude Code
-  integration at all: no session ticker, no permission approval from the island.
+- The chat talks to **DeepSeek** or **Gemini** (an OpenAI-compatible endpoint each, keys of
+  your own, the Gemini one free), not the Claude API, and there is no Claude Code integration
+  at all: no session ticker, no permission approval from the island.
 - Not in this version: sending a file by email, dragging Oczi onto a window to
   attach it as context, and jumping to a specific terminal window.
 - Cal.com shows the next bookings as a list rather than a calendar view.
