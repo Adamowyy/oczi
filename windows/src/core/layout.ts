@@ -104,7 +104,7 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   // which run it was — so it carries the kind of card, the time and one line of detail.
   routineFull: { height: 176, botX: 60, botY: 88, botDiameter: 50, agentMode: "none" },
   // Taller than a note: the card carries a handful of lines plus its button.
-  whatsnew: { height: 208, botX: 60, botY: null, botDiameter: 50, agentMode: "none" },
+  whatsnew: { height: 272, botX: 60, botY: null, botDiameter: 50, agentMode: "none" },
   settings: { height: 160, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
   // Prices: a search field, the cover, four numbers and two buttons. Taller than the greeting

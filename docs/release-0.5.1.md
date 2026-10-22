@@ -7,6 +7,7 @@ Oczi for Windows 0.5.1.
 - **The pin beside the ×** turns it into an ordinary window; **Shift with the wheel** fades it so what is underneath can be read through it.
 - The shortcut is set in Settings → General, beside the other two.
 
-**Oczi-Windows-0.5.1-setup.exe** is the ordinary Oczi, about 2 MB. The voice installer keeps its 0.5.0 build until it is rebuilt with this feature.
+**Oczi-Windows-0.5.1-setup.exe** is the ordinary Oczi, about 2 MB.
+**Oczi-Windows-0.5.1-voice-setup.exe** is the same Oczi with dictation, a few hundred MB because the speech model is inside.
 
 The installer is unsigned, so Windows shows its SmartScreen warning on the first run.

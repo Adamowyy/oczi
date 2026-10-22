@@ -649,6 +649,24 @@ function buildWhatsNew(actions: ViewActions): ViewHost {
       ),
     ),
   );
+  /** The stack is centred in a card that clips, so content taller than the card loses its top and
+   *  bottom. Measured only once the card is actually on screen: at boot the island is still the
+   *  compact bar, and the height read there says nothing about the card. */
+  function measureWhenShown() {
+    // The island animates its own height, so a read taken the moment the view turns on is a frame
+    // in the middle of the growth and says nothing about the card.
+    window.setTimeout(() => {
+      if (!el.classList.contains("on")) return;
+      const stack = el.querySelector(".stack") as HTMLElement | null;
+      const room = stack?.parentElement?.clientHeight ?? 0;
+      if (!stack || room <= 0) return;
+      void Bridge.log(`news  card ${stack.scrollHeight}/${room}`);
+      if (stack.scrollHeight > room + 1) {
+        void Bridge.log(`news  card overflows: ${stack.scrollHeight} > ${room}`);
+      }
+    }, 1100);
+  }
+
   let shown: typeof State.newsMessage = null;
   return {
     el,
@@ -660,6 +678,7 @@ function buildWhatsNew(actions: ViewActions): ViewHost {
       title.textContent = news.title;
       clear(body);
       body.append(bubble({ id: 0, role: "assistant", content: news.body }));
+      measureWhenShown();
     },
   };
 }

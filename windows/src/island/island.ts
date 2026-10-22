@@ -307,7 +307,12 @@ export class Island {
           // it from the list as it fires it, so a card the greeting painted over is
           // a card nobody will ever see again. Then the card about this version.
           if (from === "greeting" && State.reminder) this.alert("reminder");
-          else if (from === "greeting" && State.newsMessage) this.alert("whatsnew");
+          else if (from === "greeting" && State.newsMessage) {
+            // The card about this version has a button on it, so it is waiting to be read, not a
+            // passing notice: pinned for the same reason a reminder is.
+            State.isPinned = true;
+            this.alert("whatsnew");
+          }
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
         case "home": {
@@ -350,7 +355,13 @@ export class Island {
       this.windowSize = size;
       void Bridge.log(`island window ${size}`);
     };
-    window.addEventListener("resize", note);
+    // Rust gives the window its real size after the page has already booted, so a layout measured at
+    // the config width stays narrow: the island would sit in a strip of its own making until
+    // something asked for the geometry again. Every resize asks.
+    window.addEventListener("resize", () => {
+      note();
+      this.animateGeometry(false);
+    });
     note();
   }
 
