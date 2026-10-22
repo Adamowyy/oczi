@@ -25,16 +25,17 @@ insist — and does the small jobs without pulling you out of what you were doin
 - 📎 **Files** — drop one on her and ask about it; the original is only ever copied.
 - 💬 **Chat** — DeepSeek or Gemini, your own key. The Gemini key is free.
 - ⏰ **Reminders** — ask in the chat; a card arrives on time with **OK** and **+10 min**. Daily, working days or weekly.
+- 🔁 **Routines** — say what to do and when: opening programs, pages, music, closing a process.
 - 🖱️ **The eye** — drag a region of the screen onto your next question.
 - 📌 **Pinned screenshots** — `Ctrl+Alt+Shift+P` pins a region on top of everything, on any monitor.
 - 🩺 **Health** — one click reads load, logs, disks, startup and crashes down to the driver, then scores.
 - 🧹 **Debloat** — the packages Windows brought with it, removed only where you tick, and the result read back.
 - ⏱️ **Watch** — 15 or 30 minutes of every freeze, with the process that was on the processor then.
 - 🏷️ **Game prices** — type a title; the cheapest key beside Steam's price, both record lows.
-- 🖥️ **Terminal** — off by default; switched on, the chat can run commands on your PC.
 - 🫥 **Out of the way** — hides in the top edge; `Ctrl+Alt+M` summons her, `Ctrl+Alt+Shift+S` snips.
 - 🔒 **Private by design** — no account, no telemetry; keys live in the Credential Manager.
 - 🌍 **English or Polish** — one setting away.
+- 🖥️ **Terminal** — off by default. Switched on, the chat can run commands on your PC: help with code, fixing what is broken, opening a program.
 
 **Pills.** Next to Oczi sit her services, each with its own little coloured character:
 **PC** (the three tools above, plus CPU, RAM, disks and battery), **Music** (whatever Windows
@@ -92,9 +93,8 @@ Download **`Oczi-Windows-0.5.2-setup.exe`** from
 [Releases](https://github.com/Adamowyy/oczi/releases/latest) and run it. Windows 10 or 11;
 WebView2 is already on a normal install, and the installer offers it if it is missing.
 
-The installer is **not code-signed**, so SmartScreen may warn (*More info → Run anyway*),
-and Defender has once flagged it as `Trojan:Win32/WacatacH!ml` — a false positive on
-unsigned NSIS installers, reported to Microsoft. Build it from source if that bothers you.
+The installer is **not code-signed**, so SmartScreen may warn (*More info → Run anyway*).
+Build it from source if that bothers you.
 
 Oczi asks for a key on first run (Settings → Chat) and lets you pick the provider.
 **Gemini** is the free one: a key from [Google AI Studio](https://aistudio.google.com/apikey)
