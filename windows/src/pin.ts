@@ -7,6 +7,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { setLang, storedLang, t } from "./core/i18n";
 
 const shot = document.getElementById("pin-shot") as HTMLImageElement;
+const frame = document.getElementById("pin-frame") as HTMLDivElement;
 const close = document.getElementById("pin-close") as HTMLButtonElement;
 const keep = document.getElementById("pin-keep") as HTMLButtonElement;
 const menu = document.getElementById("pin-menu") as HTMLDivElement;
@@ -415,7 +416,6 @@ function closeMenu() {
   if (menu.hidden) return;
   showTools(false);
   menu.hidden = true;
-  document.body.classList.remove("menu");
   releaseRoom();
   void invoke("pin_menu", { label: windowLabel, open: false, needW: 0, needH: 0 }).catch((err) =>
     note(`could not give the room back: ${err}`),
@@ -423,17 +423,11 @@ function closeMenu() {
 }
 
 function releaseRoom() {
-  shot.style.position = "";
-  shot.style.left = "";
-  shot.style.top = "";
-  shot.style.width = "";
-  shot.style.height = "";
-  ink.style.position = "";
-  ink.style.left = "";
-  ink.style.top = "";
-  ink.style.width = "";
-  ink.style.height = "";
-  ink.style.inset = "";
+  frame.style.inset = "";
+  frame.style.left = "";
+  frame.style.top = "";
+  frame.style.width = "";
+  frame.style.height = "";
 }
 
 /** The window is made bigger for as long as the menu is open; the picture keeps its place. */
@@ -442,7 +436,6 @@ async function openMenu(x: number, y: number) {
   // One popup at a time: the tools and the menu would fight for the same corner.
   showTools(false);
   note("menu open");
-  document.body.classList.add("menu");
   menu.hidden = false;
   menu.style.visibility = "hidden";
   const box = menu.getBoundingClientRect();
@@ -464,14 +457,13 @@ async function openMenu(x: number, y: number) {
     note(`could not make room for the menu: ${err}`);
   }
 
-  for (const el of [shot, ink]) {
-    el.style.position = "absolute";
-    el.style.left = `${offsetX}px`;
-    el.style.top = `${offsetY}px`;
-    el.style.width = `${picW}px`;
-    el.style.height = `${picH}px`;
-  }
-  ink.style.inset = "auto";
+  // One box holds the picture and everything drawn on it, so the whole lot shifts together and
+  // the crop stays where the window used to be.
+  frame.style.inset = "auto";
+  frame.style.left = `${offsetX}px`;
+  frame.style.top = `${offsetY}px`;
+  frame.style.width = `${picW}px`;
+  frame.style.height = `${picH}px`;
 
   const left = offsetX > 0 ? offsetX - box.width - 6 : picW + 6;
   const top = offsetY > 0 ? offsetY - box.height - 6 : picH + 6;

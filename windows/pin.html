@@ -27,6 +27,13 @@
         color: rgba(255, 255, 255, 0.94);
         border-radius: 6px;
       }
+      /* Everything that belongs to the picture lives here, so making room for the menu moves one
+         box instead of each layer: the marks, the corner buttons and the tools all keep their
+         place on the crop. The window itself is only bigger than the crop while the menu is open. */
+      #pin-frame {
+        position: absolute;
+        inset: 0;
+      }
       #pin-shot {
         display: block;
         width: 100%;
@@ -91,11 +98,6 @@
       #pin-tools-toggle.on {
         background: rgba(123, 224, 255, 0.3);
         color: #d6f2ff;
-      }
-      body.menu #pin-close,
-      body.menu #pin-keep,
-      body.menu #pin-tools-toggle {
-        display: none;
       }
       #pin-close:hover {
         background: rgba(214, 62, 78, 0.9);
@@ -298,30 +300,33 @@
     </style>
   </head>
   <body>
-    <img id="pin-shot" alt="" draggable="false" hidden />
-    <canvas id="pin-ink"></canvas>
-    <button id="pin-tools-toggle" aria-label="Tools">✎</button>
-    <button id="pin-keep" aria-label="Always on top">
-      <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true">
-        <path
-          d="M15.2 2.3 21.7 8.8l-2.5.6-3.3 3.3.4 3.6-1.9 1.9-3.5-3.5-4.3 4.3-1.3-1.3 4.3-4.3L6 9.9l1.9-1.9 3.6.4 3.3-3.3.4-2.8Z"
-        />
-      </svg>
-    </button>
-    <button id="pin-close" aria-label="Close">×</button>
-    <div id="pin-tools" hidden>
-      <button data-tool="move">✥</button>
-      <button data-tool="pen">✎</button>
-      <button data-tool="text">T</button>
-      <div class="divider"></div>
-      <button class="swatch on" data-color="#f4505e"><span></span></button>
-      <button class="swatch" data-color="#ffb020"><span></span></button>
-      <button class="swatch" data-color="#35d07f"><span></span></button>
-      <button class="swatch" data-color="#7be0ff"><span></span></button>
-      <button class="swatch" data-color="#ffffff"><span></span></button>
-      <div class="divider"></div>
-      <button data-action="undo">↶</button>
-      <button data-action="clear">⌫</button>
+    <div id="pin-frame">
+      <img id="pin-shot" alt="" draggable="false" hidden />
+      <canvas id="pin-ink"></canvas>
+      <button id="pin-tools-toggle" aria-label="Tools">✎</button>
+      <button id="pin-keep" aria-label="Always on top">
+        <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true">
+          <path
+            d="M15.2 2.3 21.7 8.8l-2.5.6-3.3 3.3.4 3.6-1.9 1.9-3.5-3.5-4.3 4.3-1.3-1.3 4.3-4.3L6 9.9l1.9-1.9 3.6.4 3.3-3.3.4-2.8Z"
+          />
+        </svg>
+      </button>
+      <button id="pin-close" aria-label="Close">×</button>
+      <div id="pin-tools" hidden>
+        <button data-tool="move">✥</button>
+        <button data-tool="pen">✎</button>
+        <button data-tool="text">T</button>
+        <div class="divider"></div>
+        <button class="swatch on" data-color="#f4505e"><span></span></button>
+        <button class="swatch" data-color="#ffb020"><span></span></button>
+        <button class="swatch" data-color="#35d07f"><span></span></button>
+        <button class="swatch" data-color="#7be0ff"><span></span></button>
+        <button class="swatch" data-color="#ffffff"><span></span></button>
+        <div class="divider"></div>
+        <button data-action="undo">↶</button>
+        <button data-action="clear">⌫</button>
+      </div>
+      <div id="pin-toast"></div>
     </div>
     <!-- No autocomplete and no spellcheck: the arrow keys resize the caption, and a suggestion
          list would swallow them and rewrite the words instead. -->
@@ -351,7 +356,6 @@
       <button data-action="close"></button>
       <button data-action="close-all"></button>
     </div>
-    <div id="pin-toast"></div>
     <script type="module" src="/src/pin.ts"></script>
   </body>
 </html>
