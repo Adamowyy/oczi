@@ -264,7 +264,9 @@ export interface Settings {
    *  pinned display — see `monitor_key` in island.rs. */
   screen: string;
   autostart: boolean;
-  /** DeepSeek model used by the chat. */
+  /** Which provider answers the chat: "deepseek" or "gemini" — see `core/providers`. */
+  provider: string;
+  /** The chat model, taken from the selected provider's own list. */
   model: string;
   /** Thinking mode: slower, but the model reasons before answering. */
   thinking: boolean;
@@ -305,6 +307,7 @@ export const DEFAULT_SETTINGS: Settings = {
   activeIntegrations: ["integration_pc", "integration_music"],
   screen: "primary",
   autostart: false,
+  provider: "deepseek",
   model: "deepseek-flash",
   thinking: false,
   hotkey: "Ctrl+Alt+M",

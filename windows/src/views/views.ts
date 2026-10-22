@@ -6,6 +6,7 @@ import { Bridge } from "../core/bridge";
 import { State, HEADERLESS_VIEWS, type AgentTask } from "../core/state";
 import { washRGBA, type IslandViewName, type Wash } from "../core/layout";
 import { t, type TextKey } from "../core/i18n";
+import { chatKeyFor, chatLabel } from "../core/providers";
 import { createMiniBot, pruneMiniBots } from "../bot/minibots";
 import { buildPrompt, bubble } from "./chat";
 import { buildChoose, buildUpload, buildUploading } from "./upload";
@@ -358,6 +359,11 @@ function lighten(hex: string, amount: number): string {
 // ── Empty ─────────────────────────────────────────────────────────────────────
 
 function buildEmpty(actions: ViewActions): ViewHost {
+  // The button names the provider that will answer, so it is refreshed on every sync: the
+  // provider is a setting, and the view is built once.
+  const ask = btn(t("chat.askButton", chatLabel(State.settings.provider)), "primary", () =>
+    actions.setView("prompt"),
+  );
   const body = h(
     "div",
     { class: "stack", style: "padding:0 18px 0 118px;flex-direction:row;align-items:center;gap:16px" },
@@ -368,9 +374,15 @@ function buildEmpty(actions: ViewActions): ViewHost {
       h("div", { class: "sub", text: t("chat.askSub") }),
     ),
     h("div", { class: "grow" }),
-    btn(t("chat.askButton"), "primary", () => actions.setView("prompt")),
+    ask,
   );
-  return { el: h("div", { class: "view" }, card(null, body)), sync() {} };
+  return {
+    el: h("div", { class: "view" }, card(null, body)),
+    sync() {
+      const label = ask.querySelector("span");
+      if (label) label.textContent = t("chat.askButton", chatLabel(State.settings.provider));
+    },
+  };
 }
 
 // ── Confused ──────────────────────────────────────────────────────────────────
@@ -701,7 +713,7 @@ function buildSettings(actions: ViewActions): ViewHost {
   let lastKeyCheck = -Infinity;
   async function refreshKey() {
     lastKeyCheck = performance.now();
-    hasKey = (await Bridge.secretPresent("deepseek-api-key")) ?? false;
+    hasKey = (await Bridge.secretPresent(chatKeyFor(State.settings.provider))) ?? false;
     State.notify();
   }
   void refreshKey();
@@ -750,7 +762,7 @@ function buildSettings(actions: ViewActions): ViewHost {
       // shows up without a restart.
       if (performance.now() - lastKeyCheck > 1500) void refreshKey();
       clear(keyBadge);
-      keyBadge.append(dot(hasKey ? "#22C55E" : "#F4505E", 6), h("span", { text: "DeepSeek" }));
+      keyBadge.append(dot(hasKey ? "#22C55E" : "#F4505E", 6), h("span", { text: chatLabel(State.settings.provider) }));
     },
   };
 }

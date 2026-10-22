@@ -4,6 +4,7 @@
 import "./settings.css";
 import { Bridge, onEvent } from "../core/bridge";
 import { DEFAULT_SETTINGS, type Settings } from "../core/state";
+import { CHAT_PROVIDERS, chatProvider, chatKeyFor } from "../core/providers";
 import { LANGUAGES, isLang, setLang, t, type TextKey } from "../core/i18n";
 import { h, clear } from "../views/dom";
 
@@ -34,84 +35,119 @@ function statusDot(ok: boolean): HTMLElement {
   return h("i", { class: "dot", style: `background:${ok ? "#22c55e" : "#f4505e"}` });
 }
 
-// ── DeepSeek API section ──────────────────────────────────────────────────────
+// ── Chat API section ──────────────────────────────────────────────────────────
+// Two providers behind one switch. Which one is on decides the credentials entry, the
+// model list and the reasoning field, so everything provider-shaped is redrawn when the
+// switch moves — and the model follows the provider, because a DeepSeek id under Gemini
+// is a 400 on every chat with nothing on screen to explain it.
 
-const MODELS: [string, string][] = [
-  ["deepseek-flash", "DeepSeek Flash"],
-  ["deepseek-v4-pro", "DeepSeek V4 Pro"],
-];
+function apiSection(present: Record<string, boolean>): HTMLElement {
+  const providerSelect = h("select", {}) as HTMLSelectElement;
+  for (const provider of CHAT_PROVIDERS) {
+    // "(free)" belongs in the picker alone: the key badge and the ask button name the provider,
+    // and a price note there would be noise.
+    const text = provider.note ? `${provider.label} (${t(provider.note)})` : provider.label;
+    providerSelect.append(h("option", { value: provider.id, text }));
+  }
+  providerSelect.value = chatProvider(settings.provider).id;
 
-function apiSection(hasKey: boolean): HTMLElement {
-  const dot = statusDot(hasKey);
-  const state = h("span", { class: "hint", text: hasKey ? t("set.keyStored") : t("set.keyMissing") });
-
-  const field = h("input", {
-    type: "password",
-    placeholder: hasKey ? t("set.keyPlaceholderSaved") : "sk-…",
-    style: "flex:1 1 auto;min-width:0",
-    autocomplete: "off",
-    spellcheck: "false",
-  }) as HTMLInputElement;
-
-  const saveBtn = h("button", { class: "primary", text: t("set.keySave") });
-  const clearBtn = h("button", { class: "danger", text: t("set.keyRemove") });
+  const dot = statusDot(present[chatKeyFor(settings.provider)] ?? false);
+  const heading = h("span", { text: chatProvider(settings.provider).label });
+  const detail = h("div", { style: "display:flex;flex-direction:column;gap:6px" });
   const feedback = h("div", {});
 
-  async function refresh() {
-    const present = (await Bridge.secretPresent("deepseek-api-key")) ?? false;
-    dot.style.background = present ? "#22c55e" : "#f4505e";
-    state.textContent = present ? t("set.keyStored") : t("set.keyMissing");
-    field.placeholder = present ? t("set.keyPlaceholderSaved") : "sk-…";
-    clearBtn.style.display = present ? "" : "none";
+  function draw() {
+    const provider = chatProvider(settings.provider);
+    const hasKey = present[provider.key] ?? false;
+    heading.textContent = provider.label;
+    dot.style.background = hasKey ? "#22c55e" : "#f4505e";
+    clear(detail);
+    clear(feedback);
+
+    const state = h("span", {
+      class: "hint",
+      text: hasKey ? t("set.keyStored") : t("set.keyMissing"),
+    });
+    const field = h("input", {
+      type: "password",
+      placeholder: hasKey ? t("set.keyPlaceholderSaved") : provider.placeholder,
+      style: "flex:1 1 auto;min-width:0",
+      autocomplete: "off",
+      spellcheck: "false",
+    }) as HTMLInputElement;
+    const saveBtn = h("button", { class: "primary", text: t("set.keySave") });
+    const clearBtn = h("button", { class: "danger", text: t("set.keyRemove") });
+    clearBtn.style.display = hasKey ? "" : "none";
+
+    saveBtn.addEventListener("click", async () => {
+      const value = field.value.trim();
+      if (!value) return;
+      try {
+        await Bridge.secretSet(provider.key, value);
+        present[provider.key] = true;
+        draw();
+        feedback.append(h("div", { class: "notice ok", text: t("set.keySaved") }));
+      } catch (err) {
+        feedback.append(h("div", { class: "notice err", text: t("set.keySaveFailed", String(err)) }));
+      }
+    });
+
+    clearBtn.addEventListener("click", async () => {
+      try {
+        await Bridge.secretClear(provider.key);
+        present[provider.key] = false;
+        draw();
+        feedback.append(h("div", { class: "notice ok", text: t("set.keyRemoved") }));
+      } catch (err) {
+        feedback.append(h("div", { class: "notice err", text: t("set.keyRemoveFailed", String(err)) }));
+      }
+    });
+
+    const model = h("select", {}) as HTMLSelectElement;
+    for (const [id, label] of provider.models) model.append(h("option", { value: id, text: label }));
+    // A stored model from the other provider is not offered here at all, so the field shows
+    // what a chat would actually use rather than a value that cannot be sent.
+    model.value = provider.models.some(([id]) => id === settings.model)
+      ? settings.model
+      : provider.models[0][0];
+    model.addEventListener("change", () => {
+      settings.model = model.value;
+      void save();
+    });
+
+    detail.append(
+      state,
+      h("div", { class: "row" }, h("label", { text: t("set.apiKey") }), field, saveBtn, clearBtn),
+      h("div", { class: "row" }, h("label", { text: t("set.model") }), model),
+      h("div", { class: "row" },
+        h("label", { text: t("set.thinking") }),
+        toggle(settings.thinking, (v) => { settings.thinking = v; void save(); }),
+        h("span", { class: "hint", text: t("set.thinkingHint") }),
+      ),
+      h("div", { class: "row" },
+        h("label", { text: t("set.getKey") }),
+        h("button", { text: provider.keyUrl, onclick: () => void Bridge.openUrl(provider.keyUrl) }),
+      ),
+      h("div", { class: "row" }, h("span", { class: "hint", text: t("set.providerHint") })),
+    );
   }
 
-  saveBtn.addEventListener("click", async () => {
-    const value = field.value.trim();
-    if (!value) return;
-    clear(feedback);
-    try {
-      await Bridge.secretSet("deepseek-api-key", value);
-      field.value = "";
-      feedback.append(h("div", { class: "notice ok", text: t("set.keySaved") }));
-      await refresh();
-    } catch (err) {
-      feedback.append(h("div", { class: "notice err", text: t("set.keySaveFailed", String(err)) }));
-    }
-  });
-
-  clearBtn.addEventListener("click", async () => {
-    clear(feedback);
-    try {
-      await Bridge.secretClear("deepseek-api-key");
-      feedback.append(h("div", { class: "notice ok", text: t("set.keyRemoved") }));
-      await refresh();
-    } catch (err) {
-      feedback.append(h("div", { class: "notice err", text: t("set.keyRemoveFailed", String(err)) }));
-    }
-  });
-
-  const model = h("select", {}) as HTMLSelectElement;
-  for (const [id, label] of MODELS) model.append(h("option", { value: id, text: label }));
-  model.value = settings.model;
-  model.addEventListener("change", () => {
-    settings.model = model.value;
+  providerSelect.addEventListener("change", () => {
+    const next = chatProvider(providerSelect.value);
+    settings.provider = next.id;
+    if (!next.models.some(([id]) => id === settings.model)) settings.model = next.models[0][0];
     void save();
+    draw();
   });
 
-  clearBtn.style.display = hasKey ? "" : "none";
+  draw();
 
   return h(
     "section",
     {},
-    h("h2", {}, dot, h("span", { text: t("set.deepseek") })),
-    state,
-    h("div", { class: "row" }, h("label", { text: t("set.apiKey") }), field, saveBtn, clearBtn),
-    h("div", { class: "row" }, h("label", { text: t("set.model") }), model),
-    h("div", { class: "row" },
-      h("label", { text: t("set.thinking") }),
-      toggle(settings.thinking, (v) => { settings.thinking = v; void save(); }),
-      h("span", { class: "hint", text: t("set.thinkingHint") }),
-    ),
+    h("h2", {}, dot, heading),
+    h("div", { class: "row" }, h("label", { text: t("set.provider") }), providerSelect),
+    detail,
     feedback,
   );
 }
@@ -285,7 +321,24 @@ interface IntegrationDef {
   fields: SecretField[];
 }
 
+// Two groups, in this order: the pills that need no key or account first, because those are the
+// ones that work the moment Oczi is installed, then the keyed ones with Games at the top — the
+// list is read top to bottom, so a user who has no key at all should not have to scroll past six
+// services he cannot use yet to find the two that already work.
 const INTEGRATIONS: IntegrationDef[] = [
+  // No key, no account: this one reads the machine Oczi runs on.
+  { id: "integration_pc", name: "PC", color: "#4CC2FF", fields: [] },
+  // Nor this one: Windows itself reports what is playing, whatever the player.
+  { id: "integration_music", name: "Music", color: "#F472B6", fields: [] },
+  // Prices: gg.deals' own API with the key the user generates in their account (Settings → API).
+  // Steam does the title lookup, which is why no other field is needed.
+  { id: "integration_prices", name: "Games", color: "#E4A11B",
+    fields: [
+      { key: "ggdeals-api-key", labelKey: "set.ggdealsKey", placeholder: "…", secret: true },
+      // The region decides the currency: `pl` gives PLN, and leaving it empty follows the
+      // interface language.
+      { key: "ggdeals-region", labelKey: "set.ggdealsRegion", placeholder: "pl", secret: false },
+    ] },
   { id: "integration_stripe", name: "Stripe", color: "#0570DE",
     fields: [{ key: "stripe-api-key", labelKey: "set.secretKey", placeholder: "sk_live_…", secret: true }] },
   { id: "integration_github", name: "GitHub", color: "#F4505E",
@@ -303,19 +356,6 @@ const INTEGRATIONS: IntegrationDef[] = [
     fields: [{ key: "notion-api-key", labelKey: "set.integrationToken", placeholder: "ntn_…", secret: true }] },
   { id: "integration_calcom", name: "Cal.com", color: "#C9956A",
     fields: [{ key: "calcom-api-key", labelKey: "set.apiKey", placeholder: "cal_…", secret: true }] },
-  // No key, no account: this one reads the machine Oczi runs on.
-  { id: "integration_pc", name: "PC", color: "#4CC2FF", fields: [] },
-  // Nor this one: Windows itself reports what is playing, whatever the player.
-  { id: "integration_music", name: "Music", color: "#F472B6", fields: [] },
-  // Prices: gg.deals' own API with the key the user generates in their account (Settings → API).
-  // Steam does the title lookup, which is why no other field is needed.
-  { id: "integration_prices", name: "Games", color: "#E4A11B",
-    fields: [
-      { key: "ggdeals-api-key", labelKey: "set.ggdealsKey", placeholder: "…", secret: true },
-      // The region decides the currency: `pl` gives PLN, and leaving it empty follows the
-      // interface language.
-      { key: "ggdeals-region", labelKey: "set.ggdealsRegion", placeholder: "pl", secret: false },
-    ] },
 ];
 
 const MAX_ACTIVE = 4;
@@ -669,10 +709,9 @@ async function main() {
   setLang(settings.language);
   document.title = t("set.title");
 
-  const hasKey = (await Bridge.secretPresent("deepseek-api-key")) ?? false;
-
   // Read from the tables that build the rows: the hand-kept copy here missed the Games keys.
   const keys = [
+    ...CHAT_PROVIDERS.map((provider) => provider.key),
     ...SEARCH_KEYS.map((f) => f.key),
     ...INTEGRATIONS.flatMap((def) => def.fields.map((f) => f.key)),
   ];
@@ -682,7 +721,7 @@ async function main() {
   clear(root);
   root.append(
     h("h1", {}, h("span", { text: "Oczi" }), h("span", { class: "version", text: version })),
-    apiSection(hasKey),
+    apiSection(present),
     webSection(present),
     terminalSection(),
     integrationsSection(present),

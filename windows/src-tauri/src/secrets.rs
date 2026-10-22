@@ -10,6 +10,9 @@ const LEGACY_SERVICE: &str = "fr.louisraille.coucou";
 /// Every key Oczi may store. Anything outside this list is refused.
 pub const KNOWN_KEYS: &[&str] = &[
     "deepseek-api-key",
+    // The other chat provider — see `providers.rs`. Same rules: a key replaces, it is never
+    // read back by the front end.
+    "gemini-api-key",
     "n8n-url",
     "n8n-api-key",
     "vercel-token",

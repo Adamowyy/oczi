@@ -1,14 +1,15 @@
-// DeepSeek chat client. Keeps the API key in the Credential Manager and file
-// bytes off IPC; a thinking turn keeps only `content`, never `reasoning_content`.
+// The chat client. Keeps the API key in the Credential Manager and file bytes off IPC; a
+// thinking turn keeps only `content`, never `reasoning_content`. Which vendor answers comes
+// from `providers.rs` — one loop serves both, because both speak the same OpenAI shape.
 
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::providers::{self, Provider};
 use crate::secrets;
 
-const ENDPOINT: &str = "https://api.deepseek.com/chat/completions";
 const MAX_TOKENS: u32 = 8192;
 /// Text and code files are inlined; anything larger is skipped.
 const MAX_INLINE_TEXT: u64 = 1_000_000;
@@ -22,9 +23,7 @@ const MAX_INLINE_IMAGE: u64 = 10 * 1024 * 1024;
 const ATTEMPT_TIMEOUT_SECS: u64 = 45;
 const MAX_ATTEMPTS: u32 = 3;
 
-/// Current model IDs from api-docs.deepseek.com; the retired `deepseek-chat` /
-/// `deepseek-reasoner` aliases now error, and thinking is a per-request switch.
-pub const DEFAULT_MODEL: &str = "deepseek-flash";
+// Model IDs live in `providers.rs`, one allowlist per provider.
 
 const SYSTEM_PROMPT: &str = "You are Oczi, a personal AI assistant living in a small window at the top of the user's screen. \
 You help with absolutely anything — research, coding, finding places, recommendations, tasks, questions. \
@@ -95,6 +94,10 @@ const MAX_TOOL_ROUNDS: u32 = 6;
 pub struct Options<'a> {
     pub model: &'a str,
     pub thinking: bool,
+    /// Which provider answers the chat — `providers::get` turns this into the endpoint,
+    /// the credential entry and the model allowlist. `provider` below is the *search*
+    /// backend and has nothing to do with it.
+    pub llm: &'a str,
     /// Offer the web tools for this turn (the user's "Szukanie w sieci" switch).
     pub web: bool,
     /// Which search backend `crate::web` should use.
@@ -812,10 +815,11 @@ pub struct ChatReply {
 pub(crate) async fn advice(report_text: &str) -> Result<String, String> {
     // No key means no advice; the findings are the report, and a missing key is not an error worth
     // showing anyone.
-    if secrets::get("deepseek-api-key").is_none() {
+    let settings = crate::settings::load();
+    let provider = providers::get(&settings.provider);
+    if secrets::get(provider.key_name).is_none() {
         return Err("no key".to_string());
     }
-    let settings = crate::settings::load();
     let chat = Chat::default();
     let query = format!(
         "Below is the result of a health scan of this computer. The user is looking at the score and\
@@ -832,6 +836,7 @@ pub(crate) async fn advice(report_text: &str) -> Result<String, String> {
             // A reading of a few findings does not need the reasoning pass, and the scan already
             // made the user wait for the samples.
             thinking: false,
+            llm: &settings.provider,
             web: false,
             provider: &settings.search_provider,
             terminal: false,
@@ -845,6 +850,65 @@ pub(crate) async fn advice(report_text: &str) -> Result<String, String> {
     Ok(reply.text)
 }
 
+/// Times every Gemini model at the two reasoning levels the app may send, with the app's own
+/// body — system prompt, tool schemas and all. The free tier publishes no latency figure, and a
+/// model that thinks for twenty seconds in front of the notch reads as a hung app, so this is
+/// measured on the real endpoint rather than guessed from the docs. Run with
+/// `oczi.exe --chat-latency`; the key is read from the Credential Manager and never printed.
+pub(crate) async fn latency_probe() {
+    let provider = &providers::GEMINI;
+    let Some(key) = secrets::get(provider.key_name) else {
+        println!("no {} key stored", provider.label);
+        return;
+    };
+    let system = system_prompt(true, true, "pl");
+    let specs = tools(true, true);
+    println!("model\teffort\tms\tresult");
+    for model in provider.models {
+        for effort in ["minimal", "low"] {
+            let body = json!({
+                "model": model,
+                "max_tokens": MAX_TOKENS,
+                "stream": false,
+                "messages": [
+                    { "role": "system", "content": system },
+                    { "role": "user", "content": "In one sentence: what is Oczi?" }
+                ],
+                "tools": specs,
+                "tool_choice": "auto",
+                "reasoning_effort": effort,
+            });
+            let start = std::time::Instant::now();
+            // The app's own call path, retries and model walk included, so the row proves what a
+            // chat would really get — and `served by` shows when another model answered.
+            let outcome = match tokio::time::timeout(
+                std::time::Duration::from_secs(ATTEMPT_TIMEOUT_SECS * 4),
+                call_with_retry(&key, &body, provider),
+            )
+            .await
+            {
+                Err(_) => "gave up".to_string(),
+                Ok(Err(err)) => format!("error: {err}"),
+                Ok(Ok(value)) => {
+                    let answered = value
+                        .pointer("/choices/0/message/content")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .chars()
+                        .count();
+                    let out = value
+                        .pointer("/usage/completion_tokens")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
+                    let served = value.get("model").and_then(Value::as_str).unwrap_or("?");
+                    format!("ok, {answered} chars, {out} out, served by {served}")
+                }
+            };
+            println!("{model}\t{effort}\t{}\t{outcome}", start.elapsed().as_millis());
+        }
+    }
+}
+
 /// One chat turn. With web or terminal access on this is a small agent loop:
 /// the model asks, the app performs the lookup, the result returns as a message.
 pub async fn send(
@@ -854,8 +918,9 @@ pub async fn send(
     context: Option<ChatContext>,
     screenshot: Option<String>,
 ) -> Result<ChatReply, String> {
-    let key = secrets::get("deepseek-api-key")
-        .ok_or_else(|| "No API key — open the settings.".to_string())?;
+    let provider = providers::get(options.llm);
+    let key = secrets::get(provider.key_name)
+        .ok_or_else(|| format!("No {} API key — open the settings.", provider.label))?;
 
     // A dropped file or window titles the conversation, so it rides the first
     // message only; a screenshot rides whichever turn the user took it for.
@@ -916,12 +981,13 @@ pub async fn send(
             "model": model,
             "max_tokens": MAX_TOKENS,
             "stream": false,
-            // Sent explicitly rather than left to the server default: deepseek-flash
-            // defaults to thinking on, which is the wrong default for a two-second
-            // glance from the notch.
-            "thinking": { "type": if thinking { "enabled" } else { "disabled" } },
             "messages": messages.clone(),
         });
+        // Sent explicitly rather than left to the server default: DeepSeek's flash model
+        // thinks by default and Gemini falls back to its own level, both of which are the
+        // wrong default for a two-second glance from the notch. Each provider has its own
+        // field for this — see `providers::apply_reasoning`.
+        providers::apply_reasoning(&mut body, provider, thinking);
         // With the tools gone, say so in words as well: a model that keeps
         // reaching for them otherwise spends the round writing a call it cannot
         // make instead of the answer that is wanted.
@@ -943,11 +1009,12 @@ pub async fn send(
         }
 
         crate::log::line(format!(
-            "chat  send model={model} thinking={thinking} tools={with_tools} round={round} msgs={} body={}B",
+            "chat  send provider={} model={model} thinking={thinking} tools={with_tools} round={round} msgs={} body={}B",
+            provider.id,
             messages.len(),
             body.to_string().len()
         ));
-        let response = call_with_retry(&key, &body).await?;
+        let response = call_with_retry(&key, &body, provider).await?;
 
         let message = response
             .pointer("/choices/0/message")
@@ -1079,15 +1146,16 @@ async fn answer_now(key: &str, options: Options<'_>, messages: &[Value]) -> Opti
         "role": "user",
         "content": "Stop and answer in plain text now, in the user's language: say what you found, and what the user should do with it."
     }));
-    let body = json!({
+    let provider = providers::get(options.llm);
+    let mut body = json!({
         "model": options.model,
         "max_tokens": MAX_TOKENS,
         "stream": false,
-        "thinking": { "type": if options.thinking { "enabled" } else { "disabled" } },
         "messages": asked,
     });
+    providers::apply_reasoning(&mut body, provider, options.thinking);
     crate::log::line("chat  final answer attempt, no tools".to_string());
-    let response = call_with_retry(key, &body).await.ok()?;
+    let response = call_with_retry(key, &body, provider).await.ok()?;
     let content = response
         .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
@@ -1113,19 +1181,25 @@ fn last_resort(output: Option<&str>) -> String {
 
 struct CallError {
     retryable: bool,
+    /// The provider answered "this model has no capacity right now" (503) or "this model's
+    /// quota is spent" (429) — a different model is worth a try, the same one is not.
+    capacity: bool,
     message: String,
 }
 
-/// Up to `MAX_ATTEMPTS` tries, each on a fresh connection, so an overloaded
-/// DeepSeek backend that stalls the response body only costs one attempt.
-/// Hard errors (bad key, retired model) surface immediately.
-async fn call_with_retry(key: &str, body: &Value) -> Result<Value, String> {
+/// Up to `MAX_ATTEMPTS` tries. A stall or a network hiccup gets the same model again on a fresh
+/// connection; "this model is at capacity" (503) or "its quota is spent" (429) moves to the next
+/// model in the provider's table instead — retrying a name that has no capacity spends the
+/// attempts the user does not have, and on the free tier it is the difference between an answer
+/// in two seconds and none at all.
+async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result<Value, String> {
+    let mut body = body.clone();
     let mut last = String::new();
     for attempt in 1..=MAX_ATTEMPTS {
         crate::log::line(format!("chat  attempt {attempt}/{MAX_ATTEMPTS}"));
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(ATTEMPT_TIMEOUT_SECS),
-            call_once(key, body),
+            call_once(key, &body, provider),
         )
         .await;
         match result {
@@ -1135,6 +1209,14 @@ async fn call_with_retry(key: &str, body: &Value) -> Result<Value, String> {
                     return Err(err.message);
                 }
                 last = err.message;
+                if err.capacity {
+                    let current = body["model"].as_str().unwrap_or_default().to_string();
+                    let next = providers::next_model(provider, &current);
+                    if next != current {
+                        crate::log::line(format!("chat  {current} has no capacity, trying {next}"));
+                        body["model"] = json!(next);
+                    }
+                }
             }
             Err(_) => {
                 last = format!("no answer within {ATTEMPT_TIMEOUT_SECS}s");
@@ -1146,21 +1228,72 @@ async fn call_with_retry(key: &str, body: &Value) -> Result<Value, String> {
         }
     }
     crate::log::line(format!("chat  giving up after {MAX_ATTEMPTS} attempts: {last}"));
-    Err(format!("The model did not answer ({last}). DeepSeek may be overloaded — try again."))
+    Err(format!(
+        "The model did not answer ({last}). {} may be overloaded — try again.",
+        provider.label
+    ))
 }
 
-async fn call_once(key: &str, body: &Value) -> Result<Value, CallError> {
+async fn call_once(key: &str, body: &Value, provider: &Provider) -> Result<Value, CallError> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(ATTEMPT_TIMEOUT_SECS))
         .build()
         .map_err(|e| CallError {
             retryable: true,
+            capacity: false,
             message: e.to_string(),
         })?;
 
+    let (status, text) = post_once(&client, key, provider, body).await?;
+    // Gemini answers 400 for a reasoning level a model will not take instead of ignoring it,
+    // and `minimal` is exactly the value a Lite model may refuse. One step down to `low` keeps
+    // the cheapest level as the default without leaving a chat that cannot work at all on a
+    // model where it is refused — and the ladder is invisible to the user, who cannot set it.
+    let (status, text) = if refused_effort(status, body) {
+        crate::log::line(format!(
+            "chat  {} refused reasoning_effort=minimal ({}), retrying at low",
+            provider.label,
+            providers::error_detail(&text).unwrap_or_default()
+        ));
+        let mut lowered = body.clone();
+        lowered["reasoning_effort"] = json!("low");
+        post_once(&client, key, provider, &lowered).await?
+    } else {
+        (status, text)
+    };
+
+    if !status.is_success() {
+        // Surface the API's own message, which is what makes a bad key obvious. Gemini wraps
+        // its error object in a one-element array, so this goes through the provider table's
+        // reader instead of a JSON pointer that only understands the OpenAI shape.
+        let detail = providers::error_detail(&text)
+            .unwrap_or_else(|| text.chars().take(200).collect());
+        crate::log::line(format!("chat  {} API {status}: {detail}", provider.label));
+        let at_capacity = status.as_u16() == 503 || status.as_u16() == 429;
+        return Err(CallError {
+            retryable: status.is_server_error() || at_capacity,
+            capacity: at_capacity,
+            message: format!("{} API {status}: {detail}", provider.label),
+        });
+    }
+    serde_json::from_str(&text).map_err(|e| CallError {
+        retryable: true,
+        capacity: false,
+        message: format!("Bad API response: {e}"),
+    })
+}
+
+/// The transport half of `call_once`: one request, one response body, split out so a refused
+/// reasoning level is retried without building a second client or writing the hop logs twice.
+async fn post_once(
+    client: &reqwest::Client,
+    key: &str,
+    provider: &Provider,
+    body: &Value,
+) -> Result<(reqwest::StatusCode, String), CallError> {
     crate::log::line("chat  → connecting…".to_string());
     let response = client
-        .post(ENDPOINT)
+        .post(provider.endpoint)
         .header("authorization", format!("Bearer {key}"))
         .header("content-type", "application/json")
         .json(body)
@@ -1170,6 +1303,7 @@ async fn call_once(key: &str, body: &Value) -> Result<Value, CallError> {
             crate::log::line(format!("chat  network error: {e}"));
             CallError {
                 retryable: true,
+                capacity: false,
                 message: format!("Network error: {e}"),
             }
         })?;
@@ -1180,31 +1314,22 @@ async fn call_once(key: &str, body: &Value) -> Result<Value, CallError> {
         crate::log::line(format!("chat  body read error: {e}"));
         CallError {
             retryable: true,
+            capacity: false,
             message: e.to_string(),
         }
     })?;
     crate::log::line(format!("chat  → body received, {} bytes", text.len()));
-    if !status.is_success() {
-        // Surface the API's own message, which is what makes a bad key obvious.
-        let detail = serde_json::from_str::<Value>(&text)
-            .ok()
-            .and_then(|v| {
-                v.get("error")
-                    .and_then(|e| e.get("message"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-            .unwrap_or_else(|| text.chars().take(200).collect());
-        crate::log::line(format!("chat  DeepSeek API {status}: {detail}"));
-        return Err(CallError {
-            retryable: status.is_server_error() || status.as_u16() == 429,
-            message: format!("DeepSeek API {status}: {detail}"),
-        });
-    }
-    serde_json::from_str(&text).map_err(|e| CallError {
-        retryable: true,
-        message: format!("Bad API response: {e}"),
-    })
+    Ok((status, text))
+}
+
+/// Whether this failure is a model refusing the cheapest reasoning level.
+fn refused_effort(status: reqwest::StatusCode, body: &Value) -> bool {
+    status.as_u16() == 400
+        && body
+            .get("reasoning_effort")
+            .and_then(Value::as_str)
+            .map(|level| level == "minimal")
+            .unwrap_or(false)
 }
 
 /// A dropped image rides the first turn as a real image block, the same way a

@@ -2,6 +2,17 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.2 — 2026-10-22
+
+**Gemini beside DeepSeek — and the Gemini key is free.**
+
+- Settings → Chat switches the provider: **Gemini (free)**, with a key of your own from Google AI
+  Studio — no card, no billing, enough quota for everyday questions — or DeepSeek, which is paid
+  per use.
+- Everything behaves the same on either one: the tools, screenshots, dropped files and the answer
+  format. The key stays in the Windows Credential Manager and only ever reaches the provider you
+  picked.
+
 ## 0.5.1 — 2026-10-22
 
 **A pinned screenshot**: a region that stays on the screen instead of becoming a question.

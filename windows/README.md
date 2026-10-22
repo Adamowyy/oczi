@@ -89,11 +89,21 @@ anything destructive — that is a strong hint, not a sandbox. No sandbox.
 
 ## Chat
 
-**Settings… → DeepSeek** takes your API key and picks the model — `deepseek-flash`
-(one second answers) or `deepseek-v4-pro` (stronger, dearer), plus a **Thinking**
-switch that makes either one reason before answering. The chat runs against the
-OpenAI-compatible `https://api.deepseek.com/chat/completions` endpoint, and it runs
-in Rust: the key and a dropped file's bytes never cross into the web view.
+**Settings… → Chat** takes your own API key and lets you pick the provider:
+
+- **Gemini (free)** — a key from [Google AI Studio](https://aistudio.google.com/apikey) costs
+  nothing and needs no card or billing account. This is the one for anyone who does not want to
+  pay for an API: the free tier carries ordinary day-to-day use, and Oczi runs
+  `gemini-3.6-flash` against it.
+- **DeepSeek** — paid per use: `deepseek-flash` (one second answers) or `deepseek-v4-pro`
+  (stronger, dearer), plus a **Thinking** switch that makes either one reason before answering.
+
+Both are the same OpenAI-compatible chat API, so the tools, screenshots, dropped files and
+answers behave identically on either one — and the call runs in Rust, so your key and a dropped
+file's bytes never cross into the web view. The key is yours, kept in the Windows Credential
+Manager, and sent to that provider alone. On Gemini's unpaid quota Google may use what you send
+to improve its products; inside the EEA the paid data terms apply to it anyway, so prompts stay
+out of that — either way, read their terms before sending anything confidential.
 
 **Settings… → Internet** gives the chat live web access, on by default. The model
 gets two tools — `web_search` and `fetch_url` — and the app performs the lookups:

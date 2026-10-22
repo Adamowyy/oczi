@@ -22,8 +22,13 @@ pub struct Settings {
     /// "primary" = the main display, "cursor" = whichever display the mouse is on.
     pub screen: String,
     pub autostart: bool,
-    /// DeepSeek model used by the chat. Changeable in the settings window.
-    /// Defaulted explicitly so a settings.json written by an older build still loads.
+    /// Which provider answers the chat: `deepseek` or `gemini` — see `crate::providers`.
+    /// The model below belongs to it, so the two are validated together.
+    #[serde(default = "default_provider")]
+    pub provider: String,
+    /// The chat model, from the selected provider's own allowlist. Changeable in the
+    /// settings window. Defaulted explicitly so a settings.json written by an older build
+    /// still loads.
     #[serde(default = "default_model")]
     pub model: String,
     /// Thinking mode. Off answers in about a second; on makes the model reason
@@ -88,8 +93,16 @@ fn default_search_provider() -> String {
     crate::web::PROVIDERS[0].to_string()
 }
 
+fn default_provider() -> String {
+    crate::providers::DEFAULT_PROVIDER.to_string()
+}
+
+/// The default model of the provider a fresh install talks to. A stored model from the
+/// *other* provider is replaced by `sanitise`, not by this.
 fn default_model() -> String {
-    crate::deepseek::DEFAULT_MODEL.to_string()
+    crate::providers::get(crate::providers::DEFAULT_PROVIDER)
+        .default_model
+        .to_string()
 }
 
 fn default_hotkey() -> String {
@@ -144,6 +157,7 @@ impl Default for Settings {
             active_integrations: vec!["integration_pc".into(), "integration_music".into()],
             screen: "primary".into(),
             autostart: false,
+            provider: default_provider(),
             model: default_model(),
             thinking: false,
             hotkey: default_hotkey(),
@@ -180,18 +194,26 @@ fn settings_path() -> PathBuf {
     config_dir().join("settings.json")
 }
 
-/// Model IDs the API currently serves. Anything else in a settings.json — a
-/// retired alias like `deepseek-chat`, or the Claude model an older build wrote
-/// — would 400 on every chat, so it is replaced with the default on load.
-pub const KNOWN_MODELS: [&str; 2] = ["deepseek-flash", "deepseek-v4-pro"];
+/// Puts the two values that have to agree back in step: the provider must be one Oczi
+/// knows, and the model must belong to *that* provider's allowlist. Anything else in a
+/// settings.json — a retired alias like `deepseek-chat`, the Claude model an older build
+/// wrote, or DeepSeek's model left behind after switching to Gemini — would 400 on every
+/// chat, and a single global model list is exactly what makes such a switch look broken.
+/// Run on load and again on save, so a settings window cannot leave a mismatched pair behind.
+pub fn sanitise(settings: &mut Settings) {
+    settings.provider = crate::providers::get(&settings.provider).id.to_string();
+    if !crate::providers::model_ok(&settings.provider, &settings.model) {
+        settings.model = crate::providers::get(&settings.provider)
+            .default_model
+            .to_string();
+    }
+}
 
 pub fn load() -> Settings {
     match std::fs::read(settings_path()) {
         Ok(bytes) => {
             let mut settings: Settings = serde_json::from_slice(&bytes).unwrap_or_default();
-            if !KNOWN_MODELS.contains(&settings.model.as_str()) {
-                settings.model = default_model();
-            }
+            sanitise(&mut settings);
             if crate::island::parse_hotkey(&settings.hotkey).is_none() {
                 settings.hotkey = default_hotkey();
             }

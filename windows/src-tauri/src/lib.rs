@@ -13,6 +13,7 @@ mod ocr;
 mod pc;
 mod pin;
 mod prices;
+mod providers;
 mod reminders;
 mod routines;
 mod secrets;
@@ -116,6 +117,9 @@ fn mark_version_seen(shared: State<Shared>, version: String) {
 
 #[tauri::command]
 fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) {
+    // The provider and the model have to agree, and the island reads them straight out of
+    // this struct: a mismatched pair saved once would 400 on every chat until the next load.
+    settings::sanitise(&mut settings);
     let (
         screen_changed,
         autostart_changed,
@@ -299,10 +303,11 @@ async fn chat_send(
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
-    let (model, thinking, web_search, provider, terminal, language) = {
+    let (model, provider_id, thinking, web_search, search_provider, terminal, language) = {
         let settings = shared.settings.lock().unwrap();
         (
             settings.model.clone(),
+            settings.provider.clone(),
             settings.thinking,
             settings.web_search,
             settings.search_provider.clone(),
@@ -330,8 +335,9 @@ async fn chat_send(
         Options {
             model: &model,
             thinking,
+            llm: &provider_id,
             web: web_search,
-            provider: &provider,
+            provider: &search_provider,
             terminal,
             language: &language,
         },
@@ -1129,6 +1135,19 @@ pub fn run() {
             }
             return;
         }
+    }
+
+    // How long each Gemini model actually takes, at each reasoning level the app may send:
+    // `oczi.exe --chat-latency` times them with the stored key and prints the table. The free
+    // tier publishes no latency figure, and a model that thinks for twenty seconds in front of
+    // the notch reads as a hung app — so the choice of model is measured, not guessed. It builds
+    // its own runtime because Tauri's does not exist this early.
+    if std::env::args().any(|arg| arg == "--chat-latency") {
+        match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            Ok(runtime) => runtime.block_on(deepseek::latency_probe()),
+            Err(err) => println!("failed: {err}"),
+        }
+        return;
     }
 
     // What the model is actually told, in full: `oczi.exe --prompt` prints the system prompt
