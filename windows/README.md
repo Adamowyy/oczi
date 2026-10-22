@@ -22,14 +22,12 @@ on your services, without leaving what you're doing.
 
 ## Install
 
-Download **`Oczi-Windows-0.5.1-setup.exe`** from
+Download **`Oczi-Windows-0.5.2-setup.exe`** from
 [Releases](https://github.com/Adamowyy/oczi/releases/latest). It installs for the
 current user only — no admin prompt.
 
 The installer is **not code-signed yet**, so expect a SmartScreen warning
-(*More info → Run anyway*). Microsoft Defender has also flagged it once as
-`Trojan:Win32/WacatacH!ml` — a machine-learning false positive on unsigned NSIS
-installers, reported to Microsoft. If that is not acceptable, [build it
+(*More info → Run anyway*). If that is not acceptable, [build it
 yourself](#build-it-yourself): a few minutes, and you get the same thing from
 source.
 
