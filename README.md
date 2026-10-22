@@ -27,7 +27,7 @@ insist — and does the small jobs without pulling you out of what you were doin
 - ⏰ **Reminders** — ask in the chat; a card arrives on time with **OK** and **+10 min**. Daily, working days or weekly.
 - 🖱️ **The eye** — drag a region of the screen onto your next question.
 - 📌 **Pinned screenshots** — `Ctrl+Alt+Shift+P` pins a region on top of everything, on any monitor.
-- 🩺 **Health** — one click reads load, three days of events, disks, startup and crash reports, then scores the machine.
+- 🩺 **Health** — one click reads load, logs, disks, startup and crashes down to the driver, then scores.
 - 🧹 **Debloat** — the packages Windows brought with it, removed only where you tick, and the result read back.
 - ⏱️ **Watch** — 15 or 30 minutes of every freeze, with the process that was on the processor then.
 - 🏷️ **Game prices** — type a title; the cheapest key beside Steam's price, both record lows.
@@ -55,6 +55,10 @@ Everything under the hood — the runtime, the terminal, the log, the layout —
 <em>Music — the current track, with play/pause and skip.</em></td>
 </tr>
 </table>
+
+<img src="docs/health-report.jpg" alt="The health report: a score, the findings and what was checked" width="640">
+
+*Health — a score, the findings, and the driver behind each.*
 
 <img src="docs/integration-games.jpg" alt="The Games card: a title search, the cover, the cheapest key beside Steam's price, and both record lows" width="640">
 
