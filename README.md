@@ -27,6 +27,9 @@ insist — and does the small jobs without pulling you out of what you were doin
 - ⏰ **Reminders** — ask in the chat; a card arrives on time with **OK** and **+10 min**. Daily, working days or weekly.
 - 🖱️ **The eye** — drag a region of the screen onto your next question.
 - 📌 **Pinned screenshots** — `Ctrl+Alt+Shift+P` pins a region on top of everything, on any monitor.
+- 🩺 **Health** — one click reads load, three days of events, disks, startup and crash reports, then scores the machine.
+- 🧹 **Debloat** — the packages Windows brought with it, removed only where you tick, and the result read back.
+- ⏱️ **Watch** — 15 or 30 minutes of every freeze, with the process that was on the processor then.
 - 🏷️ **Game prices** — type a title; the cheapest key beside Steam's price, both record lows.
 - 🖥️ **Terminal** — off by default; switched on, the chat can run commands on your PC.
 - 🫥 **Out of the way** — hides in the top edge; `Ctrl+Alt+M` summons her, `Ctrl+Alt+Shift+S` snips.
@@ -34,7 +37,7 @@ insist — and does the small jobs without pulling you out of what you were doin
 - 🌍 **English or Polish** — one setting away.
 
 **Pills.** Next to Oczi sit her services, each with its own little coloured character:
-**PC** (CPU, RAM, disks, battery — read from your own machine), **Music** (whatever Windows
+**PC** (the three tools above, plus CPU, RAM, disks and battery), **Music** (whatever Windows
 is playing, with play/pause and skip), **Games**, plus **Stripe**, **n8n**, **GitHub**,
 **Vercel**, **Resend**, **Notion** and **Cal.com**. PC and Music need no key and come
 switched on; the rest wait until you pick them.
