@@ -6,7 +6,7 @@ All notable changes to **Oczi** are recorded here.
 
 **Gemini beside DeepSeek — and the Gemini key is free.**
 
-- Settings → Chat switches the provider: **Gemini (free)**, with a key of your own from Google AI
+- Settings → DeepSeek / Gemini switches the provider: **Gemini (free)**, with a key of your own from Google AI
   Studio — no card, no billing, enough quota for everyday questions — or DeepSeek, which is paid
   per use.
 - Everything behaves the same on either one: the tools, screenshots, dropped files and the answer
@@ -204,7 +204,7 @@ ask for instead of handing you a list to pick from.
 
 ## 0.1.4 — 2026-10-04
 
-- **Settings → Island lives on** now lists every display, numbered the way Windows
+- **Settings → General → Island lives on** now lists every display, numbered the way Windows
   numbers it, so the island can be pinned to one specific monitor instead of only
   the main one or the one under the cursor. The pick is stored under the display's
   device name, which outlives a restart; a monitor that is unplugged later falls

@@ -46,7 +46,7 @@ source.
 Everything else happens on its own: a finished integration pulse badges its pill,
 and your services sit in the coloured pills next to Oczi.
 
-The UI is English by default; **Settings… → Language** switches it to Polish, and
+The UI is English by default; **Settings… → General → Language** switches it to Polish, and
 the island follows — the whole page is re-loaded, because the views bake their
 texts when they are built. Adding another language is one table in
 `src/core/i18n.ts`, and `npm run check:i18n` keeps the tables in step.
@@ -87,7 +87,7 @@ anything destructive — that is a strong hint, not a sandbox. No sandbox.
 
 ## Chat
 
-**Settings… → Chat** takes your own API key and lets you pick the provider:
+**Settings… → DeepSeek / Gemini** takes your own API key and lets you pick the provider:
 
 - **Gemini (free)** — a key from [Google AI Studio](https://aistudio.google.com/apikey) costs
   nothing and needs no card or billing account. This is the one for anyone who does not want to

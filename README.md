@@ -96,7 +96,7 @@ WebView2 is already on a normal install, and the installer offers it if it is mi
 The installer is **not code-signed**, so SmartScreen may warn (*More info → Run anyway*).
 Build it from source if that bothers you.
 
-Oczi asks for a key on first run (Settings → Chat) and lets you pick the provider.
+Oczi asks for a key on first run (Settings → DeepSeek / Gemini) and lets you pick the provider.
 **Gemini** is the free one: a key from [Google AI Studio](https://aistudio.google.com/apikey)
 costs nothing, no card and no billing. **DeepSeek** is paid per use. Without a key she can
 still sit there and look pretty, but she cannot answer anything.
@@ -104,7 +104,7 @@ still sit there and look pretty, but she cannot answer anything.
 ## Game prices and GG.deals
 
 The **Games** pill needs a free API key from [gg.deals](https://gg.deals/settings/)
-(Settings → API) and a region code (`pl`, `de`, `gb`, `us`…), which picks the currency —
+(Settings → Integrations) and a region code (`pl`, `de`, `gb`, `us`…), which picks the currency —
 `pl` gets złoty, and without a region the API answers in dollars. Free keys are meant for
 personal, hobby and open-source use, so Oczi shows the link back to the game's GG.deals page
 that their terms ask for. The card reads only GG.deals' `prices/by-steam-app-id` and Steam's
