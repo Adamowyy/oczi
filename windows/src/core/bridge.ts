@@ -90,6 +90,11 @@ export interface TweakState {
   admin: boolean;
   needsAdmin: boolean;
   restart: boolean;
+  /** Empty for a switch. When it is not, the row is a segmented control and these are its values,
+   *  in the order the window shows them. */
+  choices: number[];
+  /** The number Windows holds right now, for a choice row. */
+  value: number | null;
 }
 
 /** One change this app made, with the value it replaced. `was` is `null` when the value was not
@@ -189,6 +194,7 @@ export const Bridge = {
 
   /** One switch, both directions; the answer is the whole table re-read. */
   tweakSet: (id: string, on: boolean) => callOrThrow<TweakState[]>("tweak_set", { id, on }),
+  tweakChoose: (id: string, value: number) => callOrThrow<TweakState[]>("tweak_choose", { id, value }),
 
   /** Back to Windows' own default — the value is deleted, not guessed. */
   tweakReset: (id: string) => callOrThrow<TweakState[]>("tweak_reset", { id }),

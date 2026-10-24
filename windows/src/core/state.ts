@@ -242,6 +242,11 @@ export interface TweakState {
   admin: boolean;
   needsAdmin: boolean;
   restart: boolean;
+  /** Empty for a switch. When it is not, the row is a segmented control and these are its values,
+   *  in the order the window shows them. */
+  choices: number[];
+  /** The number Windows holds right now, for a choice row. */
+  value: number | null;
 }
 
 /** One change this app made, with the value it replaced — `null` meaning the value was absent. */

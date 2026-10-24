@@ -1047,6 +1047,14 @@ async fn tweak_set(id: String, on: bool) -> Result<Vec<tweaks::TweakState>, Stri
         .unwrap_or_else(|e| Err(e.to_string()))
 }
 
+/// A row with more than two states: the number is the one the table lists.
+#[tauri::command]
+async fn tweak_choose(id: String, value: u32) -> Result<Vec<tweaks::TweakState>, String> {
+    tauri::async_runtime::spawn_blocking(move || tweaks::set_value(&id, value))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
 /// Back to Windows' own default — the value is deleted, not guessed.
 #[tauri::command]
 async fn tweak_reset(id: String) -> Result<Vec<tweaks::TweakState>, String> {
@@ -1334,6 +1342,12 @@ pub fn run() {
         return;
     }
 
+    // The Windows settings table, printed: every row's value as this machine holds it.
+    if std::env::args().any(|arg| arg == "--tweaks") {
+        println!("{}", tweaks::describe(&tweaks::list()));
+        return;
+    }
+
     // Game Bar and the capture switches, without a window: the same reading the Debloat window
     // draws, printed, so the registry values behind one toggle can be checked against the machine.
     if std::env::args().any(|arg| arg == "--gamebar") {
@@ -1485,6 +1499,7 @@ pub fn run() {
             clean_run,
             tweaks_list,
             tweak_set,
+            tweak_choose,
             tweak_reset,
             tweak_elevated,
             tweak_undo,

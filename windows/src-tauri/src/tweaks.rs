@@ -34,10 +34,8 @@ const ADVANCED: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\
 const CONTENT_DELIVERY: &str =
     "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager";
 const SEARCH: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Search";
+const BING_POLICY: &str = "Software\\Policies\\Microsoft\\Windows\\Explorer";
 const COPILOT_POLICY: &str = "Software\\Policies\\Microsoft\\Windows\\WindowsCopilot";
-/// The CLSID Explorer reads the context menu from; an empty string value means "use the old one".
-const CONTEXT_MENU: &str =
-    "Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32";
 const TELEMETRY_POLICY: &str = "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection";
 
 /// What kind of value a row is. Copy because the table is a const and every reader takes it by
@@ -46,9 +44,14 @@ const TELEMETRY_POLICY: &str = "SOFTWARE\\Policies\\Microsoft\\Windows\\DataColl
 enum Kind {
     /// A DWORD switch, with the number each state wants.
     Dword { on: u32, off: u32 },
-    /// An empty string that exists or does not: Windows reads the classic context menu from
-    /// exactly this, and there is no number to write.
+    /// An empty string that exists or does not. No row uses it any more — the classic context menu
+    /// stopped being read in 24H2 — but the shape stays for the next setting that is a presence
+    /// rather than a number.
+    #[allow(dead_code)]
     Marker,
+    /// Three or more states, in the order the window draws them. The taskbar search is the one:
+    /// hidden, an icon, or the box. A switch cannot say that.
+    Choice { values: &'static [u32] },
 }
 
 /// One setting the window can offer.
@@ -68,15 +71,6 @@ struct Tweak {
 /// The catalogue, in the order the window draws it. Only what is in here is ever offered.
 const TWEAKS: &[Tweak] = &[
     // ── Explorer ─────────────────────────────────────────────────────────────
-    Tweak {
-        id: "context.classic",
-        group: "explorer",
-        machine: false,
-        path: CONTEXT_MENU,
-        name: "",
-        kind: Kind::Marker,
-        restart: true,
-    },
     Tweak {
         id: "explorer.recent",
         group: "explorer",
@@ -127,11 +121,14 @@ const TWEAKS: &[Tweak] = &[
         id: "taskbar.search",
         group: "taskbar",
         machine: false,
-        path: ADVANCED,
-        // 0 hidden, 1 icon, 2 box. "On" is the icon: a search that is there without eating the
-        // taskbar, which is what the box costs on a small screen.
+        // The one Windows 11 actually reads. `Explorer\Advanced\SearchboxTaskbarMode` exists too and
+        // is ignored, which is how this setting looked like it did nothing.
+        path: SEARCH,
+        // 0 hidden, 1 icon, 2 box.
         name: "SearchboxTaskbarMode",
-        kind: Kind::Dword { on: 1, off: 2 },
+        kind: Kind::Choice {
+            values: &[1, 0, 2],
+        },
         restart: true,
     },
     // ── Privacy ──────────────────────────────────────────────────────────────
@@ -139,9 +136,11 @@ const TWEAKS: &[Tweak] = &[
         id: "privacy.bing",
         group: "privacy",
         machine: false,
-        path: SEARCH,
-        name: "BingSearchEnabled",
-        kind: Kind::Dword { on: 0, off: 1 },
+        // Windows 24H2 ignores `Search\BingSearchEnabled`; this policy is what it still reads,
+        // and it sits in the user's hive, so no administrator is needed.
+        path: BING_POLICY,
+        name: "DisableSearchBoxSuggestions",
+        kind: Kind::Dword { on: 1, off: 0 },
         restart: true,
     },
     Tweak {
@@ -180,15 +179,6 @@ const TWEAKS: &[Tweak] = &[
         kind: Kind::Dword { on: 0, off: 1 },
         restart: false,
     },
-    Tweak {
-        id: "privacy.telemetry",
-        group: "privacy",
-        machine: true,
-        path: TELEMETRY_POLICY,
-        name: "AllowTelemetry",
-        kind: Kind::Dword { on: 0, off: 1 },
-        restart: false,
-    },
 ];
 
 // ── What the window shows ─────────────────────────────────────────────────────
@@ -207,6 +197,11 @@ pub struct TweakState {
     pub needs_admin: bool,
     /// Explorer has to restart before this shows up.
     pub restart: bool,
+    /// Empty for a switch. When it is not, the row is drawn as a segmented control and these are
+    /// its values, in the order the window shows them.
+    pub choices: Vec<u32>,
+    /// The number Windows holds right now, for a choice row (`None` when the value is not there).
+    pub value: Option<i64>,
 }
 
 /// One change this app made, with the value it replaced — `None` meaning the value was not there.
@@ -247,6 +242,10 @@ fn current(tweak: &Tweak) -> Option<i64> {
             registry::value_exists(root_of(tweak), tweak.path, tweak.name, tweak.machine)
                 .then_some(1)
         }
+        Kind::Choice { .. } => {
+            registry::read_dword(root_of(tweak), tweak.path, tweak.name, tweak.machine)
+                .map(|value| value as i64)
+        }
     }
 }
 
@@ -256,6 +255,9 @@ fn is_on(tweak: &Tweak) -> bool {
     match tweak.kind {
         Kind::Dword { on, .. } => current(tweak) == Some(on as i64),
         Kind::Marker => current(tweak).is_some(),
+        // A choice is never "off": it always holds one of its values. `on` then means the first
+        // entry, which is the quiet one, so the summary line counts it like any other row.
+        Kind::Choice { values } => current(tweak) == Some(values[0] as i64),
     }
 }
 
@@ -272,6 +274,15 @@ fn write(tweak: &Tweak, on: bool) -> bool {
                 registry::delete_value(root_of(tweak), tweak.path, tweak.name, tweak.machine)
             }
         }
+        // A switch on a choice row writes its first entry, which is what the window shows as the
+        // row's resting state; the segmented control is the way to pick the others.
+        Kind::Choice { values } => registry::write_dword(
+            root_of(tweak),
+            tweak.path,
+            tweak.name,
+            tweak.machine,
+            if on { values[0] } else { values[1] },
+        ),
     }
 }
 
@@ -286,6 +297,11 @@ pub fn list() -> Vec<TweakState> {
             admin: tweak.machine,
             needs_admin: false,
             restart: tweak.restart,
+            choices: match tweak.kind {
+                Kind::Choice { values } => values.to_vec(),
+                _ => Vec::new(),
+            },
+            value: current(tweak),
         })
         .collect()
 }
@@ -308,6 +324,54 @@ pub fn set(id: &str, on: bool) -> Result<Vec<TweakState>, String> {
     let mut states = list();
     if let Some(state) = states.iter_mut().find(|state| state.id == tweak.id) {
         state.needs_admin = tweak.machine && landed != on;
+        if state.needs_admin {
+            log::line(format!("tweak {}: needs an administrator", tweak.id));
+        }
+    }
+    Ok(states)
+}
+
+/// One line per row, for the command line: the same reading the window draws.
+pub fn describe(states: &[TweakState]) -> String {
+    states
+        .iter()
+        .map(|state| {
+            let what = if state.choices.is_empty() {
+                (if state.on { "on" } else { "off" }).to_string()
+            } else {
+                format!("{:?}", state.value)
+            };
+            format!("{:14} {what}", state.id)
+        })
+        .collect::<Vec<_>>()
+        .join("
+")
+}
+
+/// Picks one of a choice row's values. The number has to be one the table lists: the window can
+/// only send back what it was given, and nothing else is written.
+pub fn set_value(id: &str, value: u32) -> Result<Vec<TweakState>, String> {
+    let tweak = find(id)?;
+    let Kind::Choice { values } = tweak.kind else {
+        // i18n-ok: shown as it is in the Debloat window.
+        return Err(format!("{} nie ma wyboru, tylko przełącznik.", tweak.id));
+    };
+    if !values.contains(&value) {
+        // i18n-ok: shown as it is in the Debloat window.
+        return Err(format!("{} nie ma wartości {}.", tweak.id, value));
+    }
+    let was = current(tweak);
+    let written = registry::write_dword(root_of(tweak), tweak.path, tweak.name, tweak.machine, value);
+    if written {
+        record(tweak.id, was, value == values[0]);
+        log::line(format!("tweak {}: choice {} (was {:?})", tweak.id, value, was));
+    } else if !tweak.machine {
+        // i18n-ok: shown as it is in the Debloat window.
+        return Err(format!("Nie udało się zapisać {}.", tweak.id));
+    }
+    let mut states = list();
+    if let Some(state) = states.iter_mut().find(|state| state.id == tweak.id) {
+        state.needs_admin = tweak.machine && current(tweak) != Some(value as i64);
         if state.needs_admin {
             log::line(format!("tweak {}: needs an administrator", tweak.id));
         }
@@ -378,6 +442,14 @@ fn elevated_script(tweak: &Tweak, on: bool) -> String {
             } else {
                 format!("$ErrorActionPreference='Stop'; Remove-ItemProperty -Path '{path}' -Name '' -ErrorAction SilentlyContinue")
             }
+        }
+        Kind::Choice { values } => {
+            let value = if on { values[0] } else { values[1] };
+            format!(
+                "$ErrorActionPreference='Stop'; New-Item -Path '{path}' -Force | Out-Null; \
+                 Set-ItemProperty -Path '{path}' -Name '{}' -Value {value} -Type DWord",
+                tweak.name
+            )
         }
     }
 }
@@ -452,14 +524,14 @@ pub fn undo(id: &str) -> Result<Vec<TweakState>, String> {
         (Kind::Marker, None) => {
             registry::delete_value(root_of(tweak), tweak.path, tweak.name, tweak.machine)
         }
-        (Kind::Dword { .. }, Some(value)) => registry::write_dword(
+        (Kind::Dword { .. } | Kind::Choice { .. }, Some(value)) => registry::write_dword(
             root_of(tweak),
             tweak.path,
             tweak.name,
             tweak.machine,
             value as u32,
         ),
-        (Kind::Dword { .. }, None) => {
+        (Kind::Dword { .. } | Kind::Choice { .. }, None) => {
             registry::delete_value(root_of(tweak), tweak.path, tweak.name, tweak.machine)
         }
     };

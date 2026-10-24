@@ -2972,6 +2972,40 @@ html.asleep *::after {
 /* Groups of rows under one eyebrow, a summary line, and the two actions that belong to the whole
    table rather than to a row. Same row shape as the gaming block above it, on purpose. */
 
+/* A row Windows spells with three numbers: the states are the control, so nothing has to be
+   guessed from a switch that can only say two things. */
+.tweak-seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tweak-seg .seg {
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim-2);
+  font: 500 11.5px var(--font);
+  cursor: pointer;
+}
+
+.tweak-seg .seg:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.tweak-seg .seg.on {
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--ink);
+}
+
+.tweak-seg .seg:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .tweak-group {
   display: flex;
   flex-direction: column;

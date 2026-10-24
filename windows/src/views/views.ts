@@ -1469,7 +1469,6 @@ async function gameAction(
 
 /** The label key for a tweak id. A record rather than a switch so a missing id is a type error. */
 const TWEAK_LABELS: Record<string, TextKey> = {
-  "context.classic": "tweaks.contextClassic",
   "explorer.recent": "tweaks.explorerRecent",
   "explorer.frequent": "tweaks.explorerFrequent",
   "explorer.ads": "tweaks.explorerAds",
@@ -1525,6 +1524,46 @@ function tweakRow(d: DebloatState, tweak: TweakState): HTMLElement {
       : tweak.restart
         ? t("tweaks.restartHint")
         : "";
+  // A row with more than two states is drawn as the states themselves: the taskbar search is
+  // hidden, an icon, or the box, and a switch would have to lie about one of them.
+  if (tweak.choices.length > 0) {
+    // The words for each state, in the same order the table lists them.
+    const labels: Record<number, string> = {
+      0: t("tweaks.taskbar_search_0"),
+      1: t("tweaks.taskbar_search_1"),
+      2: t("tweaks.taskbar_search_2"),
+    };
+    const seg = h("div", { class: "tweak-seg" });
+    for (const value of tweak.choices) {
+      seg.append(
+        h("button", {
+          class: tweak.value === value ? "seg on" : "seg",
+          text: labels[value] ?? String(value),
+          "aria-pressed": tweak.value === value,
+          disabled: busy,
+          onclick: () => {
+            if (value === tweak.value || busy) return;
+            void tweakAction(tweak.id, () =>
+              tweak.admin
+                ? Bridge.tweakElevated(tweak.id, value === tweak.choices[0])
+                : Bridge.tweakChoose(tweak.id, value),
+            );
+          },
+        }),
+      );
+    }
+    return h(
+      "div",
+      { class: "game-row" },
+      h(
+        "span",
+        { class: "game-name" },
+        h("strong", { text: tweakName(tweak.id) }),
+        sub ? h("span", { class: "pkg", text: sub }) : null,
+      ),
+      seg,
+    );
+  }
   const sw = h("button", {
     class: tweak.on ? "switch on" : "switch",
     "aria-pressed": tweak.on,
