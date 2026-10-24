@@ -3,7 +3,15 @@
 import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
 import { Bridge } from "../core/bridge";
-import { State, HEADERLESS_VIEWS, type AgentTask } from "../core/state";
+import {
+  State,
+  HEADERLESS_VIEWS,
+  type AgentTask,
+  type DebloatState,
+  type GameBarState,
+  type StartupEntry,
+  type TweakState,
+} from "../core/state";
 import { washRGBA, type IslandViewName, type Wash } from "../core/layout";
 import { t, type TextKey } from "../core/i18n";
 import { chatKeyFor, chatLabel } from "../core/providers";
@@ -1235,11 +1243,32 @@ async function loadDebloat() {
     busy: false,
     pending: [],
     result: previous?.result ?? null,
+    tab: previous?.tab ?? "packages",
+    game: previous?.game ?? null,
+    gameBusy: null,
+    gameNote: previous?.gameNote ?? null,
+    tweaks: previous?.tweaks ?? null,
+    tweakBusy: null,
+    tweakNote: previous?.tweakNote ?? null,
+    changes: previous?.changes ?? [],
+    startup: previous?.startup ?? null,
+    startupBusy: null,
+    clean: previous?.clean ?? null,
+    cleanBusy: false,
+    cleanNote: previous?.cleanNote ?? null,
+    cleanFreed: previous?.cleanFreed ?? null,
   };
   State.notify();
   try {
     const items = await Bridge.debloatList();
     const history = (await Bridge.debloatHistory()) ?? [];
+    // Each of these is its own reading and its own failure: a table that will not load must not
+    // take the package list down with it.
+    const game = await Bridge.gamebarStatus().catch(() => null);
+    const tweaks = await Bridge.tweaksList().catch(() => null);
+    const changes = (await Bridge.tweaksHistory()) ?? [];
+    const startup = await Bridge.startupList().catch(() => null);
+    const clean = await Bridge.cleanScan().catch(() => null);
     // A fresh reading is the truth about what is installed, so the ticks start from it: the safe
     // packages pre-ticked, the careful ones never.
     State.debloat = {
@@ -1250,6 +1279,20 @@ async function loadDebloat() {
       busy: false,
       pending: [],
       result: State.debloat?.result ?? null,
+      tab: State.debloat?.tab ?? "packages",
+      game,
+      gameBusy: null,
+      gameNote: State.debloat?.gameNote ?? null,
+      tweaks,
+      tweakBusy: null,
+      tweakNote: State.debloat?.tweakNote ?? null,
+      changes,
+      startup,
+      startupBusy: null,
+      clean,
+      cleanBusy: false,
+      cleanNote: State.debloat?.cleanNote ?? null,
+      cleanFreed: State.debloat?.cleanFreed ?? null,
     };
   } catch (e) {
     State.debloat = {
@@ -1260,9 +1303,559 @@ async function loadDebloat() {
       busy: false,
       pending: [],
       result: { removed: [], failed: [], error: e instanceof Error ? e.message : String(e) },
+      tab: State.debloat?.tab ?? "packages",
+      game: State.debloat?.game ?? null,
+      gameBusy: null,
+      gameNote: State.debloat?.gameNote ?? null,
+      tweaks: State.debloat?.tweaks ?? null,
+      tweakBusy: null,
+      tweakNote: State.debloat?.tweakNote ?? null,
+      changes: State.debloat?.changes ?? [],
+      startup: State.debloat?.startup ?? null,
+      startupBusy: null,
+      clean: State.debloat?.clean ?? null,
+      cleanBusy: false,
+      cleanNote: State.debloat?.cleanNote ?? null,
+      cleanFreed: State.debloat?.cleanFreed ?? null,
     };
   }
   State.notify();
+}
+
+/** The one package the block owns by name; the catalogue still lists it below. */
+const GAME_BAR = "Microsoft.XboxGamingOverlay";
+
+/** Game Bar and the capture behind it are one thing: the overlay records, and a machine without
+ *  the overlay has nothing to record with. So one row, one button — removing it switches the
+ *  recording off, installing it switches the recording back on. */
+function gameBarRow(d: DebloatState, g: GameBarState): HTMLElement {
+  const busy = d.gameBusy !== null;
+  const state = t(g.capture ? "game.dvrOn" : "game.dvrOff");
+  const button = g.installed
+    ? h("button", {
+        class: "ghost",
+        text: d.gameBusy === "remove" ? t("game.removing") : t("game.uninstall"),
+        disabled: busy,
+        onclick: () => void switchGameBar(g),
+      })
+    : h("button", {
+        class: "primary",
+        text: d.gameBusy === "install" ? t("game.installing") : t("game.install"),
+        disabled: busy,
+        onclick: () => void switchGameBar(g),
+      });
+  return h(
+    "div",
+    { class: "game-row" },
+    h(
+      "span",
+      { class: "game-name" },
+      h("strong", { text: t("game.bar") }),
+      h("span", { class: "pkg", text: g.version ? `${g.version} · ${state}` : state }),
+    ),
+    h("span", {
+      class: g.installed ? "game-pill ok" : "game-pill off",
+      text: t(g.installed ? "game.present" : "game.absent"),
+    }),
+    button,
+  );
+}
+
+/** One click, both halves: the package and the capture switch together, in whichever direction the
+ *  machine is in now. The reading afterwards decides what the row says, not the click. */
+async function switchGameBar(state: GameBarState) {
+  const d = State.debloat;
+  if (!d || d.gameBusy) return;
+  const removing = state.installed;
+  d.gameBusy = removing ? "remove" : "install";
+  d.gameNote = null;
+  State.notify();
+  try {
+    if (removing) {
+      const outcome = await Bridge.debloatRemove([GAME_BAR]);
+      if (outcome.removed.length === 0) {
+        throw new Error(outcome.failed.join(", ") || t("game.gone"));
+      }
+      // Removed: nothing can record any more, so the switches follow the package.
+      d.game = await Bridge.gamebarCapture(false);
+      d.gameNote = { text: t("game.gone") };
+    } else {
+      await Bridge.gamebarInstall();
+      // Installed: the recording comes back with it, which is the state a fresh Windows has.
+      d.game = await Bridge.gamebarCapture(true);
+      d.gameNote = { text: t("game.back") };
+    }
+    void Bridge.log(
+      `debloat game bar: ${removing ? "removed with dvr off" : "installed with dvr on"}`,
+    );
+  } catch (e) {
+    d.gameNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+    void Bridge.log(`debloat game bar: ${removing ? "remove" : "install"} failed`);
+  }
+  d.gameBusy = null;
+  await loadDebloat();
+}
+
+function gameBlock(d: DebloatState): HTMLElement {
+  const g = d.game;
+  const block = h(
+    "div",
+    { class: "game-block" },
+    h("div", { class: "game-eyebrow", text: t("debloat.games") }),
+  );
+  if (!g) {
+    block.append(h("div", { class: "game-note", text: "…" }));
+    return block;
+  }
+  block.append(gameBarRow(d, g));
+  // Only offered when the user's own switch could not hold on its own: a UAC prompt nobody asked
+  // for is worse than a row that stops one level short and says so.
+  if (g.needsAdmin) {
+    block.append(
+      h(
+        "div",
+        { class: "game-admin" },
+        h("span", { text: t("game.needsAdmin") }),
+        h("button", {
+          class: "ghost",
+          text: d.gameBusy === "admin" ? t("game.adminBusy") : t("game.raiseAdmin"),
+          disabled: d.gameBusy !== null,
+          onclick: () =>
+            void gameAction(
+              "admin",
+              () => Bridge.gamebarPolicyElevated(!g.capture),
+              t("game.adminDone"),
+            ),
+        }),
+      ),
+    );
+  }
+  if (d.gameNote && d.gameNote.text) {
+    block.append(
+      h("div", { class: d.gameNote.bad ? "game-note bad" : "game-note", text: d.gameNote.text }),
+    );
+  }
+  return block;
+}
+
+/** Runs one other control on the card: busy flag up, the answer read back, one line about it. */
+async function gameAction(
+  which: "capture" | "install" | "admin",
+  run: () => Promise<GameBarState>,
+  said: string,
+) {
+  const d = State.debloat;
+  if (!d || d.gameBusy) return;
+  d.gameBusy = which;
+  d.gameNote = null;
+  State.notify();
+  try {
+    d.game = await run();
+    d.gameNote = said ? { text: said } : null;
+    void Bridge.log(`debloat game bar ${which}: ok`);
+  } catch (e) {
+    d.gameNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+    void Bridge.log(`debloat game bar ${which}: failed`);
+  }
+  d.gameBusy = null;
+  State.notify();
+}
+
+// ── The Windows settings block ────────────────────────────────────────────────
+// One table in Rust, three groups in the window. The labels live here because they are words, the
+// paths live there because they are Windows' business; a new setting is one row and two strings.
+// Every click is followed by a re-read of the whole table, so a switch that did not land shows as
+// the state it stayed in rather than the one that was asked for.
+
+/** The label key for a tweak id. A record rather than a switch so a missing id is a type error. */
+const TWEAK_LABELS: Record<string, TextKey> = {
+  "context.classic": "tweaks.contextClassic",
+  "explorer.recent": "tweaks.explorerRecent",
+  "explorer.frequent": "tweaks.explorerFrequent",
+  "explorer.ads": "tweaks.explorerAds",
+  "taskbar.widgets": "tweaks.taskbarWidgets",
+  "taskbar.copilot": "tweaks.taskbarCopilot",
+  "taskbar.search": "tweaks.taskbarSearch",
+  "privacy.bing": "tweaks.privacyBing",
+  "privacy.copilot": "tweaks.privacyCopilot",
+  "privacy.silentapps": "tweaks.privacySilentApps",
+  "privacy.suggestions": "tweaks.privacySuggestions",
+  "privacy.softlanding": "tweaks.privacySoftLanding",
+  "privacy.telemetry": "tweaks.privacyTelemetry",
+};
+
+const TWEAK_GROUPS: { id: TweakState["group"]; label: TextKey }[] = [
+  { id: "explorer", label: "tweaks.groupExplorer" },
+  { id: "taskbar", label: "tweaks.groupTaskbar" },
+  { id: "privacy", label: "tweaks.groupPrivacy" },
+];
+
+function tweakName(id: string): string {
+  const key = TWEAK_LABELS[id];
+  return key ? t(key) : id;
+}
+
+/** Runs one row: busy by id, the table re-read, one line about what happened. */
+async function tweakAction(id: string, run: () => Promise<TweakState[]>) {
+  const d = State.debloat;
+  if (!d || d.tweakBusy) return;
+  d.tweakBusy = id;
+  d.tweakNote = null;
+  State.notify();
+  try {
+    d.tweaks = await run();
+    d.changes = (await Bridge.tweaksHistory()) ?? [];
+    void Bridge.log(`tweak ${id}: ok`);
+  } catch (e) {
+    d.tweakNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+    void Bridge.log(`tweak ${id}: failed`);
+  }
+  d.tweakBusy = null;
+  State.notify();
+}
+
+function tweakRow(d: DebloatState, tweak: TweakState): HTMLElement {
+  const busy = d.tweakBusy !== null;
+  // The machine level is a promise the window can only keep through one prompt, so the row says so
+  // before the click rather than after a refusal.
+  const sub = tweak.needsAdmin
+    ? t("tweaks.needsAdmin")
+    : tweak.admin
+      ? t("tweaks.adminRow")
+      : tweak.restart
+        ? t("tweaks.restartHint")
+        : "";
+  const sw = h("button", {
+    class: tweak.on ? "switch on" : "switch",
+    "aria-pressed": tweak.on,
+    title: t(tweak.on ? "tweaks.on" : "tweaks.off"),
+    disabled: busy,
+    onclick: () =>
+      void tweakAction(tweak.id, () =>
+        tweak.admin
+          ? Bridge.tweakElevated(tweak.id, !tweak.on)
+          : Bridge.tweakSet(tweak.id, !tweak.on),
+      ),
+  });
+  return h(
+    "div",
+    { class: "game-row" },
+    h(
+      "span",
+      { class: "game-name" },
+      h("strong", { text: tweakName(tweak.id) }),
+      sub ? h("span", { class: "pkg", text: sub }) : null,
+    ),
+    sw,
+  );
+}
+
+function tweaksBlock(d: DebloatState): HTMLElement {
+  const block = h("div", { class: "tweak-group" });
+  if (!d.tweaks) {
+    block.append(h("div", { class: "game-note", text: "…" }));
+    return block;
+  }
+  const on = d.tweaks.filter((tweak) => tweak.on).length;
+  block.append(
+    h(
+      "div",
+      { class: "tweaks-head" },
+      h("span", { class: "game-eyebrow", text: t("tweaks.title") }),
+      h("span", { class: "count", text: t("tweaks.count", on, d.tweaks.length) }),
+    ),
+  );
+  for (const group of TWEAK_GROUPS) {
+    const rows = d.tweaks.filter((tweak) => tweak.group === group.id);
+    if (rows.length === 0) continue;
+    block.append(
+      h("div", { class: "game-eyebrow group", text: t(group.label) }),
+      ...rows.map((tweak) => tweakRow(d, tweak)),
+    );
+  }
+  if (d.tweakNote && d.tweakNote.text) {
+    block.append(
+      h("div", { class: d.tweakNote.bad ? "game-note bad" : "game-note", text: d.tweakNote.text }),
+    );
+  }
+  // Half of these are only read when Explorer starts, so the restart is offered rather than done:
+  // it closes every folder window the user has open.
+  block.append(
+    h(
+      "div",
+      { class: "tweaks-actions" },
+      h("button", {
+        class: "ghost",
+        text: t("tweaks.restartExplorer"),
+        disabled: d.tweakBusy !== null,
+        onclick: () => void restartExplorer(),
+      }),
+      h("button", {
+        class: "ghost",
+        text: t("tweaks.resetAll"),
+        disabled: d.tweakBusy !== null || d.tweaks.every((tweak) => !tweak.on && !tweak.admin),
+        onclick: () => void resetAllTweaks(),
+      }),
+    ),
+  );
+  // The last three changes, with the value each replaced: the undo is a write, not a guess.
+  const recent = d.changes.slice(0, 3);
+  if (recent.length > 0) {
+    block.append(
+      h("div", { class: "game-eyebrow group", text: t("tweaks.history") }),
+      ...recent.map((change) =>
+        h(
+          "div",
+          { class: "game-row history" },
+          h(
+            "span",
+            { class: "game-name" },
+            h("strong", { text: tweakName(change.id) }),
+            h("span", { class: "pkg", text: t(change.on ? "tweaks.wasOn" : "tweaks.wasOff") }),
+          ),
+          h("button", {
+            class: "ghost",
+            text: t("tweaks.undo"),
+            disabled: d.tweakBusy !== null,
+            onclick: () => void tweakAction(change.id, () => Bridge.tweakUndo(change.id)),
+          }),
+        ),
+      ),
+    );
+  }
+  return block;
+}
+
+async function restartExplorer() {
+  const d = State.debloat;
+  if (!d || d.tweakBusy) return;
+  d.tweakBusy = "explorer";
+  State.notify();
+  try {
+    await Bridge.restartExplorer();
+    d.tweakNote = { text: t("tweaks.restarted") };
+  } catch (e) {
+    d.tweakNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+  }
+  d.tweakBusy = null;
+  State.notify();
+}
+
+/** Puts every switch back to Windows' default, one row at a time, and re-reads once at the end. */
+async function resetAllTweaks() {
+  const d = State.debloat;
+  if (!d || !d.tweaks || d.tweakBusy) return;
+  d.tweakBusy = "reset";
+  d.tweakNote = null;
+  State.notify();
+  try {
+    for (const tweak of d.tweaks.filter((row) => row.on)) {
+      d.tweaks = await Bridge.tweakReset(tweak.id);
+    }
+    d.changes = (await Bridge.tweaksHistory()) ?? [];
+    d.tweakNote = { text: t("tweaks.resetDone") };
+    void Bridge.log("tweaks: reset to defaults");
+  } catch (e) {
+    d.tweakNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+  }
+  d.tweakBusy = null;
+  State.notify();
+}
+
+// ── The autostart tab ─────────────────────────────────────────────────────────
+// What Windows starts at logon, switched the way Task Manager switches it: the Run value stays, only
+// its approval byte changes, so nothing is deleted and Windows Explorer agrees with the list.
+
+async function startupAction(entry: StartupEntry, on: boolean) {
+  const d = State.debloat;
+  if (!d || d.startupBusy) return;
+  d.startupBusy = entry.name;
+  State.notify();
+  try {
+    d.startup = await Bridge.startupSet(entry.name, on);
+    void Bridge.log(`startup ${on ? "on" : "off"}: ${entry.name}`);
+  } catch (e) {
+    d.tweakNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+  }
+  d.startupBusy = null;
+  State.notify();
+}
+
+function startupBlock(d: DebloatState): HTMLElement {
+  const block = h("div", { class: "tweak-group" });
+  if (!d.startup) {
+    block.append(h("div", { class: "game-note", text: "…" }));
+    return block;
+  }
+  const on = d.startup.filter((entry) => entry.on).length;
+  block.append(
+    h(
+      "div",
+      { class: "tweaks-head" },
+      h("span", { class: "game-eyebrow", text: t("startup.title") }),
+      h("span", { class: "count", text: t("startup.count", on, d.startup.length) }),
+    ),
+  );
+  if (d.startup.length === 0) {
+    block.append(h("div", { class: "game-note", text: t("startup.empty") }));
+    return block;
+  }
+  const list = h("div", { class: "panel-list" });
+  for (const entry of d.startup) {
+    list.append(
+      h(
+        "div",
+        { class: "game-row" },
+        h(
+          "span",
+          { class: "game-name" },
+          h("strong", { text: entry.name }),
+          h("span", {
+            class: "pkg",
+            text: entry.missing ? t("startup.missing") : entry.command || entry.source,
+          }),
+        ),
+        h("button", {
+          class: entry.on ? "switch on" : "switch",
+          "aria-pressed": entry.on,
+          title: t(entry.on ? "startup.on" : "startup.off"),
+          disabled: d.startupBusy !== null,
+          onclick: () => void startupAction(entry, !entry.on),
+        }),
+      ),
+    );
+  }
+  block.append(list);
+  return block;
+}
+
+// ── The cleaning tab ──────────────────────────────────────────────────────────
+// Two piles, measured before and after: the button says how much is there, and the answer says how
+// much the measurement changed — a file another program still holds is counted as skipped.
+
+/** Bytes as a person reads them: one decimal under ten, whole numbers above it. */
+function bytes(value: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let left = value;
+  let at = 0;
+  while (left >= 1024 && at < units.length - 1) {
+    left /= 1024;
+    at += 1;
+  }
+  const shown = at === 0 ? Math.round(left) : left < 10 ? left.toFixed(1) : Math.round(left);
+  return `${shown} ${units[at]}`;
+}
+
+async function cleanScan() {
+  const d = State.debloat;
+  if (!d || d.cleanBusy) return;
+  d.cleanBusy = true;
+  d.cleanNote = null;
+  State.notify();
+  const started = Date.now();
+  try {
+    d.clean = await Bridge.cleanScan();
+  } catch (e) {
+    d.tweakNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+  }
+  // An empty temp folder measures in a few milliseconds, and a button that changes nothing on
+  // screen reads as broken. The busy line stays up long enough to be seen, then the answer appears.
+  const spent = Date.now() - started;
+  if (spent < 450) await new Promise((done) => setTimeout(done, 450 - spent));
+  d.cleanBusy = false;
+  d.cleanNote = { text: t("clean.measured") };
+  State.notify();
+}
+
+async function cleanRun() {
+  const d = State.debloat;
+  if (!d || d.cleanBusy) return;
+  d.cleanBusy = true;
+  d.cleanFreed = null;
+  d.cleanNote = null;
+  State.notify();
+  try {
+    d.cleanFreed = await Bridge.cleanRun();
+    d.clean = await Bridge.cleanScan();
+    void Bridge.log("clean: swept");
+  } catch (e) {
+    d.tweakNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+  }
+  d.cleanBusy = false;
+  State.notify();
+}
+
+function cleanBlock(d: DebloatState): HTMLElement {
+  const block = h(
+    "div",
+    { class: "tweak-group" },
+    h("div", { class: "game-eyebrow", text: t("clean.title") }),
+    h("div", { class: "game-note", text: t("clean.hint") }),
+  );
+  const sizes = d.clean;
+  if (!sizes) {
+    block.append(h("div", { class: "game-note", text: d.cleanBusy ? t("clean.scanning") : "…" }));
+    return block;
+  }
+  block.append(
+    h(
+      "div",
+      { class: "game-row" },
+      h(
+        "span",
+        { class: "game-name" },
+        h("strong", { text: t("clean.temp") }),
+        h("span", { class: "pkg", text: bytes(sizes.temp) }),
+      ),
+    ),
+    h(
+      "div",
+      { class: "game-row" },
+      h(
+        "span",
+        { class: "game-name" },
+        h("strong", { text: t("clean.recycle") }),
+        h("span", {
+          class: "pkg",
+          text: t("clean.recycleItems", bytes(sizes.recycle), sizes.recycleItems),
+        }),
+      ),
+    ),
+  );
+  if (d.cleanNote) {
+    block.append(h("div", { class: "game-note", text: d.cleanNote.text }));
+  }
+  if (d.cleanFreed) {
+    block.append(
+      h("div", {
+        class: "game-note",
+        text: t(
+          "clean.freed",
+          bytes(d.cleanFreed.temp + d.cleanFreed.recycle),
+          bytes(d.cleanFreed.skipped),
+        ),
+      }),
+    );
+  }
+  block.append(
+    h(
+      "div",
+      { class: "tweaks-actions" },
+      h("button", {
+        class: "primary",
+        text: d.cleanBusy ? t("clean.busy") : t("clean.run"),
+        disabled: d.cleanBusy || sizes.temp + sizes.recycle === 0,
+        onclick: () => void cleanRun(),
+      }),
+      h("button", {
+        class: "ghost",
+        text: t("clean.rescan"),
+        disabled: d.cleanBusy,
+        onclick: () => void cleanScan(),
+      }),
+    ),
+  );
+  return block;
 }
 
 async function removeDebloat() {
@@ -1303,8 +1896,24 @@ function buildDebloat(actions: ViewActions): ViewHost {
         void loadDebloat();
       }
       const d = State.debloat;
+      const extra = d
+        ? [
+            d.tab,
+            d.game ? `${d.game.installed}:${d.game.capture}:${d.game.needsAdmin}:${d.gameBusy}:${d.gameNote?.text}` : "none",
+            d.tweaks ? d.tweaks.map((tweak) => `${tweak.id}:${tweak.on}:${tweak.needsAdmin}`).join(",") : "none",
+            d.tweakBusy,
+            d.tweakNote?.text,
+            d.changes.length,
+            d.startup ? d.startup.map((entry) => `${entry.name}:${entry.on}`).join(",") : "none",
+            d.startupBusy,
+            d.clean ? `${d.clean.temp}:${d.clean.recycle}` : "none",
+            d.cleanBusy,
+            d.cleanNote?.text ?? null,
+            d.cleanFreed ? d.cleanFreed.temp + d.cleanFreed.recycle : "none",
+          ].join(",")
+        : "none";
       const next = d
-        ? [d.loading, d.busy, d.items.length, d.ticked.join(","), d.pending.length, JSON.stringify(d.result)].join("|")
+        ? [d.loading, d.busy, d.items.length, d.ticked.join(","), d.pending.length, JSON.stringify(d.result), extra].join("|")
         : "none";
       if (next === key) return;
       key = next;
@@ -1322,10 +1931,36 @@ function buildDebloat(actions: ViewActions): ViewHost {
         h("button", { class: "ghost close", text: "×", title: t("health.close"), onclick: () => actions.collapse() }),
       );
 
+      // Four halves, one strip: the packages Windows reports, the settings that are not a
+      // package, what starts with Windows, and the two piles worth emptying. The strip is drawn
+      // before any of them so a tab never looks like a different window.
+      const tabButton = (which: DebloatState["tab"], text: string) =>
+        h("button", {
+          class: State.debloat?.tab === which ? "deb-tab on" : "deb-tab",
+          text,
+          onclick: () => {
+            const open = State.debloat;
+            if (!open || open.tab === which) return;
+            // A confirmation belongs to the list it names, so opening it never switches tabs.
+            open.tab = which;
+            State.notify();
+          },
+        });
+      const tabs = h(
+        "div",
+        { class: "deb-tabs" },
+        tabButton("packages", t("debloat.tabPackages")),
+        tabButton("tweaks", t("debloat.tabTweaks")),
+        tabButton("startup", t("debloat.tabStartup")),
+        tabButton("clean", t("debloat.tabClean")),
+      );
+
       if (!d || d.loading) {
-        scroll.append(h("div", { class: "panel-advice", text: "…" }));
+        scroll.append(tabs, h("div", { class: "panel-advice", text: "…" }));
         return;
       }
+
+      scroll.append(tabs);
 
       if (d.pending.length > 0) {
         scroll.append(
@@ -1343,6 +1978,23 @@ function buildDebloat(actions: ViewActions): ViewHost {
             },
           }),
         );
+        return;
+      }
+
+      // The extra settings: what nobody removes and many people turn off. Each block says what it
+      // is in an eyebrow, so the next Windows knob has a row to join rather than a new panel.
+      if (d.tab === "tweaks") {
+        scroll.append(gameBlock(d), tweaksBlock(d));
+        return;
+      }
+
+      if (d.tab === "startup") {
+        scroll.append(startupBlock(d));
+        return;
+      }
+
+      if (d.tab === "clean") {
+        scroll.append(cleanBlock(d));
         return;
       }
 

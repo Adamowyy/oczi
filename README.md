@@ -89,7 +89,7 @@ Everything under the hood — the runtime, the terminal, the log, the layout —
 
 ## Install
 
-Download **`Oczi-Windows-0.5.2-setup.exe`** from
+Download **`Oczi-Windows-0.5.3-setup.exe`** from
 [Releases](https://github.com/Adamowyy/oczi/releases/latest) and run it. Windows 10 or 11;
 WebView2 is already on a normal install, and the installer offers it if it is missing.
 

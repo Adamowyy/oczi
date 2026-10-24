@@ -190,6 +190,89 @@ export interface DebloatState {
   /** Names waiting for the confirmation panel, and the outcome of the last run. */
   pending: string[];
   result: { removed: string[]; failed: string[]; error?: string } | null;
+  /** Which of the panel's tabs is open. The list of packages and the extra settings are two
+   *  different jobs, and one strip cannot hold both without the list hidden behind a scroll. */
+  tab: DebloatTab;
+  /** Game Bar and the capture switches, read with the list and re-read after every change.
+   *  Mirrors `GameBar` in `src-tauri/src/gamebar.rs`. */
+  game: GameBarState | null;
+  /** Which of the card's controls is running, so the others go quiet instead of racing it. */
+  gameBusy: "capture" | "install" | "remove" | "admin" | null;
+  /** The card's last word: what happened, or why nothing did. */
+  gameNote: { text: string; bad?: boolean } | null;
+  /** The Windows settings table, read with the list; `null` until the first reading lands. */
+  tweaks: TweakState[] | null;
+  /** The row mid-write, by id, and the last line the block has to say. */
+  tweakBusy: string | null;
+  tweakNote: { text: string; bad?: boolean } | null;
+  /** The changes this app made, newest first — what "undo" walks back through. */
+  changes: TweakChange[];
+  /** Everything Windows would start at logon, and the entry mid-flip. */
+  startup: StartupEntry[] | null;
+  startupBusy: string | null;
+  /** The cleaning tab: what is there now, and what the last sweep freed. */
+  clean: CleanSizes | null;
+  cleanBusy: boolean;
+  /** A line under the sizes: "measured again", so a fast scan still shows it ran. */
+  cleanNote: { text: string } | null;
+  cleanFreed: CleanFreed | null;
+}
+
+/** Game Bar as Windows reports it: the package, the user's capture switches, and the machine-wide
+ *  policy — `null` when nobody ever set one. */
+export interface GameBarState {
+  installed: boolean;
+  version: string | null;
+  capture: boolean;
+  policy: boolean | null;
+  needsAdmin: boolean;
+}
+
+/** The debloat panel's tabs: the package list Windows reports, the settings that are not a package,
+ *  what starts with Windows, and the two piles worth emptying. */
+export type DebloatTab = "packages" | "tweaks" | "startup" | "clean";
+
+/** One Windows setting from `src-tauri/src/tweaks.rs`. `on` is the quiet state whatever number
+ *  Windows spells it with; `needsAdmin` means the machine level refused the write. */
+export interface TweakState {
+  id: string;
+  group: "explorer" | "taskbar" | "privacy";
+  on: boolean;
+  /** Machine hive: the write will ask for an administrator. */
+  admin: boolean;
+  needsAdmin: boolean;
+  restart: boolean;
+}
+
+/** One change this app made, with the value it replaced — `null` meaning the value was absent. */
+export interface TweakChange {
+  id: string;
+  at: number;
+  was: number | null;
+  on: boolean;
+}
+
+/** One entry Windows would start at logon. */
+export interface StartupEntry {
+  name: string;
+  source: string;
+  command: string;
+  on: boolean;
+  missing: boolean;
+}
+
+/** What is sitting in the temp folder and the Recycle Bin. */
+export interface CleanSizes {
+  temp: number;
+  recycle: number;
+  recycleItems: number;
+}
+
+/** What one sweep actually freed. */
+export interface CleanFreed {
+  temp: number;
+  recycle: number;
+  skipped: number;
 }
 
 /** The two shapes a routine's report can take, in one place: the island hides its header for

@@ -69,6 +69,61 @@ export interface DebloatRemoved {
   at: number;
 }
 
+/** Xbox Game Bar and the capture switches behind it, read from Windows — see `src-tauri/src/gamebar.rs`.
+ *  `policy` is the machine-wide level: `null` when nobody ever set it, and `needsAdmin` says whether
+ *  the last write could not reach it without an administrator. */
+export interface GameBarState {
+  installed: boolean;
+  version: string | null;
+  capture: boolean;
+  policy: boolean | null;
+  needsAdmin: boolean;
+}
+
+/** One Windows setting from the tweaks table — `src-tauri/src/tweaks.rs`. `on` is the quiet state
+ *  whatever number Windows spells it with, and `needsAdmin` means the machine level refused. */
+export interface TweakState {
+  id: string;
+  group: "explorer" | "taskbar" | "privacy";
+  on: boolean;
+  /** Machine hive: the write will ask for an administrator. */
+  admin: boolean;
+  needsAdmin: boolean;
+  restart: boolean;
+}
+
+/** One change this app made, with the value it replaced. `was` is `null` when the value was not
+ *  there before, which is how "back to the default" is spelled. */
+export interface TweakChange {
+  id: string;
+  at: number;
+  was: number | null;
+  on: boolean;
+}
+
+/** One entry Windows would start at logon. */
+export interface StartupEntry {
+  name: string;
+  source: string;
+  command: string;
+  on: boolean;
+  missing: boolean;
+}
+
+/** What is sitting in the temp folder and the Recycle Bin. */
+export interface CleanSizes {
+  temp: number;
+  recycle: number;
+  recycleItems: number;
+}
+
+/** What one sweep actually freed. */
+export interface CleanFreed {
+  temp: number;
+  recycle: number;
+  skipped: number;
+}
+
 export interface PricesOffer {
   title: string;
   appId: number;
@@ -115,6 +170,57 @@ export const Bridge = {
 
   /** What this app has taken away, newest first. */
   debloatHistory: () => call<DebloatRemoved[]>("debloat_history"),
+
+  /** Game Bar and the capture switches as Windows has them right now. */
+  gamebarStatus: () => callOrThrow<GameBarState>("gamebar_status"),
+
+  /** Turns background capture on or off at both levels; the answer is a fresh reading. */
+  gamebarCapture: (on: boolean) => callOrThrow<GameBarState>("gamebar_capture", { on }),
+
+  /** The machine level only, through the one administrator prompt Windows insists on. */
+  gamebarPolicyElevated: (on: boolean) =>
+    callOrThrow<GameBarState>("gamebar_policy_elevated", { on }),
+
+  /** Puts Game Bar back from the Store — the only honest way to undo its removal. */
+  gamebarInstall: () => callOrThrow<GameBarState>("gamebar_install"),
+
+  /** Every Windows setting in the tweaks table, read from the registry. */
+  tweaksList: () => callOrThrow<TweakState[]>("tweaks_list"),
+
+  /** One switch, both directions; the answer is the whole table re-read. */
+  tweakSet: (id: string, on: boolean) => callOrThrow<TweakState[]>("tweak_set", { id, on }),
+
+  /** Back to Windows' own default — the value is deleted, not guessed. */
+  tweakReset: (id: string) => callOrThrow<TweakState[]>("tweak_reset", { id }),
+
+  /** The same write through one UAC prompt, for a machine-level row. */
+  tweakElevated: (id: string, on: boolean) =>
+    callOrThrow<TweakState[]>("tweak_elevated", { id, on }),
+
+  /** Puts back the value the last change replaced. */
+  tweakUndo: (id: string) => callOrThrow<TweakState[]>("tweak_undo", { id }),
+
+  /** Every change this app made, newest first. */
+  tweaksHistory: () => call<TweakChange[]>("tweaks_history"),
+
+  /** Whether this process can already write the machine hive. */
+  tweaksElevatedProbe: () => call<boolean>("tweaks_elevated_probe"),
+
+  /** Restarts Explorer, which half of these settings only read at startup. */
+  restartExplorer: () => callOrThrow<void>("restart_explorer"),
+
+  /** Everything Windows would start at logon, switched or not. */
+  startupList: () => callOrThrow<StartupEntry[]>("startup_list"),
+
+  /** Flips one entry the way Task Manager does, then re-reads the list. */
+  startupSet: (name: string, on: boolean) =>
+    callOrThrow<StartupEntry[]>("startup_set", { name, on }),
+
+  /** How much is in the temp folder and the Recycle Bin right now. */
+  cleanScan: () => callOrThrow<CleanSizes>("clean_scan"),
+
+  /** Empties both and reports what the difference measured. */
+  cleanRun: () => callOrThrow<CleanFreed>("clean_run"),
 
   /** Shows one of the two PC windows: `health` or `debloat`. */
   openPcWindow: (which: "health" | "debloat") => call<void>("open_pc_window", { which }),

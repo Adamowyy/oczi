@@ -2,6 +2,18 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.3 — 2026-10-24
+
+**Debloat became a small toolbox**: packages, Windows settings, autostart and cleaning, one tab each.
+
+- **Tweaks**: thirteen Windows settings with a switch each — classic right-click menu, widgets, Copilot,
+  web results in Start, Explorer suggestions, telemetry — every change recorded, with **Cofnij** and
+  **Przywróć domyślne**, and an Explorer restart when a setting needs one.
+- **Autostart**: what Windows starts at logon, switched exactly the way Task Manager switches it.
+- **Cleanup**: measures the temp folder and the Recycle Bin, empties both and reports what the
+  measurement says was freed, with files in use left alone and counted.
+- **Game Bar and DVR are one button**: uninstalling also switches background recording off, installing
+  switches it back on.
 ## 0.5.2 — 2026-10-22
 
 **Gemini beside DeepSeek — and the Gemini key is free.**

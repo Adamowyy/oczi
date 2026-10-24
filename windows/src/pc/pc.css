@@ -291,7 +291,8 @@ button:disabled {
 
 /* The package id is context, not content: under the name in a small monospace, rather than pushed
    to the right edge where a shorter name left a ragged gap. */
-.app .pkg {
+.app .pkg,
+.tweak .pkg {
   font: 400 11px var(--mono);
   color: var(--dim-2);
   overflow: hidden;
@@ -361,4 +362,146 @@ button:disabled {
 
 .history .row .name {
   flex: 1 1 auto;
+}
+
+/* ── The gaming card ────────────────────────────────────────────────────── */
+/* Two rows that are not packages: a state with one button, and a switch. Same card, same
+   hairline rhythm as the list below, so it reads as one window rather than two. */
+
+.tweak {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--hairline);
+}
+
+.tweak + .tweak {
+  margin-top: 4px;
+}
+
+.tweak .head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tweak .title {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tweak .title strong {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.tweak .hint {
+  margin: 0;
+}
+
+/* The user's switch as it reads back: green is "Windows would record", grey is not. */
+.tweak .body {
+  font: 400 12px var(--font);
+  color: var(--dim-2);
+}
+
+.tweak .body.on {
+  color: var(--green);
+}
+
+/* The state of a package in one word, before the button that changes it. */
+.pill {
+  font: 500 11px var(--font);
+  letter-spacing: 0.01em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.pill.ok {
+  color: var(--green);
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.pill.off {
+  color: var(--dim-2);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--hairline);
+}
+
+/* The machine level that refused an ordinary account: amber, because nothing is broken — the
+   user's own switch is set — but one layer of it is still open. */
+.tweak .admin {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 2px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: rgba(245, 165, 36, 0.08);
+  border: 1px solid rgba(245, 165, 36, 0.28);
+  font: 400 11.5px var(--font);
+  color: var(--amber);
+}
+
+.tweak .admin button {
+  margin-left: auto;
+}
+
+/* Same switch as the settings window: a pill that slides, not a checkbox pretending to be one. */
+.switch {
+  position: relative;
+  width: 38px;
+  height: 21px;
+  flex: 0 0 38px;
+  padding: 0;
+  border-radius: 11px;
+  border: 1px solid var(--hairline);
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.switch.on {
+  background: var(--green);
+  border-color: var(--green);
+}
+
+/* The window's generic `button:hover` is not what a switch wants: it stays a switch, in either
+   state, and only the thumb moves. */
+button.switch:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+button.switch.on,
+button.switch.on:hover {
+  background: var(--green);
+  border-color: var(--green);
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.18s;
+}
+
+.switch.on::after {
+  transform: translateX(17px);
+}
+
+/* `result bad` is what the window builds for a failure; the rule above only ever matched a child
+   element, so a failed removal stayed grey. One line, and a failure finally reads as one. */
+.result.bad {
+  color: var(--red);
 }

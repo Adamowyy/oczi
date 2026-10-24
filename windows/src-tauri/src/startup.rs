@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{ERROR_MORE_DATA, ERROR_SUCCESS};
 use windows::Win32::System::Environment::ExpandEnvironmentStringsW;
@@ -405,6 +406,93 @@ fn service_entries() -> Vec<String> {
     out
 }
 
+/// One entry the Autostart tab can switch. The text below is what the model reads; this is what a
+/// list with buttons needs, built from the same two sources and the same switch map.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Entry {
+    pub name: String,
+    /// `user` or `machine` — where the entry lives, which is also who it belongs to.
+    pub source: String,
+    /// The command as Windows has it, or the shortcut's path for a Startup folder entry.
+    pub command: String,
+    /// Task Manager's own switch: `false` when the entry is off.
+    pub on: bool,
+    /// The program is no longer on the disk, so this entry starts nothing.
+    pub missing: bool,
+}
+
+/// Everything Windows would start at logon, switched or not, in one list the window can draw.
+pub fn list() -> Vec<Entry> {
+    let switch = switches();
+    let mut out = Vec::new();
+    for (root, path, label, view) in RUN_KEYS {
+        let Some(key) = open(*root, path, *view) else {
+            continue;
+        };
+        for name in names(&key) {
+            if name.is_empty() {
+                continue;
+            }
+            let command = read(&key, &name)
+                .and_then(|(kind, data)| text_of(kind, &data))
+                .unwrap_or_default();
+            let program = program_of(&command);
+            out.push(Entry {
+                on: switch.get(&name.to_lowercase()).copied().unwrap_or(true),
+                missing: matches!(file_state(program.as_deref()), "file MISSING"),
+                name,
+                source: label.to_string(),
+                command: command.trim().to_string(),
+            });
+        }
+    }
+    for (dir, label) in FOLDER_KEYS {
+        let full = expand(dir);
+        let Ok(entries) = std::fs::read_dir(&full) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') || name.to_lowercase() == "desktop.ini" {
+                continue;
+            }
+            out.push(Entry {
+                on: switch.get(&name.to_lowercase()).copied().unwrap_or(true),
+                missing: false,
+                command: entry.path().to_string_lossy().to_string(),
+                name,
+                source: label.to_string(),
+            });
+        }
+    }
+    // Named the same way the windows are read: user entries first, then the machine's.
+    out.sort_by(|a, b| {
+        let rank = |source: &str| if source.starts_with("user") { 0 } else { 1 };
+        rank(&a.source)
+            .cmp(&rank(&b.source))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    out
+}
+
+/// Turns one entry on or off the way Task Manager does, and reports whether anything was written.
+pub fn set(name: &str, on: bool) -> Result<(), String> {
+    switch(name, on)
+}
+
+/// The two Startup folders, in one place because both this file's readers and its switch share them.
+const FOLDER_KEYS: &[(&str, &str)] = &[
+    (
+        "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup",
+        "user",
+    ),
+    (
+        "%ProgramData%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup",
+        "machine",
+    ),
+];
+
 /// Opens a key for writing. Only the StartupApproved keys are ever written, and only to switch an
 /// entry off — this module has no business editing anything else.
 fn open_write(root: HKEY, sub: &str) -> Option<Key> {
@@ -423,13 +511,19 @@ fn open_write(root: HKEY, sub: &str) -> Option<Key> {
 /// switch, so the entry really stops starting — and flipping it back on is the same write with a 2.
 /// The Run value itself is left alone, which is what makes this the safe version of "remove".
 pub(crate) fn disable(name: &str) -> Result<(), String> {
+    switch(name, false)
+}
+
+/// Writes Task Manager's switch for one entry. `2` is on and `3` is off — the same 12-byte value
+/// Windows reads, which is why switching an entry back on is this and not a guess.
+fn switch(name: &str, on: bool) -> Result<(), String> {
     let name = name.trim();
     if name.is_empty() {
-        return Err("Puste." .to_string());
+        // i18n-ok: model-facing error, translated where it is shown.
+        return Err("Puste.".to_string());
     }
-    // 3 = disabled, then the moment it was disabled, as FILETIME — zeros are accepted.
     let mut data = [0u8; 12];
-    data[0] = 3;
+    data[0] = if on { 2 } else { 3 };
     let mut written = false;
     for (root, path) in [
         (
@@ -464,11 +558,18 @@ pub(crate) fn disable(name: &str) -> Result<(), String> {
     }
     // The Startup folders are switched by file name, which is the same string.
     if written {
-        crate::log::line(format!("startup switched off: {name}"));
+        crate::log::line(format!(
+            "startup switched {}: {name}",
+            if on { "on" } else { "off" }
+        ));
         Ok(())
     } else {
-        // i18n-ok: model-facing error, translated where it is shown.
-        Err(format!("Nie udało się wyłączyć wpisu {name}."))
+        Err(format!(
+            // i18n-ok: model-facing error, translated where it is shown.
+            "Nie udało się {} wpisu {name}.",
+            // i18n-ok: the verb follows the switch direction asked for.
+            if on { "włączyć" } else { "wyłączyć" }
+        ))
     }
 }
 

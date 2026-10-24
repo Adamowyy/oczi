@@ -126,16 +126,13 @@ const PREFIXES: &[(&str, &str)] = &[
 /// offer it. Exact names first, then a vendor prefix, then the family of a known package: Windows
 /// sometimes appends a suffix, and a renamed package should not fall out of the catalogue.
 fn tier_of(name: &str) -> Option<&'static str> {
-    if let Some((_, tier)) = CATALOGUE
-        .iter()
-        .find(|(n, _)| n.eq_ignore_ascii_case(name))
-    {
+    if let Some((_, tier)) = CATALOGUE.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
         return Some(tier);
     }
-    if let Some((_, tier)) = PREFIXES
-        .iter()
-        .find(|(prefix, _)| name.to_ascii_lowercase().starts_with(&prefix.to_ascii_lowercase()))
-    {
+    if let Some((_, tier)) = PREFIXES.iter().find(|(prefix, _)| {
+        name.to_ascii_lowercase()
+            .starts_with(&prefix.to_ascii_lowercase())
+    }) {
         return Some(tier);
     }
     CATALOGUE
@@ -147,7 +144,10 @@ fn tier_of(name: &str) -> Option<&'static str> {
 /// Runs one PowerShell script with no window and returns its stdout. The Appx cmdlets are the only
 /// supported way to enumerate and remove a package for the current user without administrator
 /// rights, which is exactly the deal this module makes: what a person can undo themselves.
-fn powershell(script: &str) -> Result<String, String> {
+///
+/// `pub(crate)` because the Game Bar module needs the same door: an Appx read and the Store's own
+/// installer both go through PowerShell, and one hidden, no-window runner is the whole of it.
+pub(crate) fn powershell(script: &str) -> Result<String, String> {
     let started = std::time::Instant::now();
     let output = Command::new("powershell.exe")
         .args([

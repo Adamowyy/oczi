@@ -10,9 +10,12 @@ import { Bridge, onEvent } from "../core/bridge";
 import { setLang, t } from "../core/i18n";
 import { h, clear } from "../views/dom";
 import { debloatLabel as label } from "../core/debloat-labels";
-import type { DebloatItem, DebloatRemoved } from "../core/bridge";
+import type { DebloatItem, DebloatRemoved, GameBarState } from "../core/bridge";
 
 const root = document.getElementById("pc-root")!;
+
+/** The one package the gaming card owns by name; the catalogue still lists it below. */
+const GAME_BAR = "Microsoft.XboxGamingOverlay";
 
 let items: DebloatItem[] = [];
 let history: DebloatRemoved[] = [];
@@ -22,6 +25,10 @@ let loading = false;
 /** The names waiting for a confirmation, and the outcome of the last removal. */
 let pending: string[] = [];
 let result: { removed: string[]; failed: string[]; error?: string } | null = null;
+/** Game Bar and Game DVR as Windows reports them, which button is running, and what it said. */
+let game: GameBarState | null = null;
+let gameBusy: "capture" | "install" | "remove" | "admin" | null = null;
+let gameNote: { text: string; bad?: boolean } | null = null;
 
 function sectionFor(tier: "safe" | "careful"): HTMLElement | null {
   const list = items.filter((i) => i.tier === tier);
@@ -67,6 +74,176 @@ function sectionFor(tier: "safe" | "careful"): HTMLElement | null {
   );
 }
 
+// ── The gaming card ───────────────────────────────────────────────────────────
+// Two things Windows turns on by itself and a person may not want: the Win+G overlay and the
+// capture that records behind a game. Both are read back after every change, so the card shows
+// what Windows has — including the machine level, which an ordinary account cannot write and which
+// therefore says so instead of pretending.
+
+function barRow(state: GameBarState): HTMLElement {
+  const pkg = h("span", {
+    class: "pkg",
+    text: state.version ? `${GAME_BAR} · ${state.version}` : GAME_BAR,
+  });
+  const badge = h("span", {
+    class: state.installed ? "pill ok" : "pill off",
+    text: t(state.installed ? "game.present" : "game.absent"),
+  });
+  const action = state.installed
+    ? h("button", {
+        class: "ghost danger",
+        text: gameBusy === "remove" ? t("game.removing") : t("game.uninstall"),
+        disabled: gameBusy !== null,
+        onclick: () => void removeBar(),
+      })
+    : h("button", {
+        class: "primary",
+        text: gameBusy === "install" ? t("game.installing") : t("game.install"),
+        disabled: gameBusy !== null,
+        onclick: () => void installBar(),
+      });
+  return h(
+    "div",
+    { class: "tweak" },
+    h(
+      "div",
+      { class: "head" },
+      h("span", { class: "title" }, h("strong", { text: t("game.bar") }), pkg),
+      badge,
+      action,
+    ),
+    h("div", { class: "body", text: t("game.barHint") }),
+  );
+}
+
+function captureRow(state: GameBarState): HTMLElement {
+  const sw = h("button", {
+    class: state.capture ? "switch on" : "switch",
+    "aria-pressed": state.capture,
+    title: t("game.capture"),
+    disabled: gameBusy !== null,
+    onclick: () => void setCapture(!state.capture),
+  });
+  const row = h(
+    "div",
+    { class: "tweak" },
+    h(
+      "div",
+      { class: "head" },
+      h(
+        "span",
+        { class: "title" },
+        h("strong", { text: t("game.capture") }),
+        h("span", { class: "pkg", text: t(state.capture ? "game.dvrOn" : "game.dvrOff") }),
+      ),
+      sw,
+    ),
+    h("div", {
+      class: state.capture ? "body on" : "body",
+      text: t(state.capture ? "game.captureOn" : "game.captureOff"),
+    }),
+    h("div", { class: "hint", text: t("game.captureHint") }),
+  );
+  // Only offered when the machine level really refused the write, and only for the state the
+  // toggle is now in: a UAC prompt nobody can explain is worse than a switch that stops one level
+  // short and says so.
+  if (state.needsAdmin) {
+    row.append(
+      h(
+        "div",
+        { class: "admin" },
+        h("span", { text: t("game.needsAdmin") }),
+        h("button", {
+          class: "ghost",
+          text: gameBusy === "admin" ? t("game.adminBusy") : t("game.raiseAdmin"),
+          disabled: gameBusy !== null,
+          onclick: () => void raiseAdmin(!state.capture),
+        }),
+      ),
+    );
+  }
+  return row;
+}
+
+function gamesSection(): HTMLElement {
+  const card = h(
+    "section",
+    { class: "games" },
+    h("h2", { text: t("debloat.games") }),
+    h("div", { class: "hint", text: t("debloat.gamesHint") }),
+  );
+  if (!game) {
+    card.append(h("div", { class: "hint", text: "…" }));
+    return card;
+  }
+  card.append(barRow(game), captureRow(game));
+  if (gameNote && gameNote.text) {
+    card.append(h("div", { class: gameNote.bad ? "result bad" : "result", text: gameNote.text }));
+  }
+  return card;
+}
+
+/** Runs one action on the card: busy flag on, the answer read back, one line about what happened. */
+async function gameAction(
+  which: "capture" | "install" | "remove" | "admin",
+  run: () => Promise<GameBarState>,
+  said: string,
+) {
+  if (gameBusy) return;
+  gameBusy = which;
+  gameNote = null;
+  paint();
+  try {
+    game = await run();
+    gameNote = { text: said };
+    void Bridge.log(`debloat window: game bar ${which} ok`);
+  } catch (e) {
+    gameNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+  } finally {
+    gameBusy = null;
+  }
+  paint();
+}
+
+function setCapture(on: boolean) {
+  return gameAction(
+    "capture",
+    () => Bridge.gamebarCapture(on),
+    // Nothing to announce: the switch and its status line already carry the new state, and a note
+    // repeating it would be the third place saying the same thing.
+    "",
+  );
+}
+
+function installBar() {
+  return gameAction("install", () => Bridge.gamebarInstall(), t("game.back"));
+}
+
+function raiseAdmin(on: boolean) {
+  return gameAction("admin", () => Bridge.gamebarPolicyElevated(on), t("game.adminDone"));
+}
+
+/** Removal goes through the same command the package list uses; afterwards the list is re-read,
+ *  because Game Bar is in it and a package that is gone cannot stay ticked. */
+async function removeBar() {
+  if (gameBusy) return;
+  gameBusy = "remove";
+  gameNote = null;
+  paint();
+  try {
+    const outcome = await Bridge.debloatRemove([GAME_BAR]);
+    gameNote =
+      outcome.removed.length > 0
+        ? { text: t("game.gone") }
+        : { text: t("game.failed", outcome.failed.join(", ")), bad: true };
+  } catch (e) {
+    gameNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+  } finally {
+    gameBusy = null;
+  }
+  await load();
+}
+
 function paint() {
   clear(root);
 
@@ -91,12 +268,14 @@ function paint() {
   );
 
   if (loading) {
+    root.append(gamesSection());
     root.append(h("section", {}, h("div", { class: "hint", text: "…" })));
     return;
   }
 
   const safe = sectionFor("safe");
   const careful = sectionFor("careful");
+  root.append(gamesSection());
   if (!safe && !careful) {
     root.append(h("section", {}, h("div", { class: "hint", text: t("debloat.empty") })));
   } else {
@@ -218,10 +397,17 @@ async function load() {
       failed: [],
       error: e instanceof Error ? e.message : String(e),
     };
-  } finally {
-    loading = false;
-    paint();
   }
+  // The gaming card is its own reading and its own failure: a registry or Appx answer that comes
+  // back empty leaves the package list above untouched rather than blanking the window.
+  try {
+    game = await Bridge.gamebarStatus();
+  } catch (e) {
+    game = null;
+    gameNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+  }
+  loading = false;
+  paint();
 }
 
 async function remove() {

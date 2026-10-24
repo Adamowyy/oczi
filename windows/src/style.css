@@ -2818,6 +2818,204 @@ html.asleep *::after {
   padding-left: 6px;
 }
 
+/* ── The debloat tabs ────────────────────────────────────────────────────── */
+/* Two halves of one panel: the package list, and the settings that are not a package. A plain
+   segmented strip, because a tab bar in a 300 pt strip reads as a website. */
+
+.deb-tabs {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.deb-tab {
+  font: 500 10px var(--font);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--dim-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.deb-tab:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.deb-tab.on {
+  color: var(--ink);
+  background: var(--tab-on);
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+/* ── The gaming block ────────────────────────────────────────────────────── */
+/* Two rows above the package list that are not packages: the Win+G overlay and the capture behind
+   it. Tight on purpose — the panel is a strip, not a page, and the list below still has to fit. */
+
+.game-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  flex: 0 0 auto;
+}
+
+.game-eyebrow {
+  font: 600 9.5px var(--font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim-2);
+}
+
+.game-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 400 12px var(--font);
+  color: var(--dim);
+}
+
+.game-row .game-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.game-row .game-name strong {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.game-row .game-name .pkg {
+  font: 400 10.5px var(--mono);
+  color: var(--dim-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-row button {
+  flex: 0 0 auto;
+  font: 500 11px var(--font);
+  padding: 4px 9px;
+}
+
+/* The switch is a button here too, so it has to say so with the cursor it never needed in the
+   settings window. */
+.game-row .switch {
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.game-pill {
+  flex: 0 0 auto;
+  font: 500 9.5px var(--font);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.game-pill.ok {
+  color: var(--green);
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.32);
+}
+
+.game-pill.off {
+  color: var(--dim-2);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.game-note {
+  font: 400 10.5px var(--font);
+  color: var(--dim-2);
+}
+
+.game-note.bad {
+  color: var(--red-text);
+}
+
+/* The machine level that refused an ordinary account: amber, because nothing is broken — the
+   user's own switch is set — but one layer of it is still open. */
+.game-admin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(245, 165, 36, 0.08);
+  border: 1px solid rgba(245, 165, 36, 0.28);
+  font: 400 10.5px var(--font);
+  color: var(--amber);
+}
+
+.game-admin span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.game-admin button {
+  margin-left: auto;
+}
+
+/* ── The Windows settings block ──────────────────────────────────────────── */
+/* Groups of rows under one eyebrow, a summary line, and the two actions that belong to the whole
+   table rather than to a row. Same row shape as the gaming block above it, on purpose. */
+
+.tweak-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.tweaks-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tweaks-head .count {
+  margin-left: auto;
+  font: 400 10.5px var(--font);
+  color: var(--dim-2);
+}
+
+.game-eyebrow.group {
+  margin-top: 6px;
+}
+
+.tweaks-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.tweaks-actions button {
+  font: 500 11px var(--font);
+  padding: 4px 9px;
+}
+
+/* A change already made reads quieter than a setting still to touch. */
+.game-row.history .game-name strong {
+  font-weight: 400;
+  color: var(--dim);
+}
+
 /* Leaving a full-panel view: the header is hidden there, so this is the only clickable exit. */
 .panel-head button.close {
   flex: 0 0 auto;

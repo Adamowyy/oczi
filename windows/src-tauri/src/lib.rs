@@ -1,9 +1,12 @@
 // Oczi, app wiring and the commands the island calls.
 
+mod clean;
 mod clipboard;
 mod debloat;
 mod deepseek;
+mod elevate;
 mod files;
+mod gamebar;
 mod health;
 mod integrations;
 mod island;
@@ -14,6 +17,7 @@ mod pc;
 mod pin;
 mod prices;
 mod providers;
+mod registry;
 mod reminders;
 mod routines;
 mod secrets;
@@ -24,6 +28,7 @@ mod startup;
 mod steam;
 mod text_tools;
 mod tray;
+mod tweaks;
 mod update;
 mod util;
 #[cfg(feature = "voice")]
@@ -36,9 +41,9 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri::webview::{PermissionKind, PermissionResponse};
-use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 use deepseek::{Chat, ChatContext, ChatReply, Options};
 use files::DroppedFile;
@@ -156,7 +161,11 @@ fn save_settings(app: AppHandle, shared: State<Shared>, mut settings: Settings) 
     }
     if autostart_changed {
         let manager = app.autolaunch();
-        let result = if settings.autostart { manager.enable() } else { manager.disable() };
+        let result = if settings.autostart {
+            manager.enable()
+        } else {
+            manager.disable()
+        };
         if let Err(err) = result {
             eprintln!("[oczi] autostart: {err}");
         }
@@ -205,7 +214,12 @@ fn set_collapsed(app: AppHandle, shared: State<Shared>, collapsed: bool) {
 /// The front end pushes the island shape; Rust decides click-through from it.
 #[tauri::command]
 fn set_island_rect(shared: State<Shared>, x: f64, y: f64, width: f64, height: f64) {
-    shared.gate.set_rect(island::IslandRect { x, y, w: width, h: height });
+    shared.gate.set_rect(island::IslandRect {
+        x,
+        y,
+        w: width,
+        h: height,
+    });
 }
 
 /// Files are only taken while the upload flow (the plus tab) is on screen.
@@ -218,7 +232,9 @@ fn set_accept_drops(shared: State<Shared>, accept: bool) {
 /// takes the flag away again when the user leaves the chat.
 #[tauri::command]
 fn focus_window(app: AppHandle, focused: bool) {
-    let Some(win) = island::window(&app) else { return };
+    let Some(win) = island::window(&app) else {
+        return;
+    };
     island::set_activating(&win, focused);
     if focused {
         // island::focus, not a bare set_focus: Windows only grants the foreground
@@ -535,7 +551,10 @@ fn pin_mark(label: String, data: String) -> Result<(), String> {
     if data.trim().is_empty() {
         return pin::set_marked(index, None);
     }
-    let encoded = data.split_once("base64,").map(|(_, rest)| rest).unwrap_or(&data);
+    let encoded = data
+        .split_once("base64,")
+        .map(|(_, rest)| rest)
+        .unwrap_or(&data);
     let bytes = crate::util::base64_from(encoded)
         .ok_or_else(|| "the drawing came back unreadable".to_string())?;
     pin::set_marked(index, Some(bytes))
@@ -850,7 +869,9 @@ fn create_snip_window(app: &AppHandle) {
         .visible(false)
         .build()
     {
-        Ok(_) => log::line(format!("snip overlay ready — desktop {x},{y} {w}x{h} @{scale}x")),
+        Ok(_) => log::line(format!(
+            "snip overlay ready — desktop {x},{y} {w}x{h} @{scale}x"
+        )),
         Err(err) => log::line(format!("snip overlay failed: {err}")),
     }
 }
@@ -967,6 +988,147 @@ async fn debloat_remove(names: Vec<String>) -> Result<debloat::Removal, String> 
 #[tauri::command]
 fn debloat_history() -> Vec<debloat::Removed> {
     debloat::removed_history()
+}
+
+/// Game Bar and the capture switches, as Windows has them right now. Two registry reads and one
+/// Appx call, none of which this app has to have an opinion about first.
+#[tauri::command]
+async fn gamebar_status() -> Result<gamebar::GameBar, String> {
+    tauri::async_runtime::spawn_blocking(gamebar::status)
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+/// Turns Game DVR capture on or off at both levels and answers with a fresh reading, so the window
+/// shows what Windows has rather than what was asked for.
+#[tauri::command]
+async fn gamebar_capture(on: bool) -> Result<gamebar::GameBar, String> {
+    tauri::async_runtime::spawn_blocking(move || gamebar::set_capture(on))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+/// The same, for the machine level, through the one UAC prompt Windows insists on. Blocks until
+/// the registry shows the change, so a refusal comes back as a refusal.
+#[tauri::command]
+async fn gamebar_policy_elevated(on: bool) -> Result<gamebar::GameBar, String> {
+    tauri::async_runtime::spawn_blocking(move || gamebar::policy_elevated(on))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+/// Puts Game Bar back from the Microsoft Store. `winget` can take a minute, so it runs off the
+/// main thread like the removal does.
+#[tauri::command]
+async fn gamebar_install() -> Result<gamebar::GameBar, String> {
+    tauri::async_runtime::spawn_blocking(gamebar::install)
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+// ── The tweaks tab ────────────────────────────────────────────────────────────
+// Thirteen registry values, one table, and the same four commands in every language: read them,
+// set one, reset one, put back what was there. Each answers with the whole table re-read, so the
+// window replaces its list instead of merging an answer into it.
+
+/// Every tweak as Windows has it now.
+#[tauri::command]
+async fn tweaks_list() -> Vec<tweaks::TweakState> {
+    tauri::async_runtime::spawn_blocking(tweaks::list)
+        .await
+        .unwrap_or_default()
+}
+
+/// One switch, both directions: `on` is the quiet state whatever number Windows spells it with.
+#[tauri::command]
+async fn tweak_set(id: String, on: bool) -> Result<Vec<tweaks::TweakState>, String> {
+    tauri::async_runtime::spawn_blocking(move || tweaks::set(&id, on))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+/// Back to Windows' own default — the value is deleted, not guessed.
+#[tauri::command]
+async fn tweak_reset(id: String) -> Result<Vec<tweaks::TweakState>, String> {
+    tauri::async_runtime::spawn_blocking(move || tweaks::reset(&id))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+/// The same write through one UAC prompt, for a row that lives in the machine hive. Blocks until
+/// the registry shows the change, so a refused prompt comes back as a refusal.
+#[tauri::command]
+async fn tweak_elevated(id: String, on: bool) -> Result<Vec<tweaks::TweakState>, String> {
+    tauri::async_runtime::spawn_blocking(move || tweaks::set_elevated(&id, on))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+/// Puts back the value the last change replaced, and forgets that change.
+#[tauri::command]
+async fn tweak_undo(id: String) -> Result<Vec<tweaks::TweakState>, String> {
+    tauri::async_runtime::spawn_blocking(move || tweaks::undo(&id))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+/// Everything this app changed, newest first.
+#[tauri::command]
+fn tweaks_history() -> Vec<tweaks::Change> {
+    tweaks::changes()
+}
+
+/// Whether this process can write the machine hive — the window asks before promising a change.
+#[tauri::command]
+fn tweaks_elevated_probe() -> bool {
+    tweaks::is_elevated()
+}
+
+/// Restarts Explorer, which half of these settings only read at startup. Only ever on request.
+#[tauri::command]
+async fn restart_explorer() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(tweaks::restart_explorer)
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+// ── The autostart tab ─────────────────────────────────────────────────────────
+
+/// Everything Windows would start at logon, switched or not.
+#[tauri::command]
+async fn startup_list() -> Vec<startup::Entry> {
+    tauri::async_runtime::spawn_blocking(startup::list)
+        .await
+        .unwrap_or_default()
+}
+
+/// Flips one entry the way Task Manager does, then re-reads the whole list.
+#[tauri::command]
+async fn startup_set(name: String, on: bool) -> Result<Vec<startup::Entry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        startup::set(&name, on)?;
+        Ok(startup::list())
+    })
+    .await
+    .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+// ── The cleaning tab ──────────────────────────────────────────────────────────
+
+/// How much is sitting in the temp folder and the Recycle Bin right now.
+#[tauri::command]
+async fn clean_scan() -> clean::Sizes {
+    tauri::async_runtime::spawn_blocking(clean::scan)
+        .await
+        .unwrap_or_default()
+}
+
+/// Empties both, then measures again: the report is the difference, not the intention.
+#[tauri::command]
+async fn clean_run() -> clean::Freed {
+    tauri::async_runtime::spawn_blocking(clean::run)
+        .await
+        .unwrap_or_default()
 }
 
 /// Shows one of the two PC windows. Both exist from launch and are only ever hidden, so opening
@@ -1143,7 +1305,10 @@ pub fn run() {
     // the notch reads as a hung app — so the choice of model is measured, not guessed. It builds
     // its own runtime because Tauri's does not exist this early.
     if std::env::args().any(|arg| arg == "--chat-latency") {
-        match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
             Ok(runtime) => runtime.block_on(deepseek::latency_probe()),
             Err(err) => println!("failed: {err}"),
         }
@@ -1165,6 +1330,16 @@ pub fn run() {
         match debloat::list() {
             Ok(items) => println!("{}", debloat::describe(&items)),
             Err(e) => println!("debloat: {e}"),
+        }
+        return;
+    }
+
+    // Game Bar and the capture switches, without a window: the same reading the Debloat window
+    // draws, printed, so the registry values behind one toggle can be checked against the machine.
+    if std::env::args().any(|arg| arg == "--gamebar") {
+        match gamebar::status() {
+            Ok(state) => println!("{}", gamebar::describe(&state)),
+            Err(e) => println!("gamebar: {e}"),
         }
         return;
     }
@@ -1220,7 +1395,10 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             let _ = app.emit_to(island::WINDOW_LABEL, "tray", "open".to_string());
         }))
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            None,
+        ))
         .manage(Shared {
             settings: Mutex::new(loaded.clone()),
             gate: gate.clone(),
@@ -1297,6 +1475,22 @@ pub fn run() {
             debloat_list,
             debloat_remove,
             debloat_history,
+            gamebar_status,
+            gamebar_capture,
+            gamebar_policy_elevated,
+            gamebar_install,
+            startup_list,
+            startup_set,
+            clean_scan,
+            clean_run,
+            tweaks_list,
+            tweak_set,
+            tweak_reset,
+            tweak_elevated,
+            tweak_undo,
+            tweaks_history,
+            tweaks_elevated_probe,
+            restart_explorer,
             open_pc_window,
         ])
         .setup(move |app| {
@@ -1339,7 +1533,10 @@ pub fn run() {
             // it left running, and clear the logs that no longer mean anything.
             shell::kill_orphans();
             shell::clear_logs();
-            log::line(format!("--- Oczi {} started ---", env!("CARGO_PKG_VERSION")));
+            log::line(format!(
+                "--- Oczi {} started ---",
+                env!("CARGO_PKG_VERSION")
+            ));
             integrations::start(handle.clone());
             media::start(handle.clone());
             // Reminders are the app's own promise, so they are watched here rather
