@@ -3022,14 +3022,16 @@ html.asleep *::after {
    last run can be mistaken for what is happening now. */
 
 .watch-live {
-  flex: 1 1 auto;
+  /* `margin: auto` inside the panel body is what centres it: the head and the footer keep their
+     height, and the clock takes the middle of what is left, both ways. */
+  margin: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 6px;
   text-align: center;
-  padding: 8px 0;
+  padding: 8px 12px;
 }
 
 .watch-clock {

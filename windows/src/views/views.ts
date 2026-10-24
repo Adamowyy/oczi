@@ -2139,7 +2139,7 @@ function buildWatch(actions: ViewActions): ViewHost {
         return;
       }
       clock.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
-      clockHint.textContent = t("watch.watching");
+      clockHint.textContent = t("watch.keepWorking");
     },
     sync() {
       const watch = State.watch;
@@ -2210,10 +2210,10 @@ function buildWatch(actions: ViewActions): ViewHost {
       }
 
       if (State.watching) {
+        // The clock is the whole panel while it runs: centred in the room the head and the footer
+        // leave, with one line under it. Nothing from the previous run is on screen to confuse it.
+        clockHint.textContent = t("watch.keepWorking");
         body.append(h("div", { class: "watch-live" }, clock, clockHint));
-        body.append(
-          h("div", { class: "panel-advice", text: t("watch.keepWorking") }),
-        );
       } else if (!watch) {
         body.append(h("div", { class: "panel-advice", text: t("watch.none") }));
       } else {
