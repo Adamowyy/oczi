@@ -3016,6 +3016,34 @@ html.asleep *::after {
   color: var(--dim);
 }
 
+
+/* ── The watch, while it runs ────────────────────────────────────────────── */
+/* The countdown is the only thing on screen: one number in the middle, so nothing from the
+   last run can be mistaken for what is happening now. */
+
+.watch-live {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  padding: 8px 0;
+}
+
+.watch-clock {
+  font: 600 40px var(--font);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.watch-clock-hint {
+  font: 400 11.5px var(--font);
+  color: var(--dim-2);
+}
+
 /* Leaving a full-panel view: the header is hidden there, so this is the only clickable exit. */
 .panel-head button.close {
   flex: 0 0 auto;

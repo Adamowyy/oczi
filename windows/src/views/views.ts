@@ -1083,7 +1083,7 @@ function buildReport(actions: ViewActions): ViewHost {
           report ? h("div", { class: "sub", text: report.atText }) : null,
         ),
         // The header is hidden here, so leaving is a button rather than an icon in the corner.
-        h("button", { class: "ghost close", text: "×", title: t("health.close"), onclick: () => actions.collapse() }),
+        h("button", { class: "ghost close", text: "×", title: t("debloat.back"), onclick: () => actions.setView("pc") }),
       );
 
       if (!report) {
@@ -1928,7 +1928,7 @@ function buildDebloat(actions: ViewActions): ViewHost {
           h("div", { class: "eyebrow", text: t("debloat.title") }),
           h("div", { class: "sub", text: t("debloat.sub") }),
         ),
-        h("button", { class: "ghost close", text: "×", title: t("health.close"), onclick: () => actions.collapse() }),
+        h("button", { class: "ghost close", text: "×", title: t("debloat.back"), onclick: () => actions.setView("pc") }),
       );
 
       // Four halves, one strip: the packages Windows reports, the settings that are not a
@@ -2110,7 +2110,9 @@ function buildWatch(actions: ViewActions): ViewHost {
   const head = h("div", { class: "panel-head" });
   const body = h("div", { class: "panel-body" });
   const foot = h("div", { class: "panel-foot" });
-  const progress = h("div", { class: "sub" });
+  // While a watch runs the clock is the whole screen: one number, in the middle, nothing else.
+  const clock = h("div", { class: "watch-clock" });
+  const clockHint = h("div", { class: "watch-clock-hint" });
   const el = h(
     "div",
     { class: "view" },
@@ -2125,18 +2127,19 @@ function buildWatch(actions: ViewActions): ViewHost {
       // samples are still coming back, so the line says that instead of a frozen clock.
       if (!State.watching) {
         // A finished watch keeps its last countdown for ever unless it is taken away.
-        if (progress.textContent !== "") progress.textContent = "";
+        if (clock.textContent !== "") clock.textContent = "";
         return;
       }
       const total = State.watchMinutes * 60;
       const done = Math.floor((Date.now() - State.watchStartAt) / 1000);
       const left = Math.max(0, total - done);
       if (left === 0) {
-        progress.textContent = t("watch.finishing");
+        clock.textContent = "0:00";
+        clockHint.textContent = t("watch.finishing");
         return;
       }
-      const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
-      progress.textContent = t("watch.running", clock);
+      clock.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+      clockHint.textContent = t("watch.watching");
     },
     sync() {
       const watch = State.watch;
@@ -2161,14 +2164,13 @@ function buildWatch(actions: ViewActions): ViewHost {
           h("div", {
             class: "title",
             text: State.watching
-              ? t("watch.watching")
+              ? ""
               : watch
                 ? t("watch.stalls", watch.stalls.length, watch.stalls.reduce((max, s) => Math.max(max, s.ms), 0))
                 : t("watch.title"),
           }),
-          progress,
         ),
-        h("button", { class: "ghost close", text: "×", title: t("health.close"), onclick: () => actions.collapse() }),
+        h("button", { class: "ghost close", text: "×", title: t("debloat.back"), onclick: () => actions.setView("pc") }),
       );
 
       // One short paragraph before it starts: what a watch does, and that the machine stays usable.
@@ -2207,8 +2209,13 @@ function buildWatch(actions: ViewActions): ViewHost {
         return;
       }
 
-      if (!watch) {
-        body.append(h("div", { class: "panel-advice", text: State.watching ? "" : t("watch.none") }));
+      if (State.watching) {
+        body.append(h("div", { class: "watch-live" }, clock, clockHint));
+        body.append(
+          h("div", { class: "panel-advice", text: t("watch.keepWorking") }),
+        );
+      } else if (!watch) {
+        body.append(h("div", { class: "panel-advice", text: t("watch.none") }));
       } else {
         if (watch.stalls.length === 0) {
           body.append(h("div", { class: "panel-advice", text: t("watch.clean") }));

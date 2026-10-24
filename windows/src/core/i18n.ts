@@ -213,6 +213,8 @@ const EN = {
   "debloat.tabTweaks": "Tweaks",
   "debloat.tabStartup": "Autostart",
   "debloat.tabClean": "Cleanup",
+  "debloat.back": "Back",
+  "watch.keepWorking": "You can keep working, the watch ends by itself.",
   // Game Bar and Game DVR: the overlay and the capture behind it. One card, two levels — the
   // user's own switches and the machine policy that needs an administrator.
   "debloat.games": "Gaming",
@@ -703,6 +705,8 @@ const PL: Record<TextKey, string> = {
   "debloat.tabTweaks": "Dodatki",
   "debloat.tabStartup": "Autostart",
   "debloat.tabClean": "Sprzątanie",
+  "debloat.back": "Wstecz",
+  "watch.keepWorking": "Możesz normalnie pracować, obserwacja kończy się sama.",
   // Game Bar i Game DVR: nakładka i nagrywanie za nią. Jedna karta, dwa poziomy — własne
   // przełączniki i polityka maszyny, która wymaga administratora.
   "debloat.games": "Gry",
