@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize
 use std::cell::UnsafeCell;
 
 use windows::core::{implement, BOOL, Interface};
-use windows::Win32::Foundation::{HWND, LPARAM, POINT, POINTL};
+use windows::Win32::Foundation::{HWND, LPARAM, POINT, POINTL, RECT};
 use windows::Win32::System::Com::{DVASPECT_CONTENT, FORMATETC, IDataObject, TYMED_HGLOBAL};
 use windows::Win32::System::Ole::{
     CF_HDROP, DROPEFFECT, DROPEFFECT_COPY, DROPEFFECT_NONE, IDropTarget, IDropTarget_Impl,
@@ -21,10 +21,12 @@ use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
 use windows::Win32::UI::Input::KeyboardAndMouse::HOT_KEY_MODIFIERS;
 use windows::Win32::UI::Shell::{DragFinish, DragQueryFileW, HDROP};
+use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::Win32::UI::WindowsAndMessaging::{EnumChildWindows};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW,
+    GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect,
+    GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed, SetWindowLongPtrW, GWL_EXSTYLE,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 /// Logical size of the panel. The window is always this size: click-through keeps
@@ -41,6 +43,8 @@ const POLL_HZ_ACTIVE: u64 = 16;
 const POLL_HZ_NEARBY: u64 = 33;
 /// Island hidden: just watch the wake band and the top edge.
 const POLL_HZ_IDLE: u64 = 125;
+/// A fullscreen app owns the display: nothing to do but notice when it ends.
+const POLL_MS_FULLSCREEN: u64 = 200;
 /// How close counts as "about to reach the island".
 const NEAR_PX: f64 = 260.0;
 
@@ -72,6 +76,12 @@ pub struct ScreenInfo {
     pub width: f64,
     pub height: f64,
     pub scale: f64,
+}
+
+/// Whether a fullscreen app now owns the display the island lives on.
+#[derive(Serialize, Clone)]
+pub struct FullscreenPayload {
+    pub on: bool,
 }
 
 // The island shape in window-logical coordinates, pushed by the front end.
@@ -167,9 +177,139 @@ pub fn focus(app: &AppHandle) {
 
 fn cursor_physical() -> Option<(f64, f64)> {
     let mut p = POINT::default();
-    unsafe { GetCursorPos(&mut p).ok()? };
+    unsafe { GetCursorPos(&mut p).ok()? }
     Some((p.x as f64, p.y as f64))
 }
+
+/// The display the island lives on, resolved from the stored `screen` setting — the
+/// same display `apply_geometry` places the window on.
+pub fn island_monitor(app: &AppHandle) -> Option<Monitor> {
+    let pref = app
+        .try_state::<crate::Shared>()
+        .map(|s| s.settings.lock().unwrap().screen.clone())
+        .unwrap_or_else(|| "primary".into());
+    target_monitor(app, &pref)
+}
+
+/// Whether somebody else's app is running fullscreen on the display the island lives
+/// on. Another display's game is none of our business: the island there is still
+/// reachable, and the top edge of this one still belongs to the desktop.
+pub fn detect_fullscreen(app: &AppHandle) -> bool {
+    game_mode_on(app)
+        && island_monitor(app)
+            .map(|m| foreground_fullscreen(&m))
+            .unwrap_or(false)
+}
+
+/// The `Game mode` switch, read from the live settings — the settings window writes the
+/// shared struct, so flipping it needs no restart.
+fn game_mode_on(app: &AppHandle) -> bool {
+    app.try_state::<crate::Shared>()
+        .map(|s| s.settings.lock().unwrap().game_mode)
+        .unwrap_or(true)
+}
+
+/// Classes of the shell's own desktop windows. They cover the whole monitor like a
+/// fullscreen app does, and treating the bare desktop as one would take the wake band
+/// away from anybody who is not playing anything at all.
+const SHELL_CLASSES: [&str; 3] = ["Progman", "WorkerW", "Shell_TrayWnd"];
+
+fn foreground_fullscreen(m: &Monitor) -> bool {
+    unsafe {
+        let fg = GetForegroundWindow();
+        if fg.0.is_null() {
+            return false;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(fg, Some(&mut pid));
+        // Our own surfaces — the snip overlay, a pin, the settings window — are ours,
+        // never the thing the island has to keep quiet for.
+        if pid == GetCurrentProcessId() {
+            return false;
+        }
+        if !IsWindowVisible(fg).as_bool() || IsIconic(fg).as_bool() {
+            return false;
+        }
+        // A maximised window is not a fullscreen one. Windows draws its frame right up
+        // to the monitor edges for a maximised window, so without this test every
+        // maximised Explorer or browser would silence the island's top edge.
+        if IsZoomed(fg).as_bool() {
+            return false;
+        }
+        let mut class = [0u16; 64];
+        let len = GetClassNameW(fg, &mut class);
+        if len > 0 {
+            let name = String::from_utf16_lossy(&class[..len as usize]);
+            if SHELL_CLASSES.contains(&name.as_str()) {
+                return false;
+            }
+        }
+        let mut r = RECT::default();
+        if GetWindowRect(fg, &mut r).is_err() {
+            return false;
+        }
+        let p = m.position();
+        let s = m.size();
+        covers_monitor(
+            r.left,
+            r.top,
+            r.right,
+            r.bottom,
+            p.x,
+            p.y,
+            s.width as i32,
+            s.height as i32,
+        )
+    }
+}
+
+/// Whether a window rect covers every pixel of the monitor at (`mx`, `my`). Two pixels
+/// of slack: some drivers report a fullscreen window a pixel or two short of the
+/// bottom, and a game that misses by one pixel is still a game.
+fn covers_monitor(
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+    mx: i32,
+    my: i32,
+    mw: i32,
+    mh: i32,
+) -> bool {
+    const SLACK: i32 = 2;
+    left <= mx + SLACK
+        && top <= my + SLACK
+        && right >= mx + mw - SLACK
+        && bottom >= my + mh - SLACK
+}
+
+#[cfg(test)]
+mod fullscreen_tests {
+    use super::covers_monitor;
+
+    #[test]
+    fn a_window_on_the_whole_monitor_counts() {
+        assert!(covers_monitor(0, 0, 1920, 1080, 0, 0, 1920, 1080));
+        // A pixel or two short is still a fullscreen window.
+        assert!(covers_monitor(0, 0, 1920, 1078, 0, 0, 1920, 1080));
+    }
+
+    #[test]
+    fn a_window_that_leaves_room_for_the_taskbar_does_not() {
+        // What a maximised window looks like: the work area, not the whole screen.
+        assert!(!covers_monitor(0, 0, 1920, 1040, 0, 0, 1920, 1080));
+    }
+
+    #[test]
+    fn only_the_islands_own_display_counts() {
+        // A game on the right-hand display, position 1920: the primary is untouched.
+        assert!(covers_monitor(1920, 0, 3840, 1080, 1920, 0, 1920, 1080));
+        assert!(!covers_monitor(1920, 0, 3840, 1080, 0, 0, 1920, 1080));
+        // …and a display above the primary, at negative y.
+        assert!(covers_monitor(0, -1080, 1920, 0, 0, -1080, 1920, 1080));
+    }
+}
+
 
 /// Makes the island a place Windows hands dropped files to: WebView2 puts its own
 /// target on the render widget, so re-register ours on every child with RegisterDragDrop.
@@ -737,11 +877,7 @@ pub fn set_activating(win: &WebviewWindow, activating: bool) {
 /// Position, size and scale of the monitor the island lives on. Any change here
 /// means the island has to be placed again.
 fn current_screen_key(app: &AppHandle) -> Option<(i32, i32, u32, u32, u64)> {
-    let pref = app
-        .try_state::<crate::Shared>()
-        .map(|s| s.settings.lock().unwrap().screen.clone())
-        .unwrap_or_else(|| "primary".into());
-    let m = target_monitor(app, &pref)?;
+    let m = island_monitor(app)?;
     let p = m.position();
     let size = m.size();
     Some((p.x, p.y, size.width, size.height, m.scale_factor().to_bits()))
@@ -761,15 +897,30 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
         let mut near = true;
         let mut ticks: u32 = 0;
         let mut drag_probe: u32 = 0;
+        // The display the island lives on, and whether somebody is running something
+        // fullscreen on it. Both are re-read on the slower pass below.
+        let mut island_mon: Option<Monitor> = None;
+        let mut screen_full = false;
+        // The `Game mode` switch, re-read with them: off means the wake band never stops
+        // working, whatever is on screen.
+        let mut game_mode = true;
         loop {
             let idle = !gate.is_active() || gate.collapsed.load(Ordering::Relaxed);
-            std::thread::sleep(Duration::from_millis(if idle {
-                POLL_HZ_IDLE
+            // With a fullscreen app on the display and the island down, the only job left
+            // is noticing when that app ends — so this is the slowest tick there is. An
+            // island the user summoned in the meantime keeps its normal rate.
+            let wait = if idle {
+                if screen_full {
+                    POLL_MS_FULLSCREEN
+                } else {
+                    POLL_HZ_IDLE
+                }
             } else if near {
                 POLL_HZ_ACTIVE
             } else {
                 POLL_HZ_NEARBY
-            }));
+            };
+            std::thread::sleep(Duration::from_millis(wait));
             ticks = ticks.wrapping_add(1);
 
             // Monitors get rearranged and rescaled; an island pinned to gone
@@ -788,6 +939,33 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                         let _ = app.emit_to(WINDOW_LABEL, "screen-changed", ());
                     }
                 }
+            }
+
+            // The island's own display, re-read with the layout check above.
+            if ticks % check_every == 0 {
+                island_mon = island_monitor(&app);
+                game_mode = game_mode_on(&app);
+            }
+            // Somebody else's app covering the island's own display: the top edge is
+            // theirs now. A game on the *other* monitor is not this, and must leave the
+            // wake band alone — the island is still reachable there.
+            let now_full = game_mode
+                && island_mon
+                    .as_ref()
+                    .map(foreground_fullscreen)
+                    .unwrap_or(false);
+            if now_full != screen_full {
+                screen_full = now_full;
+                gate.forget_ignore_state();
+                crate::log::line(format!(
+                    "display  fullscreen app on the island's screen: {}",
+                    if screen_full { "yes — wake band off" } else { "no — wake band back" }
+                ));
+                let _ = app.emit_to(
+                    WINDOW_LABEL,
+                    "fullscreen",
+                    FullscreenPayload { on: screen_full },
+                );
             }
 
             let Some(win) = window(&app) else { continue };
@@ -834,7 +1012,15 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
 
             let dragging = down && x >= 0.0 && x <= size.0 && y >= 0.0 && y <= size.1;
 
-            let accept = on_island || dragging;
+            // In fullscreen only the island's own shape may take the mouse, and only
+            // while it is really up (a chord summoned it): the band above it belongs to
+            // whatever is running there, and that band is what used to pull Oczi out
+            // across the top of a game.
+            let accept = if screen_full {
+                !idle && on_island
+            } else {
+                on_island || dragging
+            };
 
             // Re-assert the drop target for as long as a button is held, not just on
             // the press: WebView2 recreates its render widget from time to time and it
@@ -855,6 +1041,13 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
             if gate.ignoring.load(Ordering::Relaxed) == accept {
                 gate.ignoring.store(!accept, Ordering::Relaxed);
                 let _ = win.set_ignore_cursor_events(!accept);
+            }
+
+            // Nothing on the other side of this event needs it while a game has the
+            // display and the island is down: the page stays asleep instead of waking
+            // for every pixel the cursor moves.
+            if screen_full && idle {
+                continue;
             }
 
             if (x - last.0).abs() < 1.0 && (y - last.1).abs() < 1.0 {

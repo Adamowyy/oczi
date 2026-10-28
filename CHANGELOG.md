@@ -2,6 +2,19 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.4 — 2026-10-28
+
+**Silent over a fullscreen app.**
+
+- While another app runs fullscreen on the display the island lives on, the top edge belongs to
+  that app: the wake band is off and hovering the top of the screen no longer pulls Oczi out.
+- The island folds away when that app takes the screen, and the shortcut still opens it in the
+  middle of anything — after which it is used exactly as usual.
+- A fullscreen app on a *different* display changes nothing, and the cursor poll drops to its
+  slowest rate for as long as the game runs.
+- Settings → General has the switch for it: **Tryb gry**, on by default, with a line saying what it
+  does.
+
 ## 0.5.3 — 2026-10-24
 
 **Debloat became a small toolbox**: packages, Windows settings, autostart and cleaning, one tab each.

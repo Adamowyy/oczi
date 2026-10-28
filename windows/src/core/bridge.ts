@@ -250,6 +250,10 @@ export const Bridge = {
   /** Shrink the window down to the invisible wake strip (hidden) or back to full. */
   setCollapsed: (collapsed: boolean) => call<void>("set_collapsed", { collapsed }),
 
+  /** Whether a fullscreen app owns the island's display right now — asked at boot, since
+   *  the poll only pushes a change. */
+  islandFullscreen: () => call<boolean>("island_fullscreen"),
+
   /** Slide the island along the top of its screen. `persist` writes it down. */
   setIslandAnchor: (anchor: number, persist: boolean) =>
     call<void>("set_island_anchor", { anchor, persist }),
@@ -412,7 +416,9 @@ export type BridgeEvent =
   | { name: "reminder"; payload: ReminderEvent }
   | { name: "routine"; payload: RoutineEvent }
   | { name: "health"; payload: HealthReport }
-  | { name: "screen-changed"; payload: null };
+  | { name: "screen-changed"; payload: null }
+  /** A fullscreen app took (or gave back) the island's own display. */
+  | { name: "fullscreen"; payload: { on: boolean } };
 
 export interface DragDropPayload {
   type: "enter" | "over" | "drop" | "leave";

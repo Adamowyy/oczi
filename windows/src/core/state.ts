@@ -372,6 +372,8 @@ export interface Settings {
   voiceLanguage: "auto" | "pl" | "en";
   /** Whether the chat may search the live web through its tools. */
   webSearch: boolean;
+  /** Game mode: quiet over a fullscreen app on the island's own display. */
+  gameMode: boolean;
   /** Which search backend backs those tools: "duckduckgo", "brave" or "tavily". */
   searchProvider: string;
   /** UI language. English unless the user picked Polish. */
@@ -404,6 +406,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pinHotkey: "Ctrl+Alt+Shift+P",
   voiceLanguage: "auto",
   webSearch: true,
+  gameMode: true,
   searchProvider: "duckduckgo",
   language: "en",
   terminalEnabled: false,
@@ -428,6 +431,9 @@ class AppState {
 
   isPinned = false;
   paused = false;
+  /** A fullscreen app owns the island's own display: no wake band, no hover reveal, and
+   *  the island stays off the screen until a chord summons it. */
+  fullscreen = false;
 
   uploadProgress = 0;
   uploadDuration = 2.4;

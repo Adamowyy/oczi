@@ -211,6 +211,13 @@ fn set_collapsed(app: AppHandle, shared: State<Shared>, collapsed: bool) {
     let _ = app;
 }
 
+/// Whether a fullscreen app owns the island's display right now. The cursor poll pushes
+/// a change as an event; this answers for a page that has just booted and missed it.
+#[tauri::command]
+fn island_fullscreen(app: AppHandle) -> bool {
+    island::detect_fullscreen(&app)
+}
+
 /// The front end pushes the island shape; Rust decides click-through from it.
 #[tauri::command]
 fn set_island_rect(shared: State<Shared>, x: f64, y: f64, width: f64, height: f64) {
@@ -1434,6 +1441,7 @@ pub fn run() {
             save_settings,
             set_intervals,
             set_collapsed,
+            island_fullscreen,
             set_island_rect,
             set_accept_drops,
             focus_window,

@@ -60,6 +60,12 @@ pub struct Settings {
     /// is a model answering from a training cut-off that has already passed.
     #[serde(default = "default_true")]
     pub web_search: bool,
+    /// Game mode: while somebody else's app runs fullscreen on the display the island
+    /// lives on, the island folds away and the wake band stops waking it. On by default —
+    /// the chords still open it in the middle of anything, and another display's game
+    /// changes nothing.
+    #[serde(default = "default_true")]
+    pub game_mode: bool,
     /// Which search backend the web tools use — see `crate::web::PROVIDERS`.
     /// The keyless one needs no setup, so it is the default.
     #[serde(default = "default_search_provider")]
@@ -166,6 +172,7 @@ impl Default for Settings {
             voice_hotkey: default_voice_hotkey(),
             voice_language: default_voice_language(),
             web_search: true,
+            game_mode: true,
             search_provider: default_search_provider(),
             language: default_language(),
             terminal_enabled: false,

@@ -41,6 +41,14 @@ async function main() {
 
   await onEvent<{ x: number; y: number }>("cursor", ({ x, y }) => island.onCursor(x, y));
 
+  // A fullscreen app on the island's own display: the wake band goes away so a cursor
+  // reaching for the top of that window never pulls Oczi out. Another display's game
+  // does not reach this, and the chords keep working as always.
+  await onEvent<{ on: boolean }>("fullscreen", ({ on }) => island.setFullscreen(on));
+  // The poll pushes only a change, so a game already running when Oczi started never
+  // produced one — ask once.
+  if (IS_TAURI) island.setFullscreen((await Bridge.islandFullscreen()) === true);
+
   /** Pause has to reach Rust too, or the pollers keep calling out. */
   const setPaused = (on: boolean) => {
     if (State.paused === on) return;

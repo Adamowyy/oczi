@@ -1206,6 +1206,9 @@ export class Island {
     // The wake strip is the only thing the OS can hit while the island is hidden.
     this.wakeStrip.addEventListener("mouseenter", () => {
       Sound.resume();
+      // A fullscreen app owns the top edge of the display it is on, so the band is not a
+      // way in while it runs — the chord is.
+      if (State.fullscreen) return;
       if (State.mode === "hidden") this.fsm.mouseEntered();
     });
 
@@ -1255,9 +1258,14 @@ export class Island {
       UploadSeq.updateCursor(State.mouseInIsland.x, State.mouseInIsland.y);
     }
 
+    // A fullscreen app owns the top edge of this display: nothing of the band may wake
+    // the island while it runs, and a hidden island is only reachable by chord. Once it
+    // is up (summoned, or opened over the game) it behaves as usual.
+    const margin = State.fullscreen ? 0 : HIT_MARGIN;
     const inIsland =
-      x >= rect.x - HIT_MARGIN && x <= rect.x + rect.w + HIT_MARGIN &&
-      y >= rect.y - HIT_MARGIN && y <= rect.y + rect.h + HIT_MARGIN;
+      x >= rect.x - margin && x <= rect.x + rect.w + margin &&
+      y >= rect.y - margin && y <= rect.y + rect.h + margin &&
+      !(State.fullscreen && this.fsm.state === "hidden");
 
     const wasHovered = this.hovered;
     this.hovered = inIsland;
@@ -1820,6 +1828,30 @@ export class Island {
     Sound.setVolume(State.settings.soundVolume);
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
     this.fsm.petitToHiddenDelay = State.settings.notchHideInterval;
+    State.notify();
+  }
+
+  /** Somebody started (or closed) a fullscreen app on the island's own display. Rust has
+   *  already made the window click-through across the whole top edge; this side keeps the
+   *  island itself away and stops the hover path from waking it. The chords are untouched,
+   *  so `Ctrl+Alt+M` still opens it mid-game and it is usable as ever once it is up. */
+  setFullscreen(on: boolean) {
+    if (State.fullscreen === on) return;
+    State.fullscreen = on;
+    void Bridge.log(`ui  fullscreen ${on ? "on — wake band off" : "off"}`);
+    if (!on) {
+      State.notify();
+      return;
+    }
+    // Down and away: a game took the screen, so Oczi goes with it. A chord brings it
+    // back the same way it would from any other hidden state.
+    this.hovered = false;
+    this.wasInIsland = false;
+    // The machine's fold moves the state, not the window (see `collapse`): take the mode
+    // too, or the window is left at a card's size with the bar's content in it. `setMode`
+    // does nothing when it is already hidden, so this is safe on both paths.
+    this.fsm.forceHidden();
+    this.setMode("hidden");
     State.notify();
   }
 
