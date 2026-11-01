@@ -2,6 +2,22 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.5 — 2026-11-01
+
+**The watch now looks at the internet too, and Debloat stops offering what Windows will not change.**
+
+- Observing a freeze also pings the internet and the router every two seconds: the card shows lost
+  pings, the round-trip time and every dropout, and ends with which side failed — the router, the
+  provider, or the Wi-Fi.
+- A deep health scan tests the line for its whole minute without getting longer, and the report
+  carries the numbers: median, loss, and how many pings it took.
+- Debloat hides settings this account cannot write at all, instead of showing a switch that fails on
+  every press.
+- The PC tiles carry an icon and a colour each — heart for Health, bin for Debloat, timer for the
+  watch — and the watch buttons use the same one.
+- The screenshot shortcut works again after a pin was started and cancelled, and the pin no longer
+  makes the next screenshot a pin.
+
 ## 0.5.4 — 2026-10-28
 
 **Silent over a fullscreen app.**
