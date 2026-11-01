@@ -112,8 +112,11 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   prices: { height: 250, botX: 60, botY: null, botDiameter: 52, agentMode: "none" },
   // The PC pill's own screen: the machine card on the left, and on the right the two things a
   // person wants from that pill — a health scan and the debloat list — with the numbers already
-  // known about them. Same geometry as `overview`, which it is a variant of.
-  pc: { height: 228, botX: 68, botY: null, botDiameter: 58, agentMode: "none" },
+  // known about them. Same geometry as `overview`, which it is a variant of, plus the height the
+  // health numbers need: at 640 wide the two tiles wrap their subtitles, and with a finished report
+  // the right card measures ~201 px. Anything less and the centred column cut the tops off both
+  // tiles — which is what a machine that had already run a scan saw.
+  pc: { height: 262, botX: 68, botY: null, botDiameter: 58, agentMode: "none" },
   // The verdict after a scan: the score, the loudest findings and the two buttons that lead on.
   // The card hides the header, so the mascot sits in the corner it freed — at 122 it stood on the
   // text it was supposed to sit beside.

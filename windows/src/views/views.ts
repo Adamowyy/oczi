@@ -825,20 +825,30 @@ function buildPc(actions: ViewActions): ViewHost {
   const healthTile = h(
     "button",
     {
-      class: "pc-tile",
+      class: "pc-tile tone-health",
       // Clicking always leads somewhere: mid-scan to the card that says the scan is running, which
       // is also where the length of the run is written. A tile that ignores presses during the one
       // moment you want to look inside it is a tile that feels broken.
       onclick: () =>
         State.healthBusy || State.health ? actions.setView("report") : actions.healthScan(false),
     },
-    h("span", { class: "big", text: t("pc.health") }),
+    h(
+      "span",
+      { class: "tile-head" },
+      svg(ICONS.heart, 12),
+      h("span", { class: "big", text: t("pc.health") }),
+    ),
     h("span", { class: "small", text: t("pc.healthSub") }),
   );
   const debloatTile = h(
     "button",
-    { class: "pc-tile", onclick: () => actions.setView("debloat") },
-    h("span", { class: "big", text: t("pc.debloat") }),
+    { class: "pc-tile tone-debloat", onclick: () => actions.setView("debloat") },
+    h(
+      "span",
+      { class: "tile-head" },
+      svg(ICONS.trash, 12),
+      h("span", { class: "big", text: t("pc.debloat") }),
+    ),
     h("span", { class: "small", text: t("pc.debloatSub") }),
   );
 
@@ -848,24 +858,28 @@ function buildPc(actions: ViewActions): ViewHost {
 
   // The watch is a small button, not a third tile: two big tasks fit the card, three pushed the
   // frame out of the island and clipped the top of it.
-  const watchBtn = h("button", {
-    class: "pc-watch",
-    text: t("pc.watchTitle"),
-    title: t("pc.watchSub"),
-    // Opens the watch and arms the explanation — it does not start anything. A run that begins on a
-    // single click, with the length still to be chosen, is a click that cannot be taken back.
-    onclick: () => {
-      // A watch already running: this button is the way back into its card, where the countdown and
-      // "stop watching" live. Disabling it left the run with no door.
-      if (State.watching) {
+  const watchBtn = h(
+    "button",
+    {
+      class: "pc-watch tone-watch",
+      title: t("pc.watchSub"),
+      // Opens the watch and arms the explanation — it does not start anything. A run that begins on a
+      // single click, with the length still to be chosen, is a click that cannot be taken back.
+      onclick: () => {
+        // A watch already running: this button is the way back into its card, where the countdown and
+        // "stop watching" live. Disabling it left the run with no door.
+        if (State.watching) {
+          actions.setView("watch");
+          return;
+        }
         actions.setView("watch");
-        return;
-      }
-      actions.setView("watch");
-      State.watchPending = 15;
-      State.notify();
+        State.watchPending = 15;
+        State.notify();
+      },
     },
-  });
+    svg(ICONS.timer, 11),
+    h("span", { text: t("pc.watchTitle") }),
+  );
   // The watch sits under the two tiles, centred: beside the score it read as part of the number.
   const right = card(
     null,
@@ -1227,6 +1241,18 @@ function buildReport(actions: ViewActions): ViewHost {
         }),
         ...controls,
       );
+      // A deep scan tests the line for a minute beside its own sampling, so its verdict belongs on
+      // the same card — one line, the numbers a person would ask for.
+      if (report?.net && report.net.sent > 0) {
+        const net = report.net;
+        const loss = Math.round((net.lost / net.sent) * 100);
+        foot.append(
+          h("span", {
+            class: "count",
+            text: t("health.netLine", net.medianMs, loss, net.sent, ""),
+          }),
+        );
+      }
     },
   };
 }
@@ -2130,7 +2156,7 @@ async function runWatch(minutes: number, actions: ViewActions) {
       State.watch = result;
       const longest = result.stalls.reduce((max, s) => Math.max(max, s.ms), 0);
       void Bridge.log(
-        `watch ${minutes} min: ${result.stalls.length} stalls, longest ${longest} ms${result.cancelled ? ", cancelled" : ""}`,
+        `watch ${minutes} min: ${result.stalls.length} stalls, longest ${longest} ms${result.cancelled ? ", cancelled" : ""}, net ${result.net?.sent ?? 0} pings ${Math.round(((result.net?.lost ?? 0) / Math.max(1, result.net?.sent ?? 1)) * 100)}% loss, router ${result.net?.gateway || "-"}`,
       );
     }
   } catch (e) {
@@ -2188,6 +2214,7 @@ function buildWatch(actions: ViewActions): ViewHost {
         watch?.started ?? 0,
         watch?.stalls.length ?? -1,
         watch?.minutes ?? 0,
+        watch?.net?.drops.length ?? -1,
       ].join("|");
       if (next === key) return;
       key = next;
@@ -2221,7 +2248,7 @@ function buildWatch(actions: ViewActions): ViewHost {
         // The two lengths are the confirmation: pressing one says "I read this, start it".
         foot.append(
           h("button", {
-            class: "primary",
+            class: "primary watch-start",
             text: t("watch.minutes", 15),
             onclick: () => {
               State.watchPending = null;
@@ -2229,7 +2256,7 @@ function buildWatch(actions: ViewActions): ViewHost {
             },
           }),
           h("button", {
-            class: "primary",
+            class: "primary watch-start",
             text: t("watch.minutes", 30),
             onclick: () => {
               State.watchPending = null;
@@ -2366,6 +2393,61 @@ function buildWatch(actions: ViewActions): ViewHost {
               ),
             }),
           );
+        }
+
+        // The network half of the same watch. A game that kicks someone out of a server leaves
+        // nothing on the processor, so this is the part that answers "was it me or the line" —
+        // with the router's own numbers next to it, which is what separates the two.
+        const net = watch.net;
+        if (net && net.sent > 0) {
+          const loss = Math.round((net.lost / net.sent) * 100);
+          const bad = loss > 0 || net.spikes.length > 0;
+          const headline = t("watch.netTitle", loss, net.medianMs, net.maxMs);
+          body.append(
+            bad
+              ? h(
+                  "div",
+                  { class: "panel-row warn" },
+                  h("i", { class: "sev" }),
+                  h("span", { class: "text", text: headline }),
+                )
+              : h("div", { class: "panel-advice", text: headline }),
+          );
+          if (net.gatewaySent > 0 && net.gatewayLost >= net.gatewaySent) {
+            body.append(
+              h("div", {
+                class: "panel-advice",
+                text: t("watch.netRouterSilent", net.gateway),
+              }),
+            );
+          } else if (net.gatewaySent > 0) {
+            const gwLoss = Math.round((net.gatewayLost / net.gatewaySent) * 100);
+            body.append(
+              h("div", {
+                class: "panel-advice",
+                text:
+                  t(
+                    "watch.netRouter",
+                    net.gateway,
+                    gwLoss,
+                    net.gatewayMaxMs === 0 ? "<1" : net.gatewayMaxMs,
+                  ) +
+                  (gwLoss > 0 ? " — " + t("watch.netLocal") : net.lost > 0 ? " — " + t("watch.netProvider") : ""),
+              }),
+            );
+          }
+          const netEvents = [
+            ...net.drops.map((d) => t("watch.netDrop", d.atText, d.seconds) + (d.top ? t("watch.netOn", d.top) : "")),
+            ...net.spikes.map((s) => t("watch.netSpike", s.atText, s.ms) + (s.top ? t("watch.netOn", s.top) : "")),
+          ];
+          for (const line of netEvents.slice(0, 5)) {
+            body.append(h("div", { class: "panel-advice", text: line }));
+          }
+          if (loss === 0 && net.spikes.length === 0) {
+            body.append(h("div", { class: "panel-advice", text: t("watch.netClean", net.maxMs) }));
+          }
+        } else if (net) {
+          body.append(h("div", { class: "panel-advice", text: t("watch.netNone") }));
         }
       }
 

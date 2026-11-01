@@ -1212,6 +1212,19 @@ async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result
                     if next != current {
                         crate::log::line(format!("chat  {current} has no capacity, trying {next}"));
                         body["model"] = json!(next);
+                    } else {
+                        // A one-model table has nothing to fall back to, so the sleep and the
+                        // two attempts after it buy nothing — the user is better served by a
+                        // sentence than by six more seconds of nothing. The API's own detail is
+                        // already in the log, above.
+                        crate::log::line(format!(
+                            "chat  {current} has no capacity and the table has no second model"
+                        ));
+                        return Err(format!(
+                            "{} is not answering right now — its model is at capacity or rate-limited. \
+                             Try again in a moment.",
+                            provider.label
+                        ));
                     }
                 }
             }
@@ -1266,6 +1279,33 @@ async fn call_once(key: &str, body: &Value, provider: &Provider) -> Result<Value
         let detail = providers::error_detail(&text)
             .unwrap_or_else(|| text.chars().take(200).collect());
         crate::log::line(format!("chat  {} API {status}: {detail}", provider.label));
+        // A daily allowance that is spent does not refill in two seconds: retrying it spends
+        // three attempts and six seconds of the user's glance on a wall, so this one fails
+        // here, once, and says which allowance ran out instead of quoting Google's metric name.
+        if status.as_u16() == 429 {
+            if let Some(limit) = providers::daily_quota_spent(&text) {
+                crate::log::line(format!("chat  {} daily allowance spent (limit {limit})", provider.label));
+                let other = providers::PROVIDERS
+                    .iter()
+                    .find(|other| other.id != provider.id)
+                    .map(|other| other.label)
+                    .unwrap_or("the other provider");
+                let size = if limit > 0 {
+                    format!("{limit} requests a day is all the free tier gives")
+                } else {
+                    "the free tier's daily allowance is used up".to_string()
+                };
+                return Err(CallError {
+                    retryable: false,
+                    capacity: false,
+                    message: format!(
+                        "{} is out of requests for today — {size}, and it resets at midnight Pacific Time. \
+                         Switch to {other} in the settings (its own API key) to keep going now.",
+                        provider.label
+                    ),
+                });
+            }
+        }
         let at_capacity = status.as_u16() == 503 || status.as_u16() == 429;
         return Err(CallError {
             retryable: status.is_server_error() || at_capacity,

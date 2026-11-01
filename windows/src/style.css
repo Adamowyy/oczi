@@ -505,13 +505,18 @@ body {
 
 /* The right column while it carries the chat field: the pills above, the field
    below. The gap has to sit on the CARD — the column holds one child (the card),
-   so spacing there did nothing and the pills' grid ran straight into the field. */
+   so spacing there did nothing and the pills' grid ran straight into the field.
+   Same `safe center` as the PC card: centred while it fits, from the top once the
+   translation or the pills make it taller than the card. */
 .overview > .right.with-bar .card {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  justify-content: safe center;
   gap: 12px;
   padding: 10px 10px 12px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .overview > .right.with-bar .pills {
@@ -2302,13 +2307,20 @@ html.asleep *::after {
 /* ── PC pill: the machine's own screen ──────────────────────────────────── */
 
 /* The right column of the PC screen holds two tiles and the numbers already known about them, so
-   it is a card like the overview's but with no pills grid and no chat field in it. */
+   it is a card like the overview's but with no pills grid and no chat field in it.
+   Centred while it fits, from the top once it does not: `safe` keeps the first row on screen when
+   the content is taller than the card, where plain centring cut the tops off both tiles (which is
+   what a machine with a finished health report saw), and the card scrolls rather than hiding what
+   is left over at the bottom. */
 .overview > .right.pc-right .card {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 12px;
-  padding: 12px;
+  justify-content: safe center;
+  gap: 10px;
+  padding: 10px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .pc-actions {
@@ -3098,4 +3110,74 @@ html.asleep *::after {
 .panel-head button.close:hover {
   color: inherit;
   background: rgba(255, 255, 255, 0.12);
+}
+
+/* The two lengths are the whole decision on the watch card, so they sit a size above an ordinary
+   footer button — a couple of pixels wider and taller, not a different control. */
+.panel-foot .watch-start {
+  font-size: 13.5px;
+  padding: 9px 18px;
+}
+
+/* One colour per job, and the icon carries it: cyan for the health check, amber for taking bundled
+   apps out, indigo for watching. The border and the icon say what a thing is before the label is
+   read, and the tiles keep their dark card so nothing turns into a button-coloured block. */
+.pc-tile .tile-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pc-tile.tone-health {
+  border-color: rgba(34, 211, 238, 0.24);
+}
+
+.pc-tile.tone-health .tile-head svg {
+  color: var(--cyan);
+}
+
+.pc-tile.tone-health:hover {
+  background: rgba(34, 211, 238, 0.08);
+  border-color: rgba(34, 211, 238, 0.45);
+}
+
+.pc-tile.tone-debloat {
+  border-color: rgba(245, 165, 36, 0.24);
+}
+
+.pc-tile.tone-debloat .tile-head svg {
+  color: var(--amber);
+}
+
+.pc-tile.tone-debloat:hover {
+  background: rgba(245, 165, 36, 0.08);
+  border-color: rgba(245, 165, 36, 0.45);
+}
+
+.pc-watch.tone-watch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #c7d2fe;
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(99, 102, 241, 0.38);
+}
+
+.pc-watch.tone-watch:hover {
+  color: #e0e7ff;
+  background: rgba(99, 102, 241, 0.24);
+  border-color: rgba(99, 102, 241, 0.6);
+}
+
+/* The two lengths are the decision on that card, so they carry the same indigo as the button that
+   led here — one colour for "this is the watch", wherever it appears. */
+.panel-foot button.watch-start {
+  background: var(--indigo);
+  border-color: var(--indigo);
+  color: #fff;
+}
+
+.panel-foot button.watch-start:hover {
+  background: #7c7ff5;
+  border-color: #7c7ff5;
 }

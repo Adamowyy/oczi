@@ -54,4 +54,8 @@ export const ICONS = {
   // backward.fill / forward.fill — with their bars, like a skip button.
   prev: "M6.4 5.6h2.2v12.8H6.4zm12 0v12.8L9.6 12z",
   next: "M15.4 5.6h2.2v12.8h-2.2zM5.6 5.6v12.8L14.4 12z",
+  // heart.fill — the health check
+  heart: "M12 20.9 4.1 12.8a5.3 5.3 0 0 1 7.5-7.4l.4.4.4-.4a5.3 5.3 0 0 1 7.5 7.4L12 20.9z",
+  // trash.fill — taking bundled apps out
+  trash: "M9.3 2.6h5.4l.8 1.7H19v1.9H5V4.3h3.5l.8-1.7zM6.7 7.8h10.6l-1 13H7.7l-1-13z",
 } as const;

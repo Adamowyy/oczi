@@ -25,7 +25,10 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, FILETIME};
+use windows::Win32::Foundation::{CloseHandle, FILETIME, HANDLE};
+use windows::Win32::NetworkManagement::IpHelper::{
+    GetBestRoute, IcmpCloseHandle, IcmpCreateFile, IcmpSendEcho, ICMP_ECHO_REPLY, MIB_IPFORWARDROW,
+};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
@@ -176,6 +179,11 @@ pub struct Report {
     /// empty when the call failed — the findings are the report either way.
     #[serde(default)]
     pub advice: String,
+    /// The line, tested quickly while a deep scan samples the machine: a deep scan is the wrong
+    /// place for the watch's long drop-hunting, so this is a one-second-per-ping look at whether
+    /// the connection is steady at all. Empty on a normal scan.
+    #[serde(default)]
+    pub net: NetWatch,
 }
 
 impl Report {
@@ -640,6 +648,10 @@ pub struct Watch {
     /// than saying nothing.
     #[serde(default)]
     pub suspects: Vec<String>,
+    /// What the network did during the same stretch: the pings, the losses and the drops that end
+    /// a game session without ever showing up on the processor.
+    #[serde(default)]
+    pub net: NetWatch,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -656,9 +668,267 @@ impl Watch {
     }
 }
 
+/// What the network did during a watch. A freeze and a dropped game session look nothing alike on
+/// the processor, and the usual report is "it kicks me out of the server" — so the watch pings while
+/// it samples and keeps the moments that were bad enough to explain it.
+///
+/// Two targets, because the answer differs: the router (gateway) separates a local fault — Wi-Fi,
+/// cable, the router itself — from the provider's, and a clean gateway next to a lossy internet
+/// target is the sentence that saves an hour of guessing.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NetWatch {
+    /// The address pinged to judge the internet.
+    pub target: String,
+    /// The default gateway, when Windows named one.
+    pub gateway: String,
+    pub sent: u32,
+    pub lost: u32,
+    pub min_ms: u32,
+    pub avg_ms: f64,
+    pub max_ms: u32,
+    /// The round trip that was normal for this run; spikes are measured against it.
+    pub median_ms: u32,
+    /// Round trips far above the median, with the time they happened.
+    pub spikes: Vec<NetEvent>,
+    /// Runs of two or more lost pings: what a dropped session is actually made of.
+    pub drops: Vec<NetEvent>,
+    pub gateway_sent: u32,
+    pub gateway_lost: u32,
+    pub gateway_max_ms: u32,
+}
+
+/// One bad moment of the network: a spike (a high round trip) or a drop (pings that never came
+/// back), with whatever was on the processor at the time.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NetEvent {
+    pub at: i64,
+    pub at_text: String,
+    /// How long the bad patch lasted, in seconds. Zero for a spike.
+    pub seconds: u32,
+    /// The round trip at its worst, in milliseconds. Zero for a drop.
+    pub ms: u32,
+    /// The busiest program at that moment — the game a session went down with.
+    #[serde(default)]
+    pub top: String,
+}
+
+impl NetWatch {
+    pub fn loss_pct(&self) -> f64 {
+        if self.sent == 0 {
+            return 0.0;
+        }
+        self.lost as f64 / self.sent as f64 * 100.0
+    }
+
+    pub fn gateway_loss_pct(&self) -> f64 {
+        if self.gateway_sent == 0 {
+            return 0.0;
+        }
+        self.gateway_lost as f64 / self.gateway_sent as f64 * 100.0
+    }
+
+    /// The longest drop, in seconds — the number that decides whether a game session survives.
+    pub fn worst_drop(&self) -> u32 {
+        self.drops.iter().map(|d| d.seconds).max().unwrap_or(0)
+    }
+
+    /// Anything worth printing: a loss, a spike, or a router that did not answer.
+    pub fn interesting(&self) -> bool {
+        self.sent > 0 && (self.lost > 0 || !self.spikes.is_empty() || self.gateway_lost > 0)
+    }
+
+    /// A router that never answered at all. Plenty of home routers and most corporate ones drop
+    /// ICMP on purpose, so this is "the local half could not be measured", never "the router is
+    /// losing packets" — the two are different sentences and only one of them is fair.
+    pub fn router_silent(&self) -> bool {
+        self.gateway_sent > 0 && self.gateway_lost >= self.gateway_sent
+    }
+}
+
+/// Rounds the raw pings into the numbers a person acts on. Pure, so the arithmetic behind
+/// "the ping spiked" can be tested without a network.
+///
+/// `rtts` is every answered ping in the order it was measured, with the local time it was sent and
+/// whatever was on the processor at that moment — a spike is only worth reporting when it has a
+/// name next to it.
+fn net_summary(rtts: &[(i64, u32, String)]) -> (u32, f64, u32, u32, Vec<(i64, u32, String)>) {
+    if rtts.is_empty() {
+        return (0, 0.0, 0, 0, Vec::new());
+    }
+    let mut times: Vec<u32> = rtts.iter().map(|(_, ms, _)| *ms).collect();
+    times.sort_unstable();
+    let min = times[0];
+    let max = *times.last().unwrap();
+    let median = times[times.len() / 2];
+    let avg = rtts.iter().map(|(_, ms, _)| *ms as f64).sum::<f64>() / rtts.len() as f64;
+    // A spike is judged against the run's own normal, never against a fixed number: on a fibre
+    // line 60 ms is a spike and on mobile internet it is an ordinary packet.
+    let ceiling = NET_SPIKE_MS.max(median.saturating_mul(3));
+    let spikes = rtts
+        .iter()
+        .filter(|(_, ms, _)| *ms >= ceiling)
+        .take(NET_MAX_EVENTS)
+        .cloned()
+        .collect();
+    (min, avg, max, median, spikes)
+}
+
 /// Set by `health_watch_cancel`. The watch is one loop on a worker thread, so calling it off is a
 /// flag it reads between samples — the button cannot kill a thread, and does not need to.
 static CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// How often a watch pings while it samples. Two seconds catches a dropout that ends a session and
+/// keeps the ethernet traffic small enough to be invisible to the game being watched.
+const NET_EVERY_MS: u64 = 2_000;
+/// A round trip this far above the run's own median — or this many milliseconds, whichever is the
+/// larger — is a spike. Games begin to stutter around a tenth of a second.
+const NET_SPIKE_MS: u32 = 120;
+/// Consecutive lost pings that count as a dropout rather than one unlucky packet.
+const NET_DROP_RUN: u32 = 2;
+/// Events kept per list: a card is read, not scrolled.
+const NET_MAX_EVENTS: usize = 8;
+/// Pinged to judge the internet. A public resolver, because game servers and plenty of home routers
+/// drop ICMP and a target that never answers says nothing about the machine.
+const NET_TARGET: &str = "1.1.1.1";
+
+/// An IPv4 address as Windows' own network calls want it: the four bytes in that order in memory
+/// (`in_addr` in network byte order), which on a little-endian machine is `from_ne_bytes`, not
+/// `from_be_bytes` — the latter reverses them and pings 4.3.2.1.
+fn ipv4(text: &str) -> Option<u32> {
+    let mut bytes = [0u8; 4];
+    let mut parts = text.split('.');
+    for slot in bytes.iter_mut() {
+        *slot = parts.next()?.trim().parse().ok()?;
+    }
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(u32::from_ne_bytes(bytes))
+}
+
+fn ipv4_text(address: u32) -> String {
+    let b = address.to_ne_bytes();
+    format!("{}.{}.{}.{}", b[0], b[1], b[2], b[3])
+}
+
+/// The router this machine sends its traffic through, as Windows routes it. `None` when there is no
+/// route at all — offline, which is itself worth knowing.
+///
+/// Addresses from the documentation ranges are refused: a TAP adapter (WSL, Hyper-V, a VPN client)
+/// answers `GetBestRoute` with `192.0.2.1`, and pinging that is pinging a machine that does not
+/// exist. A gateway nobody can reach reads as "the router is losing packets", which is a false
+/// accusation against working hardware.
+fn default_gateway(destination: u32) -> Option<u32> {
+    let mut row = MIB_IPFORWARDROW::default();
+    let code = unsafe { GetBestRoute(destination, None, &mut row) };
+    if code != 0 || row.dwForwardNextHop == 0 {
+        return None;
+    }
+    let hop = row.dwForwardNextHop;
+    let b = hop.to_ne_bytes();
+    let documentation = matches!(
+        (b[0], b[1], b[2]),
+        (192, 0, 2) | (198, 51, 100) | (203, 0, 113)
+    );
+    if documentation || b == [0, 0, 0, 0] {
+        return None;
+    }
+    Some(hop)
+}
+
+/// One ping through Windows' own ICMP handle. `None` when nothing came back inside the timeout,
+/// which is what a lost packet looks like from the outside.
+fn net_ping(handle: HANDLE, address: u32) -> Option<u32> {
+    let payload = [0u8; 32];
+    // The reply buffer is one `ICMP_ECHO_REPLY` followed by the data that came back. It has to be
+    // pointer-aligned: a byte array would turn the read of a struct holding a pointer into an
+    // unaligned one.
+    let mut reply = [0u64; 24];
+    let got = unsafe {
+        IcmpSendEcho(
+            handle,
+            address,
+            payload.as_ptr() as *const core::ffi::c_void,
+            payload.len() as u16,
+            None,
+            reply.as_mut_ptr() as *mut core::ffi::c_void,
+            std::mem::size_of_val(&reply) as u32,
+            1_000,
+        )
+    };
+    if got == 0 {
+        return None;
+    }
+    let answer = unsafe { &*(reply.as_ptr() as *const ICMP_ECHO_REPLY) };
+    // IP_SUCCESS is zero; anything else is the stack or a router refusing, which for the session
+    // that was dropped is the same thing as a lost packet.
+    if answer.Status != 0 {
+        return None;
+    }
+    Some(answer.RoundTripTime)
+}
+
+/// A short look at the line while a deep scan samples the machine: one ping a second, the internet
+/// and the router, for as long as the scan runs — on its own thread, so the deep scan keeps its
+/// minute instead of growing by one. The watch is where drops are hunted for half an hour; this
+/// only answers "is the connection steady right now".
+fn probe_link(seconds: u32) -> NetWatch {
+    let Some(target) = ipv4(NET_TARGET) else {
+        return NetWatch::default();
+    };
+    let gateway = default_gateway(target);
+    let Ok(handle) = (unsafe { IcmpCreateFile() }) else {
+        return NetWatch::default();
+    };
+    let mut rtts: Vec<(i64, u32, String)> = Vec::new();
+    let mut sent = 0u32;
+    let mut gw_sent = 0u32;
+    let mut gw_lost = 0u32;
+    let mut gw_max = 0u32;
+    for _ in 0..seconds.clamp(5, 60) {
+        sent += 1;
+        let at = crate::reminders::now_local();
+        if let Some(rtt) = net_ping(handle, target) {
+            rtts.push((at, rtt, String::new()));
+        }
+        if let Some(gw) = gateway {
+            gw_sent += 1;
+            match net_ping(handle, gw) {
+                Some(rtt) => gw_max = gw_max.max(rtt),
+                None => gw_lost += 1,
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1_000));
+    }
+    let _ = unsafe { IcmpCloseHandle(handle) };
+    let (min, avg, max, median, spikes) = net_summary(&rtts);
+    NetWatch {
+        target: NET_TARGET.to_string(),
+        gateway: gateway.map(ipv4_text).unwrap_or_default(),
+        sent,
+        lost: sent.saturating_sub(rtts.len() as u32),
+        min_ms: min,
+        avg_ms: avg,
+        max_ms: max,
+        median_ms: median,
+        spikes: spikes
+            .into_iter()
+            .map(|(at, ms, top)| NetEvent {
+                at,
+                at_text: crate::reminders::format_local(at),
+                seconds: 0,
+                ms,
+                top,
+            })
+            .collect(),
+        drops: Vec::new(),
+        gateway_sent: gw_sent,
+        gateway_lost: gw_lost,
+        gateway_max_ms: gw_max,
+    }
+}
 
 /// Stops the watch that is running, if one is.
 pub fn cancel() {
@@ -692,6 +962,23 @@ pub fn watch(minutes: u32) -> Watch {
     unsafe { GetSystemInfo(&mut system) };
     let cores = system.dwNumberOfProcessors.max(1) as f64;
     out.cores = cores as u32;
+
+    // The network half. The ICMP handle is opened once and closed at the end; a machine with no
+    // route (offline, a VPN mid-handshake) still gets a watch, it just has nothing to ping.
+    let target_ip = ipv4(NET_TARGET);
+    let gateway_ip = target_ip.and_then(default_gateway);
+    let icmp = unsafe { IcmpCreateFile() }.ok();
+    let mut net_rtts: Vec<(i64, u32, String)> = Vec::new();
+    let mut net_sent = 0u32;
+    let mut gw_sent = 0u32;
+    let mut gw_lost = 0u32;
+    let mut gw_max = 0u32;
+    let mut drops: Vec<NetEvent> = Vec::new();
+    // A run of lost pings in progress: how many, when it started, and what was on the processor.
+    let mut lost_run = 0u32;
+    let mut lost_at: Option<i64> = None;
+    let mut lost_top = String::new();
+    let mut next_ping = 0u64;
 
     while begin.elapsed() < total {
         std::thread::sleep(std::time::Duration::from_millis(1_000));
@@ -769,15 +1056,100 @@ pub fn watch(minutes: u32) -> Watch {
                     .collect(),
             });
         }
+        // The network, on its own clock: every two seconds is enough resolution for a session that
+        // dropped, and it keeps the watch from doubling its own traffic.
+        if let Some(handle) = icmp {
+            if let (true, Some(target)) = (now_tick >= next_ping, target_ip) {
+                next_ping = now_tick + NET_EVERY_MS;
+                let at = crate::reminders::now_local();
+                let who = top.as_ref().map(|(name, _)| name.clone()).unwrap_or_default();
+                net_sent += 1;
+                match net_ping(handle, target) {
+                    Some(rtt) => {
+                        net_rtts.push((at, rtt, who));
+                        // A run that just ended is a dropout, written down with what was on the
+                        // processor while it lasted — that name is the game the session went with.
+                        if lost_run >= NET_DROP_RUN && drops.len() < NET_MAX_EVENTS {
+                            let start = lost_at.unwrap_or(at);
+                            drops.push(NetEvent {
+                                at: start,
+                                at_text: crate::reminders::format_local(start),
+                                seconds: lost_run * (NET_EVERY_MS / 1_000) as u32,
+                                ms: 0,
+                                top: lost_top.clone(),
+                            });
+                        }
+                        lost_run = 0;
+                        lost_at = None;
+                    }
+                    None => {
+                        lost_run += 1;
+                        if lost_at.is_none() {
+                            lost_at = Some(at);
+                            lost_top = who;
+                        }
+                    }
+                }
+                // The router answers for the local half: a clean gateway next to a lossy internet
+                // is the provider's fault, and both bad means the Wi-Fi or the router.
+                if let Some(gw) = gateway_ip {
+                    gw_sent += 1;
+                    match net_ping(handle, gw) {
+                        Some(rtt) => gw_max = gw_max.max(rtt),
+                        None => gw_lost += 1,
+                    }
+                }
+            }
+        }
     }
     if out.samples > 0 {
         out.cpu_avg /= out.samples as f64;
     }
 
+    if let Some(handle) = icmp {
+        let _ = unsafe { IcmpCloseHandle(handle) };
+    }
+    // A run still open when the watch ended is a dropout like any other.
+    if lost_run >= NET_DROP_RUN && drops.len() < NET_MAX_EVENTS {
+        let start = lost_at.unwrap_or(out.started);
+        drops.push(NetEvent {
+            at: start,
+            at_text: crate::reminders::format_local(start),
+            seconds: lost_run * (NET_EVERY_MS / 1_000) as u32,
+            ms: 0,
+            top: lost_top,
+        });
+    }
+    let (min, avg, max, median, spikes) = net_summary(&net_rtts);
+    out.net = NetWatch {
+        target: NET_TARGET.to_string(),
+        gateway: gateway_ip.map(ipv4_text).unwrap_or_default(),
+        sent: net_sent,
+        lost: net_sent.saturating_sub(net_rtts.len() as u32),
+        min_ms: min,
+        avg_ms: avg,
+        max_ms: max,
+        median_ms: median,
+        spikes: spikes
+            .into_iter()
+            .map(|(at, ms, top)| NetEvent {
+                at,
+                at_text: crate::reminders::format_local(at),
+                seconds: 0,
+                ms,
+                top,
+            })
+            .collect(),
+        drops,
+        gateway_sent: gw_sent,
+        gateway_lost: gw_lost,
+        gateway_max_ms: gw_max,
+    };
+
     settle_stalls(&mut out);
 
     log::line(format!(
-        "health watch done{}: {} min, {} samples, {} stalls (longest {} ms), busiest {} {:.0}%, dpc peak {:.0}%",
+        "health watch done{}: {} min, {} samples, {} stalls (longest {} ms), busiest {} {:.0}%, dpc peak {:.0}%, net {} pings {:.1}% loss max {} ms, {} drops, {} spikes",
         if out.cancelled { " (cancelled)" } else { "" },
         out.minutes,
         out.samples,
@@ -785,7 +1157,12 @@ pub fn watch(minutes: u32) -> Watch {
         out.longest(),
         out.busiest,
         out.busiest_pct,
-        out.dpc_peak
+        out.dpc_peak,
+        out.net.sent,
+        out.net.loss_pct(),
+        out.net.max_ms,
+        out.net.drops.len(),
+        out.net.spikes.len()
     ));
     save_watch(&out);
     out
@@ -939,6 +1316,81 @@ pub fn describe_watch(watch: &Watch) -> String {
             "Sterowniki obecne na maszynie (podejrzani, nie winni): {}\n",
             watch.suspects.join(", ")
         ));
+    }
+    // The network, in the terms people bring it up in: was the ping steady, did anything go
+    // missing, and — when it did — was the router still answering, which decides whether the
+    // provider or the local side is to blame.
+    if watch.net.sent > 0 {
+        out.push_str(&format!(
+            "Sieć ({}): {} prób, {:.1}% strat, RTT min/średnio/median/max = {}/{:.0}/{}/{} ms\n",
+            watch.net.target,
+            watch.net.sent,
+            watch.net.loss_pct(),
+            watch.net.min_ms,
+            watch.net.avg_ms,
+            watch.net.median_ms,
+            watch.net.max_ms
+        ));
+        if watch.net.router_silent() {
+            out.push_str(&format!(
+                "Router ({}): nie odpowiada na ping — w wielu sieciach to normalne (ICMP bywa filtrowany), więc lokalnej strony nie da się tu zmierzyć. Powyższe liczby dotyczą drogi do internetu.\n",
+                watch.net.gateway
+            ));
+        } else if watch.net.gateway_sent > 0 {
+            out.push_str(&format!(
+                "Router ({}): {:.1}% strat, max {} ms{}\n",
+                watch.net.gateway,
+                watch.net.gateway_loss_pct(),
+                if watch.net.gateway_max_ms == 0 {
+                    "<1".to_string()
+                } else {
+                    watch.net.gateway_max_ms.to_string()
+                },
+                if watch.net.gateway_lost == 0 && watch.net.lost > 0 {
+                    " — router odpowiadał, więc problem jest dalej niż w sieci lokalnej"
+                } else if watch.net.gateway_lost > 0 {
+                    " — router też gubił pakiety: to sieć lokalna, Wi-Fi albo sam router"
+                } else {
+                    ""
+                }
+            ));
+        }
+        for drop in &watch.net.drops {
+            out.push_str(&format!(
+                "- {} zerwanie {} s{} (straty w tym czasie mogły wyrzucić z serwera)\n",
+                drop.at_text,
+                drop.seconds,
+                if drop.top.is_empty() {
+                    String::new()
+                } else {
+                    format!(", proces: {}", drop.top)
+                }
+            ));
+        }
+        if !watch.net.drops.is_empty() {
+            out.push_str(&format!(
+                "Zerwań: {}, najdłuższe {} s\n",
+                watch.net.drops.len(),
+                watch.net.worst_drop()
+            ));
+        }
+        for spike in &watch.net.spikes {
+            out.push_str(&format!(
+                "- {} skok opóźnienia {} ms{}\n",
+                spike.at_text,
+                spike.ms,
+                if spike.top.is_empty() {
+                    String::new()
+                } else {
+                    format!(", proces: {}", spike.top)
+                }
+            ));
+        }
+        if watch.net.sent > 0 && !watch.net.interesting() {
+            out.push_str("Sieć bez strat i bez skoków w czasie obserwacji\n");
+        }
+    } else {
+        out.push_str("Sieci nie udało się zmierzyć (brak trasy albo ICMP zablokowane)\n");
     }
     for stall in &watch.stalls {
         // The process named here is the one on the processor when the machine came back — the
@@ -1392,7 +1844,17 @@ fn load_findings(load: &Burst) -> Vec<Finding> {
 pub fn scan(deep: bool) -> Report {
     let started = unsafe { GetTickCount64() };
     let at = crate::reminders::now_local();
+    // Deep only, and beside the sampling rather than after it: the scan keeps its minute while the
+    // line is tested, and a quick look is all a one-off scan can honestly promise.
+    let link = if deep {
+        Some(std::thread::spawn(|| probe_link(45)))
+    } else {
+        None
+    };
     let load = burst(if deep { DEEP_STEPS } else { BURST_STEPS });
+    let net = link
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default();
 
     let mut findings: Vec<Finding> = Vec::new();
     let mut checks: Vec<Check> = Vec::new();
@@ -1594,6 +2056,7 @@ pub fn scan(deep: bool) -> Report {
         findings,
         checks,
         advice: String::new(),
+        net,
     };
     log::line(format!(
         "health scan{}: {} ({} findings, {} ms, {} samples, {} events, {} disks, own {:.0}% core)",
@@ -1740,6 +2203,71 @@ pub fn describe(report: &Report) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pings_become_a_median_and_the_spikes_above_it() {
+        // Nine steady pings and one bad one: the median stays the steady value, and the bad packet
+        // is what a person would call a spike.
+        let mut rtts: Vec<(i64, u32, String)> = (0..9)
+            .map(|i| (1_000 + i, 20 + i as u32, "cs2.exe".to_string()))
+            .collect();
+        rtts.push((1_100, 240, "cs2.exe".to_string()));
+        let (min, avg, max, median, spikes) = net_summary(&rtts);
+        assert_eq!(min, 20);
+        assert_eq!(max, 240);
+        assert_eq!(median, 24);
+        assert!((avg - 44.0).abs() < 1.0, "avg was {avg}");
+        assert_eq!(spikes.len(), 1);
+        assert_eq!(spikes[0].1, 240);
+        assert_eq!(spikes[0].2, "cs2.exe");
+    }
+
+    #[test]
+    fn a_slow_line_does_not_call_every_packet_a_spike() {
+        // Mobile internet: 150 ms is normal here, so only something far above it is a spike.
+        let rtts: Vec<(i64, u32, String)> = (0..8)
+            .map(|i| (1_000 + i, 150 + i as u32, String::new()))
+            .collect();
+        let (_, _, _, median, spikes) = net_summary(&rtts);
+        assert_eq!(median, 153);
+        assert!(spikes.is_empty());
+    }
+
+    #[test]
+    fn no_answers_is_not_a_division_by_zero() {
+        assert_eq!(net_summary(&[]), (0, 0.0, 0, 0, Vec::new()));
+        let net = NetWatch::default();
+        assert_eq!(net.loss_pct(), 0.0);
+        assert_eq!(net.worst_drop(), 0);
+        assert!(!net.interesting());
+    }
+
+    #[test]
+    fn addresses_round_trip_in_network_order() {
+        // Windows wants the four bytes in order in memory; an address that came back reversed
+        // would ping a machine nobody asked about.
+        assert_eq!(ipv4("1.1.1.1"), Some(u32::from_ne_bytes([1, 1, 1, 1])));
+        assert_eq!(ipv4_text(ipv4("192.168.1.100").unwrap()), "192.168.1.100");
+        assert_eq!(ipv4("1.2.3"), None);
+        assert_eq!(ipv4("1.2.3.4.5"), None);
+        assert_eq!(ipv4("nonsense"), None);
+    }
+
+    #[test]
+    fn a_drop_is_worth_reporting_only_when_it_is_long_enough_to_matter() {
+        let mut net = NetWatch {
+            sent: 40,
+            lost: 2,
+            ..Default::default()
+        };
+        assert!((net.loss_pct() - 5.0).abs() < 0.01);
+        assert!(net.interesting());
+        net.drops.push(NetEvent {
+            seconds: 6,
+            ..Default::default()
+        });
+        assert_eq!(net.worst_drop(), 6);
+    }
 
     #[test]
     fn stops_add_up_to_one_name_and_a_rhythm() {

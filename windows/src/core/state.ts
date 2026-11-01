@@ -124,6 +124,8 @@ export interface HealthReport {
   checks: HealthCheck[];
   /** A deep scan's reading, written by the model when a key is connected — empty otherwise. */
   advice: string;
+  /** The line, tested for a minute beside a deep scan. Absent on a normal scan. */
+  net?: NetReport;
 }
 
 /** One moment the machine stopped, as a watch saw it. Src: `src-tauri/src/health.rs`. */
@@ -171,6 +173,39 @@ export interface WatchReport {
   driverStalls: number;
   /** Stops where nothing could be named at all. */
   blindStalls: number;
+  /** What the network did during the same stretch. Src: `src-tauri/src/health.rs`. */
+  net: NetReport;
+}
+
+/** One bad moment of the network: a spike (high round trip) or a drop (pings that never came back),
+ *  with whatever was on the processor at the time. */
+export interface NetEventReport {
+  at: number;
+  atText: string;
+  /** How long the bad patch lasted, seconds. Zero for a spike. */
+  seconds: number;
+  /** Round trip at its worst, ms. Zero for a drop. */
+  ms: number;
+  /** The busiest program at that moment — the game a session went down with. */
+  top: string;
+}
+
+/** The pings a watch sent while it sampled. The router answers for the local half, the internet
+ *  target for the provider's, and the two together are what says whose fault a dropout is. */
+export interface NetReport {
+  target: string;
+  gateway: string;
+  sent: number;
+  lost: number;
+  minMs: number;
+  avgMs: number;
+  maxMs: number;
+  medianMs: number;
+  spikes: NetEventReport[];
+  drops: NetEventReport[];
+  gatewaySent: number;
+  gatewayLost: number;
+  gatewayMaxMs: number;
 }
 
 /** One package the debloat view can offer. Src: `src-tauri/src/debloat.rs`. */

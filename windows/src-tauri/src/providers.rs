@@ -127,9 +127,51 @@ pub fn error_detail(text: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The size of the daily allowance a 429 says is spent, when it says one is.
+///
+/// A free tier on Gemini is an allowance per day, and the body spells it out — "Quota
+/// exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests,
+/// limit: 20" — while a per-minute limit carries `_per_minute` in the same place and clears
+/// itself by the time the user has typed the next question. Only the daily one is worth
+/// telling the user about: waiting two seconds for it is time nobody gets back, and the
+/// app exists to be glanced at. `None` means "not a spent allowance", so the caller keeps
+/// its normal retry.
+pub fn daily_quota_spent(text: &str) -> Option<u32> {
+    let lower = text.to_ascii_lowercase();
+    if !lower.contains("quota") || lower.contains("per_minute") {
+        return None;
+    }
+    let at = lower.find("limit:")? + "limit:".len();
+    let digits: String = lower[at..]
+        .chars()
+        .skip_while(|c| c.is_whitespace())
+        .take_while(char::is_ascii_digit)
+        .collect();
+    Some(digits.parse().unwrap_or(0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_spent_daily_allowance_is_read_with_its_size() {
+        // The body Gemini actually sends for a free-tier key that has used its day up.
+        let text = r#"[{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details. * Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.6-flash, description: Generate content requests.","status":"RESOURCE_EXHAUSTED"}}]"#;
+        assert_eq!(daily_quota_spent(text), Some(20));
+    }
+
+    #[test]
+    fn a_per_minute_limit_is_not_a_spent_allowance() {
+        let text = r#"{"error":{"message":"Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests_per_minute, limit: 10}}"#;
+        assert_eq!(daily_quota_spent(text), None);
+    }
+
+    #[test]
+    fn failures_that_are_not_quota_errors_are_left_to_the_retry() {
+        assert_eq!(daily_quota_spent(r#"{"error":{"message":"Insufficient Balance"}}"#), None);
+        assert_eq!(daily_quota_spent("upstream connect error"), None);
+    }
 
     #[test]
     fn gemini_errors_are_read_out_of_the_array_shape() {
