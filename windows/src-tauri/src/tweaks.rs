@@ -290,6 +290,10 @@ fn write(tweak: &Tweak, on: bool) -> bool {
 pub fn list() -> Vec<TweakState> {
     TWEAKS
         .iter()
+        // A row this account can never change is not shown: some of these keys are locked down by
+        // group policy, and a switch that fails on every press reads as a broken app rather than as
+        // a setting this machine does not allow.
+        .filter(|tweak| registry::can_write(root_of(tweak), tweak.path, tweak.machine))
         .map(|tweak| TweakState {
             id: tweak.id.to_string(),
             group: tweak.group.to_string(),
@@ -638,6 +642,8 @@ mod tests {
             match self.kind {
                 Kind::Dword { on, .. } => on,
                 Kind::Marker => 1,
+                // The first value in the list is the "on" state, the same one `is_on` reads.
+                Kind::Choice { values } => values[0],
             }
         }
     }

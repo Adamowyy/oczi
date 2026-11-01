@@ -9,8 +9,8 @@ use windows::core::PCWSTR;
 use windows::Win32::Foundation::ERROR_SUCCESS;
 use windows::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
-    HKEY, KEY_READ, KEY_SET_VALUE, KEY_WOW64_64KEY, REG_CREATE_KEY_DISPOSITION, REG_DWORD,
-    REG_OPTION_NON_VOLATILE, REG_SAM_FLAGS, REG_SZ,
+    HKEY, KEY_CREATE_SUB_KEY, KEY_READ, KEY_SET_VALUE, KEY_WOW64_64KEY, REG_CREATE_KEY_DISPOSITION,
+    REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SAM_FLAGS, REG_SZ,
 };
 
 /// A key that closes itself, so an early return anywhere cannot leak it.
@@ -86,6 +86,26 @@ pub(crate) fn write_dword(root: HKEY, path: &str, name: &str, machine: bool, val
         )
     };
     written == ERROR_SUCCESS
+}
+
+/// Whether this account can actually change something here. Two cases, and they are not the same
+/// question: a key that already exists needs write access to *it*, while a key that does not exist
+/// yet needs the right to add a subkey to its parent. A row the app cannot change must not be
+/// offered — a switch that always fails is worse than a switch that is not there.
+pub(crate) fn can_write(root: HKEY, path: &str, machine: bool) -> bool {
+    if open(root, path, machine, KEY_READ).is_some() {
+        return open(root, path, machine, KEY_SET_VALUE).is_some();
+    }
+    let Some(cut) = path.rfind('\\') else {
+        return false;
+    };
+    open(
+        root,
+        &path[..cut],
+        machine,
+        REG_SAM_FLAGS(KEY_CREATE_SUB_KEY.0),
+    )
+    .is_some()
 }
 
 /// Writes an empty string value — a marker Windows reads as "this is set", used by the classic
