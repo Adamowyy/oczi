@@ -686,6 +686,16 @@ export class Island {
   private async snipRegion() {
     if (this.snipping) return;
     this.snipping = true;
+    // A capture that never answers must not take the chord with it. The overlay answers with an
+    // event rather than with the command's result, and one path used to end without it: the flag
+    // then stayed up for the rest of the session and every press of the screenshot chord was
+    // silently ignored. The wait below is longer than any selection a person makes.
+    const guard = window.setTimeout(() => {
+      if (!this.snipping) return;
+      void Bridge.log("snip  no answer from the overlay — releasing the chord after 120 s");
+      this.snipping = false;
+      this.snipWaiter = null;
+    }, 120_000);
     try {
       // The overlay answers with an event rather than with the command's result: the
       // user takes as long as they take to drag the box.
@@ -706,6 +716,7 @@ export class Island {
       this.setView("note");
       Sound.play("error");
     } finally {
+      window.clearTimeout(guard);
       this.snipping = false;
       this.snipWaiter = null;
     }

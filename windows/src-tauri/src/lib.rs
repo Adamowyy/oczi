@@ -400,6 +400,11 @@ fn overlay_metrics(app: &AppHandle) -> (f64, f64, f64) {
 async fn begin_snip(app: AppHandle, pin_mode: Option<bool>) -> Result<(), String> {
     if pin_mode.unwrap_or(false) {
         pin::start_pin_mode();
+        log::line("snip  pin mode armed".to_string());
+    } else {
+        // An ordinary capture never inherits a pin that was started and then abandoned: the flag
+        // is consumed by whichever capture finishes, and an abandoned one never finishes.
+        pin::take_mode();
     }
     if let Some(win) = island::window(&app) {
         let _ = win.hide();
@@ -470,6 +475,11 @@ fn finish_snip(
         if let Err(err) = pin::show(&app, index, vx + cx, vy + cy, cw, ch) {
             log::line(format!("pin  could not show: {err}"));
         }
+        // The island's snip flow waits for this event to learn that the capture is over. A pin
+        // started by its own chord has nobody waiting, but a pin started while the eye was waiting
+        // (or the next snip after an abandoned pin) would otherwise leave that wait open for ever —
+        // and a snip flow that never returns refuses every later press of the chord.
+        let _ = app.emit_to(island::WINDOW_LABEL, "snip-done", snip::SnipInfo::CANCELLED);
         dismiss_snip(&app);
         return Ok(());
     }
@@ -488,7 +498,13 @@ fn finish_snip(
 #[tauri::command]
 fn cancel_snip(app: AppHandle, snip: State<Snip>) {
     snip.discard_frame();
-    log::line("snip  cancelled".to_string());
+    // The mode belongs to the *next* finished capture, and this one will never finish: leaving the
+    // flag standing sent the following snip to the pin.
+    if pin::take_mode() {
+        log::line("snip  cancelled (the pin mode is cleared too)".to_string());
+    } else {
+        log::line("snip  cancelled".to_string());
+    }
     let _ = app.emit_to(island::WINDOW_LABEL, "snip-done", snip::SnipInfo::CANCELLED);
     dismiss_snip(&app);
 }

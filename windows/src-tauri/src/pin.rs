@@ -525,3 +525,18 @@ pub fn save_as(index: usize) -> Result<Option<String>, String> {
         Ok(Some(target))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pin_mode_belongs_to_exactly_one_capture() {
+        // The flag is read once and cleared, which is what makes an abandoned pin harmless: the
+        // capture that follows it must be an ordinary snip, not a second pin.
+        take_mode();
+        start_pin_mode();
+        assert!(take_mode());
+        assert!(!take_mode());
+    }
+}
