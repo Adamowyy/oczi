@@ -2300,16 +2300,11 @@ function buildWatch(actions: ViewActions): ViewHost {
           );
         }
 
-        const shownStalls = watch.stalls.slice(0, 5);
-        shownStalls.forEach((stall, i) => {
-          // The culprit is printed only where it changes: five identical lines say nothing the
-          // summary above has not already said.
-          const previous = i > 0 ? shownStalls[i - 1] : null;
-          const sameCulprit =
-            previous !== null &&
-            previous.top === stall.top &&
-            Math.round(previous.topPct) === Math.round(stall.topPct) &&
-            (previous.dpc >= 8) === (stall.dpc >= 8);
+        // The three longest stops, each with the program that held the machine: a column of bare
+        // millisecond counts says nothing a person can act on, and the eye reads the same name five
+        // times as noise. Whoever took the longest stop is the number worth printing.
+        const shownStalls = [...watch.stalls].sort((a, b) => b.ms - a.ms).slice(0, 3);
+        shownStalls.forEach((stall) => {
           body.append(
             h(
               "div",
@@ -2321,22 +2316,20 @@ function buildWatch(actions: ViewActions): ViewHost {
                 t("watch.stallLine", stall.atText, stall.ms),
                 // A stop with heavy driver time is a driver's stop, and saying so is the whole point
                 // of measuring DPC: audiodg at 4 % is not what holds a machine for three seconds.
-                sameCulprit
-                  ? null
-                  : stall.dpc >= 8
-                    ? h("span", { class: "cause", text: t("watch.dpc", Math.round(stall.dpc)) })
-                    : stall.top
-                      ? h("span", {
-                          class: "cause",
-                          text:
-                            t("watch.culprit", stall.top, Math.round(stall.topPct)) +
-                            // The second name is where an audio suite or an overlay appears: the
-                            // game is always first, and the thing that actually stalled it second.
-                            (stall.tops?.length > 1 && stall.tops[1].pct >= 2
-                              ? t("watch.also", stall.tops[1].name, Math.round(stall.tops[1].pct))
-                              : ""),
-                        })
-                      : null,
+                stall.dpc >= 8
+                  ? h("span", { class: "cause", text: t("watch.dpc", Math.round(stall.dpc)) })
+                  : stall.top
+                    ? h("span", {
+                        class: "cause",
+                        text:
+                          t("watch.culprit", stall.top, Math.round(stall.topPct)) +
+                          // The second name is where an audio suite or an overlay appears: the
+                          // game is always first, and the thing that actually stalled it second.
+                          (stall.tops?.length > 1 && stall.tops[1].pct >= 2
+                            ? t("watch.also", stall.tops[1].name, Math.round(stall.tops[1].pct))
+                            : ""),
+                      })
+                    : h("span", { class: "cause", text: t("watch.stallUnknown") }),
               ),
             ),
           );
