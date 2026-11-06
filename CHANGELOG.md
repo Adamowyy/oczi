@@ -2,6 +2,16 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.6 — 2026-11-06
+
+**Dwanaście przypinek naraz, i żadna nie znika sama.**
+
+- Przypinka nie znika sama: wisi, dopóki jej nie zamkniesz, i po restarcie Oczi wraca tam, gdzie ją
+  zostawiłeś — razem z rysunkiem i przygaszeniem.
+- Gdy wszystkie dwanaście są zajęte, nowy kadr nie jest przyjmowany: na zaznaczeniu pojawia się
+  zdanie, że trzeba najpierw którąś zamknąć, a to, co już wisi, zostaje nietknięte.
+- Raport z obserwacji zacięć pokazuje trzy najdłuższe postoje z programem, który je trzymał.
+
 ## 0.5.5 — 2026-11-01
 
 **The watch now looks at the internet too, and Debloat stops offering what Windows will not change.**
