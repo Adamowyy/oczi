@@ -6,11 +6,14 @@ import { setLang, storedLang, t } from "./core/i18n";
 
 const band = document.getElementById("snip-band") as HTMLDivElement;
 const body = document.body;
+const hint = document.getElementById("snip-hint") as HTMLDivElement;
 
 setLang(storedLang());
-(document.getElementById("snip-hint") as HTMLDivElement).textContent = t("snip.hint");
+hint.textContent = t("snip.hint");
 
 let origin: { x: number; y: number } | null = null;
+/** Set when the crop was refused: the overlay stops taking selections and says why. */
+let refusing = false;
 
 interface Rect {
   x: number;
@@ -50,7 +53,7 @@ function cancel() {
 }
 
 window.addEventListener("mousedown", (event) => {
-  if (event.button !== 0) return;
+  if (event.button !== 0 || refusing) return;
   origin = { x: event.clientX, y: event.clientY };
   paint({ x: origin.x, y: origin.y, width: 1, height: 1 });
 });
@@ -74,8 +77,22 @@ window.addEventListener("mouseup", (event) => {
     y: rect.y,
     width: rect.width,
     height: rect.height,
-  });
+  }).catch((err) => refuse(String(err)));
 });
+
+/** The crop did not happen. The overlay stays up for a moment with the reason on it — a person who
+ *  just dragged a region has to learn why nothing appeared, and the pins that are already on the
+ *  desk are the reason. */
+function refuse(error: string) {
+  refusing = true;
+  paint(null);
+  body.classList.add("refusing");
+  hint.textContent = error.includes("pins-full") ? t("snip.pinsFull") : error.replace(/^Error:\s*/, "");
+  window.setTimeout(() => {
+    body.classList.remove("refusing");
+    void invoke("cancel_snip");
+  }, 2600);
+}
 
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") cancel();

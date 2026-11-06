@@ -402,14 +402,34 @@ for (const done of ["pointerup", "pointercancel"]) {
 
 // ── Opacity, menu, picture ───────────────────────────────────────────────────
 
-function setOpacity(percent: number) {
+/** The fade the pin is at, so a save that arrives late writes the last value and not an old one. */
+let opacityValue = 100;
+let opacityTimer: number | null = null;
+
+/** Written down in Rust with a short delay: a run of wheel steps is one write, not ten. */
+function keepOpacity(value: number) {
+  opacityValue = value;
+  if (opacityTimer !== null) window.clearTimeout(opacityTimer);
+  opacityTimer = window.setTimeout(() => {
+    opacityTimer = null;
+    void invoke("pin_opacity", { label: windowLabel, percent: opacityValue }).catch((err) =>
+      note(`could not keep the opacity: ${err}`),
+    );
+  }, 250);
+}
+
+/** `save` is off for the two places that merely draw the state someone else decided: a new crop
+ *  starts solid, and a restored one is faded by Rust before the page ever sees it. */
+function setOpacity(percent: number, save = true) {
   const value = Math.min(100, Math.max(15, Math.round(percent)));
+  opacityValue = value;
   shot.style.opacity = String(value / 100);
   ink.style.opacity = String(value / 100);
   for (const chip of opacityRow.querySelectorAll("button")) {
     chip.classList.toggle("on", Number(chip.dataset.opacity) === value);
   }
   note(`opacity ${value}%`);
+  if (save) keepOpacity(value);
 }
 
 function closeMenu() {
@@ -481,6 +501,19 @@ setTool("move");
 // The ink sits over the picture and is scaled with it, so it needs no other coordination.
 ink.style.pointerEvents = "none";
 
+// A pin a previous run left here: the picture and its place on the desktop are waiting on the Rust
+// side, and asking on load is what makes it land — this page is the one that has to draw it, and it
+// is ready to right now.
+void invoke<{ url: string; opacity: number } | null>("pin_restore", { label: windowLabel })
+  .then((back) => {
+    if (!back) return;
+    note(`restored at ${back.opacity}%`);
+    shot.src = back.url;
+    shot.hidden = false;
+    setOpacity(back.opacity, false);
+  })
+  .catch((err) => note(`could not restore: ${err}`));
+
 // A new crop for this window: the picture replaces the last one, and its marks go with it.
 void listen<string>(`pin-image-${windowLabel}`, (event) => {
   note(`image ${event.payload.length} chars`);
@@ -494,7 +527,7 @@ void listen<string>(`pin-image-${windowLabel}`, (event) => {
   showTools(false);
   shot.src = event.payload;
   shot.hidden = false;
-  setOpacity(100);
+  setOpacity(100, false);
   setTool("move");
   void invoke("pin_mark", { label: windowLabel, data: "" }).catch(() => {});
 }).catch((err) => note(`could not listen: ${err}`));

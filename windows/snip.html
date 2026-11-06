@@ -55,6 +55,17 @@
       body.selecting #snip-hint {
         opacity: 0;
       }
+      /* A refused crop: the reason is a sentence, not a hint, so it may wrap and sit wider. */
+      body.refusing #snip-hint {
+        max-width: min(560px, 80vw);
+        white-space: normal;
+        text-align: center;
+        padding: 12px 18px;
+        border-radius: 14px;
+        line-height: 1.45;
+        border-color: rgba(244, 80, 94, 0.55);
+        background: rgba(24, 10, 13, 0.9);
+      }
     </style>
   </head>
   <body>

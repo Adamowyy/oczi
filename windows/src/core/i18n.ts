@@ -407,6 +407,7 @@ const EN = {
   "upload.cancel": "Cancel",
   "upload.ready": "{} is ready.",
   "snip.hint": "Select the area Oczi should look at · Esc cancels",
+  "snip.pinsFull": "All 12 pins are in use — close one and try again. Nothing that is pinned has been touched.",
   // What a pinned picture offers: the menu on it, and the line it flashes afterwards.
   "pin.ask": "Ask about this",
   "pin.copyText": "Copy text",
@@ -914,6 +915,7 @@ const PL: Record<TextKey, string> = {
   "upload.cancel": "Anuluj",
   "upload.ready": "{} jest gotowy.",
   "snip.hint": "Zaznacz obszar, na który Oczi ma spojrzeć · Esc anuluje",
+  "snip.pinsFull": "Wszystkie 12 przypinek są w użyciu — zamknij jedną i spróbuj ponownie. Nic, co jest przypięte, nie zostało ruszone.",
   "pin.ask": "Zapytaj o to",
   "pin.copyText": "Skopiuj tekst",
   "pin.copyImage": "Skopiuj obraz",

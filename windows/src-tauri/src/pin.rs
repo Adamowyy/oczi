@@ -13,9 +13,10 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 use crate::{log, settings, util};
 
-/// How many crops can hang at once. A new pin takes the first free window, and only replaces the
-/// oldest when they are all busy.
-pub const SLOTS: usize = 4;
+/// How many crops can hang at once. Every pin keeps its window for as long as Oczi runs and only
+/// closing it frees the slot, so a pinned reference stays on the screen for days; a crop that finds
+/// every slot busy replaces the oldest.
+pub const SLOTS: usize = 12;
 
 /// The label of the window that carries pin `index`, and the number back out of it.
 pub fn label(index: usize) -> String {
@@ -70,6 +71,203 @@ pub fn set_marked(index: usize, bytes: Option<Vec<u8>>) -> Result<(), String> {
     Ok(())
 }
 
+// ── What survives a restart ───────────────────────────────────────────────────
+//
+// The pictures already live on the disk, so a pin that was on the screen when Oczi was last closed
+// is the same file plus where it sat. That is written down here on every move, zoom and toggle, and
+// read back by the page itself when it loads — a pin a person pinned and did not close comes back
+// where they left it, even after a reboot.
+
+/// One pin as a previous run left it.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct Kept {
+    /// Zero-based slot, the number `label()` counts from.
+    slot: usize,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+    /// Above everything, or an ordinary window.
+    #[serde(default = "floating")]
+    topmost: bool,
+    /// How faded the picture was, in percent. Shift and the wheel set it, and a pin that comes back
+    /// solid covers whatever it was pinned beside.
+    #[serde(default = "opaque")]
+    opacity: u32,
+    /// How old the crop is, so "the oldest" survives a restart too.
+    #[serde(default)]
+    order: u64,
+}
+
+fn floating() -> bool {
+    true
+}
+
+/// No fade at all, which is how a pin starts.
+fn opaque() -> u32 {
+    100
+}
+
+/// The least a pin may be faded to: past this the picture cannot be read or grabbed any more.
+pub const MIN_OPACITY: u32 = 15;
+
+fn kept_path() -> PathBuf {
+    settings::config_dir().join("pins.json")
+}
+
+/// An unreadable list is treated as an empty one: a pin must never be the reason the app cannot
+/// start, and the bad file is left on the disk untouched.
+fn kept_list() -> Vec<Kept> {
+    match std::fs::read(kept_path()) {
+        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+            log::line(format!("pins unreadable ({e}), starting with none"));
+            Vec::new()
+        }),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn save_kept(list: &[Kept]) {
+    let write = || -> Result<(), String> {
+        let dir = settings::config_dir();
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let json = serde_json::to_vec_pretty(list).map_err(|e| e.to_string())?;
+        std::fs::write(kept_path(), json).map_err(|e| e.to_string())
+    };
+    if let Err(err) = write() {
+        // A pin that cannot be remembered is still a pin on the screen: the failure is logged and
+        // the window is left alone.
+        log::line(format!("pin  could not write the pin list: {err}"));
+    }
+}
+
+/// Writes one window down as it is now. Called after every change to where or how it hangs, so a
+/// restart never has to guess and nothing has to be flushed on the way out.
+pub fn remember(index: usize) {
+    let slot = match slots().lock() {
+        Ok(guard) => guard[index]
+            .as_ref()
+            .map(|slot| (slot.base_size, slot.base_pos, slot.topmost, slot.opacity, slot.order)),
+        Err(_) => None,
+    };
+    let Some((base_size, base_pos, topmost, opacity, order)) = slot else {
+        return;
+    };
+    // No picture, no pin: a slot that was closed or reused has nothing worth restoring.
+    if !file(index).exists() {
+        return;
+    }
+    let entry = Kept {
+        slot: index,
+        x: base_pos.0,
+        y: base_pos.1,
+        w: base_size.0,
+        h: base_size.1,
+        topmost,
+        opacity,
+        order,
+    };
+    let mut list = kept_list();
+    match list.iter_mut().find(|kept| kept.slot == index) {
+        Some(existing) => *existing = entry,
+        None => list.push(entry),
+    }
+    save_kept(&list);
+}
+
+/// Takes one window off the list, so a closed pin is not brought back by the next start.
+fn forget(index: usize) {
+    let mut list = kept_list();
+    let before = list.len();
+    list.retain(|kept| kept.slot != index);
+    if list.len() != before {
+        save_kept(&list);
+    }
+}
+
+/// The picture a previous run left in this slot, shown again where the user had it. The pin page
+/// asks for it when it loads rather than the app pushing it at launch: the page that has to draw
+/// the picture is listening by the time this is answered, which an emit during start-up could not
+/// count on.
+pub fn restore(app: &AppHandle, index: usize) -> Option<Restored> {
+    let kept = kept_list().into_iter().find(|kept| kept.slot == index)?;
+    let path = active(index);
+    let Ok(bytes) = std::fs::read(&path) else {
+        // The picture went away with something else: drop the record instead of leaving a slot that
+        // every later crop has to step over.
+        log::line(format!(
+            "pin  {} was remembered but its picture is gone",
+            label(index)
+        ));
+        forget(index);
+        return None;
+    };
+    let Some(win) = app.get_webview_window(&label(index)) else {
+        return None;
+    };
+    let (w, h) = (kept.w.max(1), kept.h.max(1));
+    // A monitor that is no longer there must not take the pin with it: a remembered place outside
+    // the desktop is pulled back to the nearest edge, where it can still be seen and dragged.
+    let (vx, vy, vw, vh) = crate::snip::desktop_bounds();
+    let x = kept.x.clamp(vx, (vx + vw - w as i32).max(vx));
+    let y = kept.y.clamp(vy, (vy + vh - h as i32).max(vy));
+    let _ = win.set_always_on_top(kept.topmost);
+    let _ = win.set_size(PhysicalSize::new(w, h));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+    let _ = win.show();
+    let opacity = kept.opacity.clamp(MIN_OPACITY, 100);
+    if let Ok(mut guard) = slots().lock() {
+        guard[index] = Some(Slot {
+            base_size: (w, h),
+            base_pos: (x, y),
+            expanded: false,
+            expanded_at: (0, 0),
+            topmost: kept.topmost,
+            opacity,
+            order: kept.order,
+        });
+    }
+    log::line(format!(
+        "pin  {} back at {x},{y} {w}x{h} at {opacity}%",
+        label(index)
+    ));
+    // Where it really went, not where it asked to be: a clamped place is the new truth.
+    remember(index);
+    Some(Restored {
+        url: format!("data:image/png;base64,{}", util::base64_for(&bytes)),
+        opacity,
+    })
+}
+
+/// What the page gets when it asks for the pin it left here: the picture and how faded it was.
+#[derive(Clone, serde::Serialize)]
+pub struct Restored {
+    pub url: String,
+    pub opacity: u32,
+}
+
+/// The fade the user picked with Shift and the wheel. Kept here as well as in the page, because
+/// only this side is written to the disk — a pin that comes back solid covers what it was beside.
+pub fn set_opacity(index: usize, percent: u32) -> Result<(), String> {
+    let value = percent.clamp(MIN_OPACITY, 100);
+    let known = match slots().lock() {
+        Ok(mut guard) => match guard[index].as_mut() {
+            Some(slot) => {
+                slot.opacity = value;
+                true
+            }
+            None => false,
+        },
+        Err(_) => false,
+    };
+    if !known {
+        return Err("this pin is gone".into());
+    }
+    log::line(format!("pin  {} at {value}%", label(index)));
+    remember(index);
+    Ok(())
+}
+
 /// Set when a capture is started by the pin chord rather than by the eye, so `finish_snip` knows
 /// which of the two things to do with the crop.
 static PIN_MODE: AtomicBool = AtomicBool::new(false);
@@ -94,6 +292,9 @@ struct Slot {
     /// menu shrinks the window around this offset, not around the old position.
     expanded_at: (i32, i32),
     topmost: bool,
+    /// The fade the picture was left at, in percent: the page draws it, so this is only what gets
+    /// written down and restored.
+    opacity: u32,
     order: u64,
 }
 
@@ -102,33 +303,50 @@ fn slots() -> &'static Mutex<[Option<Slot>; SLOTS]> {
     CELL.get_or_init(|| Mutex::new(std::array::from_fn(|_| None)))
 }
 
+/// The reason a crop was refused after the drag. The overlay turns this into a sentence in the
+/// user's own language: every pin is somebody's reference, so the app never drops one to make room.
+pub const PINS_FULL: &str = "pins-full";
+
 /// Takes a window for a new crop, before the crop is written: the file is named after the slot.
-pub fn reserve() -> usize {
+/// Full is an error, not a reason to replace the oldest — what is pinned stays until it is closed.
+pub fn reserve() -> Result<usize, String> {
+    let kept = kept_list();
+    // A run that starts with pins on the screen numbers its new crops after them, so "the oldest"
+    // is still the oldest after a restart.
+    let base = kept.iter().map(|kept| kept.order + 1).max().unwrap_or(0);
+    if NEXT_ORDER.load(Ordering::Relaxed) < base {
+        NEXT_ORDER.store(base, Ordering::Relaxed);
+    }
     let order = NEXT_ORDER.fetch_add(1, Ordering::Relaxed);
     let mut guard = slots().lock().unwrap();
-    let free = guard.iter().position(|slot| slot.is_none());
-    let index = match free {
-        Some(index) => index,
-        None => {
-            let oldest = guard
-                .iter()
-                .enumerate()
-                .filter_map(|(index, slot)| slot.as_ref().map(|slot| (slot.order, index)))
-                .min();
-            let index = oldest.map(|(_, index)| index).unwrap_or(0);
-            log::line(format!("pin  all {SLOTS} windows busy — the oldest goes"));
-            index
-        }
+    // A slot a previous run left occupied is not free either: its page has not asked for the
+    // picture yet when a new crop is cut, and taking it would lose something that was pinned.
+    let free = (0..SLOTS).find(|index| {
+        guard[*index].is_none() && !kept.iter().any(|kept| kept.slot == *index && file(*index).exists())
+    });
+    let Some(index) = free else {
+        log::line(format!(
+            "pin  all {SLOTS} pins are open — the new crop was refused"
+        ));
+        return Err(PINS_FULL.into());
     };
+    // Whatever the slot held belongs to it: a new crop starts with no drawing of its own either.
+    for path in [file(index), marked(index)] {
+        if path.exists() {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    forget(index);
     guard[index] = Some(Slot {
         base_size: (1, 1),
         base_pos: (0, 0),
         expanded: false,
         expanded_at: (0, 0),
         topmost: true,
+        opacity: opaque(),
         order,
     });
-    index
+    Ok(index)
 }
 
 /// Puts the picture back exactly over the region it was cut from, in physical pixels from the
@@ -162,13 +380,18 @@ pub fn show(app: &AppHandle, index: usize, x: i32, y: i32, w: i32, h: i32) -> Re
             slot.expanded = false;
             slot.expanded_at = (0, 0);
             slot.topmost = true;
+            slot.opacity = opaque();
         }
     }
     log::line(format!("pin  {name} {w}x{h} at {x},{y}"));
+    // Written down now, not at exit: the app may be killed, and a pin that came back at a stale
+    // place would be worse than one that came back at all.
+    remember(index);
     Ok(())
 }
 
-/// Hides one pin and drops its file. Every exit goes through here.
+/// Hides one pin and drops its file. Every exit goes through here — and so does the record that a
+/// restart reads: a closed pin is the one thing that must not come back.
 pub fn close(app: &AppHandle, index: usize) {
     if let Some(win) = app.get_webview_window(&label(index)) {
         let _ = win.hide();
@@ -181,6 +404,7 @@ pub fn close(app: &AppHandle, index: usize) {
     if let Ok(mut guard) = slots().lock() {
         guard[index] = None;
     }
+    forget(index);
     log::line(format!("pin  {} closed", label(index)));
 }
 
@@ -203,7 +427,14 @@ pub fn start_drag(app: &AppHandle, index: usize) {
             std::thread::sleep(std::time::Duration::from_millis(8));
         }
         if let Ok(pos) = win.outer_position() {
+            // Where the pin was let go is where the next start has to put it back.
+            if let Ok(mut guard) = slots().lock() {
+                if let Some(slot) = guard[index].as_mut() {
+                    slot.base_pos = (pos.x, pos.y);
+                }
+            }
             log::line(format!("pin  moved to {},{}", pos.x, pos.y));
+            remember(index);
         }
     });
 }
@@ -273,6 +504,7 @@ pub fn scale(app: &AppHandle, index: usize, step: i32) -> Result<(), String> {
         }
     }
     log::line(format!("pin  {} zoomed to {w}x{h}", label(index)));
+    remember(index);
     Ok(())
 }
 
@@ -397,6 +629,7 @@ pub fn set_topmost(app: &AppHandle, index: usize, on: bool) -> Result<(), String
         label(index),
         if on { "on top" } else { "normal window" }
     ));
+    remember(index);
     Ok(())
 }
 
@@ -538,5 +771,18 @@ mod tests {
         start_pin_mode();
         assert!(take_mode());
         assert!(!take_mode());
+    }
+
+    #[test]
+    fn every_slot_has_a_name_and_only_its_own() {
+        // The number in the label is the slot, and every one of them needs a window named exactly
+        // that in the capability list: a slot without one is a pin page that cannot call anything.
+        assert_eq!(SLOTS, 12);
+        for index in 0..SLOTS {
+            assert_eq!(index_of(&label(index)), Some(index));
+        }
+        assert_eq!(index_of("pin0"), None);
+        assert_eq!(index_of("pin13"), None);
+        assert_eq!(index_of("island"), None);
     }
 }

@@ -461,7 +461,15 @@ fn finish_snip(
     if pin::take_mode() {
         // The window is picked before the crop is written: the file is named after the slot, and
         // each pin keeps its own picture, so a new one never eats the pin already on screen.
-        let index = pin::reserve();
+        // With every slot taken the crop is refused and the overlay stays up to say so: a pin that
+        // is already on the desk is somebody's reference, and it is closed by hand or not at all.
+        let index = match pin::reserve() {
+            Ok(index) => index,
+            Err(err) => {
+                log::line(format!("pin  the crop was refused: {err}"));
+                return Err(err);
+            }
+        };
         let (info, _path) = snip::finish_pin(&snip, cx, cy, cw, ch, index)?;
         log::line(format!(
             "pin  {} cut {}x{} ({} bytes)",
@@ -601,6 +609,19 @@ fn pin_close(app: AppHandle, label: String) {
     if let Some(index) = pin::index_of(&label) {
         pin::close(&app, index);
     }
+}
+
+/// The pin a previous run left in this window: its picture and its place on the desktop. The page
+/// asks for it when it loads, so nothing has to guess whether the page is ready to draw.
+#[tauri::command]
+fn pin_restore(app: AppHandle, label: String) -> Option<pin::Restored> {
+    pin::index_of(&label).and_then(|index| pin::restore(&app, index))
+}
+
+/// The fade picked on the pin, written down so the next start draws it the same.
+#[tauri::command]
+fn pin_opacity(label: String, percent: u32) -> Result<(), String> {
+    pin::set_opacity(pin_slot(&label)?, percent)
 }
 
 #[tauri::command]
@@ -1480,6 +1501,8 @@ pub fn run() {
             pin_menu,
             pin_topmost,
             pin_mark,
+            pin_restore,
+            pin_opacity,
             pin_close_all,
             ingest_file,
             secret_present,
@@ -1551,7 +1574,7 @@ pub fn run() {
                 // own_file_drops for why the COM route cannot work here.
                 island::own_file_drops(&handle);
             }
-            // After the island has its real size: four windows built earlier delay `apply_geometry`
+            // After the island has its real size: the pin windows built earlier delay `apply_geometry`
             // and the greeting starts on a 240-pixel-wide window.
             create_pin_windows(&handle);
             // Last, with every window created: a crash inside WebView2 must not
