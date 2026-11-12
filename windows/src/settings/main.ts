@@ -624,17 +624,6 @@ function generalSection(): HTMLElement {
     },
     showProblem,
   );
-  // The dictation chord is only useful in the build that has a speech engine; the
-  // ordinary one stores it and registers nothing, which the note under the field says.
-  const voiceHotkey = hotkeyField(
-    settings.voiceHotkey,
-    (chord) => {
-      settings.voiceHotkey = chord;
-      void save();
-      refreshNote();
-    },
-    showProblem,
-  );
   // The pin chord: the same recorder, its own field, so it is his to move like the rest.
   const pinHotkey = hotkeyField(
     settings.pinHotkey,
@@ -645,22 +634,6 @@ function generalSection(): HTMLElement {
     },
     showProblem,
   );
-  // What the engine listens for. Auto is the default and costs a second pass over the
-  // audio; pinning the language is faster and better on names, and wrong if he switches
-  // language mid-sentence — so it is his choice, with the trade in the hint.
-  const voiceLanguage = h("select", {}) as HTMLSelectElement;
-  for (const value of ["auto", "pl", "en"] as const) {
-    voiceLanguage.append(
-      h("option", { value, text: t(("set.voiceLang." + value) as TextKey) }),
-    );
-  }
-  voiceLanguage.value = settings.voiceLanguage;
-  voiceLanguage.addEventListener("change", () => {
-    const value = voiceLanguage.value as "auto" | "pl" | "en";
-    if (!["auto", "pl", "en"].includes(value)) return;
-    settings.voiceLanguage = value;
-    void save();
-  });
   refreshNote();
 
   return h(
@@ -681,13 +654,7 @@ function generalSection(): HTMLElement {
     h("div", { class: "row" }, h("label", { text: t("set.islandScreen") }), screen),
     h("div", { class: "row" }, h("label", { text: t("set.hotkey") }), hotkey),
     h("div", { class: "row" }, h("label", { text: t("set.hotkeySnip") }), snipHotkey),
-    h("div", { class: "row" }, h("label", { text: t("set.hotkeyVoice") }), voiceHotkey),
     h("div", { class: "row" }, h("label", { text: t("set.hotkeyPin") }), pinHotkey),
-    h("div", { class: "row" },
-      h("label", { text: t("set.voiceLanguage") }),
-      voiceLanguage,
-      h("span", { class: "hint", text: t("set.voiceLanguageHint") }),
-    ),
     hotkeyNote,
     message,
     h("div", { class: "row" },

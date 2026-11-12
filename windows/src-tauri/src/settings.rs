@@ -43,19 +43,12 @@ pub struct Settings {
     /// the settings window, validated like `hotkey`.
     #[serde(default = "default_snip_hotkey")]
     pub snip_hotkey: String,
-    /// The chord that starts dictation — the same thing as clicking the microphone.
-    /// Registered only by the voice build; the ordinary one stores it and ignores it.
-    #[serde(default = "default_voice_hotkey")]
-    pub voice_hotkey: String,
+
     /// The chord that pins a region to the screen — a crop that stays on top of other windows
     /// instead of becoming a question to the model.
     #[serde(default = "default_pin_hotkey")]
     pub pin_hotkey: String,
-    /// What the speech engine listens for: "auto", "pl" or "en". Auto is the default
-    /// because a wrong pinned language is worse than detection: Whisper translates the
-    /// sentence into that language instead of transcribing what was said.
-    #[serde(default = "default_voice_language")]
-    pub voice_language: String,
+
     /// Whether the chat may search the live web. On by default: the alternative
     /// is a model answering from a training cut-off that has already passed.
     #[serde(default = "default_true")]
@@ -119,27 +112,11 @@ fn default_snip_hotkey() -> String {
     "Ctrl+Alt+Shift+S".to_string()
 }
 
-/// Ctrl+Shift+D: not Ctrl+Alt, which is AltGr on a Polish layout; not a bare key, which
-/// Oczi would then swallow everywhere; and not Alt+Shift, which is the Windows layout
-/// switch — that pair registers as a hotkey and is then never delivered, so the field
-/// would say "ready" and nothing would ever happen.
-fn default_voice_hotkey() -> String {
-    "Ctrl+Shift+D".to_string()
-}
-
 /// Ctrl+Alt+Shift+P: the snip chord with one more key, so the two can never collide, and a
 /// letter rather than Alt+Shift, which Windows keeps for the keyboard layout switch.
 fn default_pin_hotkey() -> String {
     "Ctrl+Alt+Shift+P".to_string()
 }
-
-// What the engine is pinned to, unless the user says otherwise.
-fn default_voice_language() -> String {
-    "pl".to_string()
-}
-
-/// Languages the speech engine may be pinned to, besides detecting it itself.
-pub const VOICE_LANGUAGES: [&str; 3] = ["auto", "pl", "en"];
 
 /// Languages the UI ships with. Anything else in settings.json becomes English.
 pub const LANGUAGES: [&str; 2] = ["en", "pl"];
@@ -169,8 +146,6 @@ impl Default for Settings {
             hotkey: default_hotkey(),
             snip_hotkey: default_snip_hotkey(),
             pin_hotkey: default_pin_hotkey(),
-            voice_hotkey: default_voice_hotkey(),
-            voice_language: default_voice_language(),
             web_search: true,
             game_mode: true,
             search_provider: default_search_provider(),
@@ -229,15 +204,6 @@ pub fn load() -> Settings {
             }
             if crate::island::parse_hotkey(&settings.pin_hotkey).is_none() {
                 settings.pin_hotkey = default_pin_hotkey();
-            }
-            // Not just parseable — reachable. A stored Alt+Shift chord parses and registers
-            // and then never fires, so it is treated as unusable here rather than left to
-            // fail silently.
-            if !crate::island::chord_is_usable(&settings.voice_hotkey) {
-                settings.voice_hotkey = default_voice_hotkey();
-            }
-            if !VOICE_LANGUAGES.contains(&settings.voice_language.as_str()) {
-                settings.voice_language = default_voice_language();
             }
             if !crate::web::PROVIDERS.contains(&settings.search_provider.as_str()) {
                 settings.search_provider = default_search_provider();

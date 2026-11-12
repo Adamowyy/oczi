@@ -397,14 +397,8 @@ export interface Settings {
   hotkey: string;
   /** The chord that starts a snip — the same thing as clicking the eye. */
   snipHotkey: string;
-  /** The chord that starts dictation — the same thing as clicking the microphone. */
-  voiceHotkey: string;
   /** The chord that pins a region to the screen. */
   pinHotkey: string;
-  /** What the speech engine listens for: "auto", "pl" or "en". A wrong fixed language is
-   *  worse than detection — Whisper translates instead of transcribing — so auto is the
-   *  default and the two others exist for the user who knows better. */
-  voiceLanguage: "auto" | "pl" | "en";
   /** Whether the chat may search the live web through its tools. */
   webSearch: boolean;
   /** Game mode: quiet over a fullscreen app on the island's own display. */
@@ -437,9 +431,7 @@ export const DEFAULT_SETTINGS: Settings = {
   thinking: false,
   hotkey: "Ctrl+Alt+M",
   snipHotkey: "Ctrl+Alt+Shift+S",
-  voiceHotkey: "Ctrl+Shift+Space",
   pinHotkey: "Ctrl+Alt+Shift+P",
-  voiceLanguage: "auto",
   webSearch: true,
   gameMode: true,
   searchProvider: "duckduckgo",
@@ -484,11 +476,6 @@ class AppState {
   /** A reminder that has come due and is on the card right now. Set from Rust's
    *  event, cleared when it is answered or the card folds away. */
   reminder: DueReminder | null = null;
-  /** Dictation: absent when nothing is being recorded, "listening" while the microphone is
-   *  open, "transcribing" while the engine works. Owned by the island, read by the view. */
-  voice: "listening" | "transcribing" | null = null;
-  /** Loudness of the last 50 ms of microphone, 0..1, for the level bars. */
-  voiceLevel = 0;
   /** Reminders that came due while another one was on the card. Rust has already
    *  taken them off the list, so this queue is the only place they still exist. */
   queuedReminders: DueReminder[] = [];

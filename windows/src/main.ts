@@ -107,14 +107,6 @@ async function main() {
     island.attachPin(info);
   });
 
-  // The dictation chord, registered by Rust (Ctrl+Shift+Space unless the user recorded
-  // another one). One press starts listening, the next one stops it early; otherwise the
-  // recording ends itself on a pause and the text goes on its way.
-  await onEvent<null>("hotkey-voice", () => {
-    setPaused(false);
-    island.dictateStart();
-  });
-
   // A price card, sent either by the Games pill's own lookup or by the model's game_price tool.
   // Both land here, so the card the chat talks about and the card the pill shows are the same one.
   await onEvent<PricesOffer>("prices", (offer) => {

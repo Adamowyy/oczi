@@ -10,8 +10,6 @@ import {
   type IslandMode, type IslandViewName,
 } from "../core/layout";
 import { Sound } from "../core/sound";
-import { listen, NoMic } from "../core/mic";
-import { t } from "../core/i18n";
 import { State, routineView, ROUTINE_VIEWS } from "../core/state";
 import { BotEngine, hexToRGB } from "../bot/engine";
 import { Greeting } from "../bot/greeting";
@@ -19,7 +17,6 @@ import { createMiniBot, miniBotCount, pruneMiniBots, syncMiniBotStates, tickMini
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
-import { sendDictated, whenAnswered } from "../views/chat";
 import { musicPlaying } from "../views/music";
 
 /** What the selection overlay reports back. Zeros mean the user cancelled. */
@@ -150,8 +147,6 @@ export class Island {
       void Bridge.log(`ui  greeting animation done mode=${State.mode} view=${State.view} fsm=${this.fsm.status()}`);
       this.fsm.greetComplete();
     };
-    // A spoken question that has just been answered starts listening again by itself.
-    whenAnswered(() => this.afterDictatedAnswer());
     State.subscribe(() => {
       this.dirty = true;
       this.ensureRunning();
@@ -164,8 +159,6 @@ export class Island {
     const actions: ViewActions = {
       setView: (v) => this.setView(v),
       snip: () => void this.snipRegion(),
-      /** Dictation: the voice chord, or the microphone on a card. */
-      dictate: () => void this.dictate(),
       // Asked for by the chat: hold the island open while a question is in flight and
       // while the answer is being read, even with the mouse nowhere near it.
       holdOpen: (seconds) => this.holdOpen(seconds),
@@ -518,20 +511,6 @@ export class Island {
   }
 
   collapse() {
-    // Dictation ends with the island. Leaving the microphone open behind a folded window
-    // is both a privacy problem and the state that cannot be recovered from: the recording
-    // went on, ended on silence, and reopened the island by itself — which is how the
-    // window came back mid-animation, at the wrong size, with the cards cut off.
-    // The id moves so the samples on their way here are dropped instead of sent.
-    if (this.listening) {
-      this.listening.stop();
-      this.listening = null;
-      this.dictationId += 1;
-    }
-    if (State.voice) {
-      State.voice = null;
-      State.voiceLevel = 0;
-    }
     // A note is a message, not a destination: once the island folds away it has
     // been read, and Esc has to be able to make it go away. Leaving the view set
     // meant the text came straight back the next time the island was opened.
@@ -588,9 +567,6 @@ export class Island {
     // The window itself has to be taken back to the bar: the geometry animation only starts
     // when someone asks for it.
     this.animateGeometry(true);
-    // Folding away while the listening view was up used to leave it set: the island was
-    // shut, and the next time it opened it showed the microphone with no chat behind it.
-    this.ensureLeftListening();
     // Whatever report waited behind the card that just went takes it now.
     this.showQueuedRoutine();
   }
@@ -666,15 +642,6 @@ export class Island {
   }
 
   private snipping = false;
-  /** The dictation in progress, if any. Non-null is what "already listening" means. */
-  private listening: { stop: () => void } | null = null;
-  /** Bumped by every dictation, so a recording that lands late cannot write over a newer
-   *  one's state — or send text from a microphone session that was already replaced. */
-  private dictationId = 0;
-  /** Set when the question just sent was spoken: its answer starts a quiet dictation, so a
-   *  spoken conversation continues without a keypress between sentences. Cleared again as
-   *  soon as it is used, and never set by a typed question. */
-  private dictatedTurn = false;
   private snipWaiter: ((info: SnipBounds) => void) | null = null;
   private holdTimer: number | null = null;
   private uploadPin = false;
@@ -742,184 +709,6 @@ export class Island {
     void this.snipRegion();
   }
 
-  /** The dictation chord. Same as clicking the microphone: the island decides what
-   *  listening means, the caller only says when. */
-  dictateStart() {
-    void this.dictate();
-  }
-
-  /** Dictation. One press starts listening, the next one stops it early; otherwise a pause
-   *  after speech ends it by itself — which is the point: press once, speak, and the text
-   *  goes on its way.
-   *
-   *  While it listens the island shows Oczi alone with the microphone and a level bar: no
-   *  card and no chat, because there is nothing to read yet. The transcript is then sent as
-   *  if it had been typed, so the answer is already on its way when the chat opens. */
-  private async dictate(quiet = false) {
-    // The engine is already working on the last recording. A new one started now would race
-    // it — the microphone would open, the finished transcript would arrive and clear the
-    // state under it, and what was left was a recording that ended with nothing in it.
-    if (State.voice === "transcribing") {
-      void Bridge.log("voice  press ignored — still transcribing");
-      return;
-    }
-    if (this.listening) {
-      // Second press: stop early. The handle settles with whatever was said, so the sentence
-      // goes on its way; the slot is emptied here as well, because a handle that somehow
-      // outlives its recording must never be able to block the chord for the rest of the
-      // session — which is exactly what it did when stopping left the promise unanswered.
-      const stale = this.listening;
-      this.listening = null;
-      stale.stop();
-      return;
-    }
-    const id = ++this.dictationId;
-    State.voice = "listening";
-    State.voiceLevel = 0;
-    // Held open while the microphone is open, but still closable: the auto-close countdown is
-    // a guess about whether someone is finished, and a recording is a person mid-sentence, so
-    // the guess must not fold the island away and cut the recording off — which is how an
-    // eleven-second question disappeared before it was ever transcribed. A click outside and
-    // Esc are not guesses; they go through `collapse`, which clears this. The listening view
-    // pins itself as well (see `syncDropPin`); this is the belt to that pair of braces.
-    this.fsm.pinned = true;
-    State.isPinned = true;
-    // Quiet means the chat is already open and the microphone simply goes live: no listening
-    // shape and no sound, because the conversation on screen is the context. This is how
-    // dictation starts itself again once a spoken question has been answered.
-    if (!quiet) {
-      // Deliberately not pinned. Pinning looked right — a card folding away mid-sentence is
-      // worse than no card — but it also took the window away from the click-outside and
-      // the countdown, so a dictation that never ended left the island impossible to close.
-      // Nothing here holds the window open any more.
-      this.expand("listening");
-      Sound.play("peek");
-    }
-
-    const handle = listen({
-      onLevel: (level) => {
-        State.voiceLevel = level;
-        // The bars ride the voice, and nothing else asks the island to repaint: a level that
-        // changes without a state change left them frozen for the whole recording — which is
-        // why they only moved once "transcribing" changed the state, and then statically.
-        this.dirty = true;
-      },
-      silenceMs: 900,
-      // Nothing said at all: end it instead of waiting out the thirty-second cap. Quiet has
-      // longer, because a follow-up question takes a moment to think about.
-      noSpeechMs: quiet ? 9000 : 6000,
-    });
-    this.listening = handle;
-    void Bridge.log("voice  listening");
-
-    try {
-      const samples = await handle.promise;
-      // A newer dictation has taken the island over; this result is not ours to use.
-      if (id !== this.dictationId) return;
-      this.listening = null;
-      if (samples.length === 0) {
-        this.dictateQuietly();
-        return;
-      }
-      State.voice = "transcribing";
-      State.notify();
-      const text = (await Bridge.voiceTranscribe(samples)).trim();
-      if (id !== this.dictationId) return;
-      State.voice = null;
-      if (!text) {
-        // Heard something, understood nothing. That is not an error the user can act on,
-        // so it folds away like the mis-click it was rather than asking to try again.
-        this.dictateQuietly();
-        return;
-      }
-      // A spoken question: it goes to the chat, and the answer brings the microphone back
-      // by itself. The chat opens whether or not this dictation was quiet — a quiet one is
-      // continuing a conversation, and both the message that was just sent and the answer on
-      // its way have to be visible. Opening a view that is already open costs nothing.
-      this.dictatedTurn = true;
-      this.expand("prompt");
-      sendDictated(text);
-    } catch (err) {
-      this.listening = null;
-      if (id === this.dictationId) this.voiceFailed(err instanceof NoMic ? "mic" : "engine");
-    } finally {
-      if (id === this.dictationId) {
-        // The pin goes back to the view that wants it: the chat and the listening view hold
-        // the island open by themselves, and a dictation that ended anywhere else gives the
-        // pin up entirely. Nothing else may leave it set, or the island stops closing.
-        this.fsm.pinned = false;
-        State.isPinned = false;
-        const keepOpen = quiet || State.view === "prompt" || State.view === "listening";
-        if (keepOpen && State.mode === "expanded") this.holdOpen(0);
-      }
-      if (id === this.dictationId && State.voice) {
-        State.voice = null;
-        State.notify();
-      }
-      // Whatever way this ended — heard, silent, failed, or overtaken — the island must not
-      // be left sitting in the listening view.
-      this.ensureLeftListening();
-    }
-  }
-
-  /** A dictation that produced nothing: back to where the island was, no card and no
-   *  sound. An error card for "you did not say anything" turns a mis-click into work. */
-  private dictateQuietly() {
-    State.voice = null;
-    State.voiceLevel = 0;
-    void Bridge.log(`ui  voice silent end view=${State.view} mode=${State.mode}`);
-    if (State.mode === "expanded" && State.view === "listening") this.collapse();
-    else State.notify();
-    this.ensureLeftListening();
-  }
-
-  /** The listening view is not somewhere the island may be left: it has no card and no bar
-   *  to dismiss, so if anything at all fails to fold it away the user is stuck looking at
-   *  "listening" with no way out. This runs after every dictation and after a collapse, and
-   *  it says in the log when it had to step in — which is the difference between a bug that
-   *  shows up once and one that cannot be diagnosed. */
-  private ensureLeftListening() {
-    if (State.view !== "listening") return;
-    void Bridge.log(`ui  listening view stuck (mode=${State.mode}) — folding by hand`);
-    State.view = State.defaultView();
-    State.voice = null;
-    State.voiceLevel = 0;
-    State.isPinned = false;
-    this.fsm.pinned = false;
-    this.fsm.forcePetit();
-    // Same reason as in `collapse`: the machine can already believe it is petit while the
-    // island is on screen, and a no-op transition would leave it there.
-    if (State.mode !== "compact") this.setMode("compact");
-    // The window itself has to be taken back to the bar: `forcePetit` moves the state machine
-    // and the geometry follows the state machine, but the animation only starts when someone
-    // asks for it. Without this the island stayed the size of the listening view — the height
-    // it needed for the microphone — with the home card crammed into it.
-    this.animateGeometry(true);
-    State.notify();
-  }
-
-  /** The chat answered a question that was spoken. Listening starts again on the chat
-   *  itself, without the listening shape and without a sound, so a conversation by voice
-   *  needs one keypress for the first sentence rather than one per sentence. Saying nothing
-   *  ends it: the microphone does not keep reopening on its own after a silence. */
-  private afterDictatedAnswer() {
-    if (!this.dictatedTurn) return;
-    this.dictatedTurn = false;
-    // Not while the island is folded: there is nothing to listen "next to" then, and the
-    // user has already moved on. The next keypress is one click away in that case.
-    if (State.mode !== "expanded") return;
-    void this.dictate(true);
-  }
-
-  /** A dictation that produced nothing, with the reason on the note card the chat uses. */
-  private voiceFailed(why: "mic" | "empty" | "engine") {
-    State.voice = null;
-    State.noteMessage = t(`voice.err.${why}`);
-    Sound.play("error");
-    void Bridge.log(`voice  ${why}`);
-    this.setView("note");
-  }
-
   /** The greeting opens with a big shape that rushes into Oczi. Starting it the
    *  moment the state changes painted those first frames while the bar was still
    *  sliding out, so the shape filled the silhouette as a flat panel of colour for
@@ -974,12 +763,10 @@ export class Island {
       this.holdOpen(wanted ? 0 : State.settings.autoCloseInterval);
     }
 
-    // The chat is typed in and the microphone is spoken into: both are things the user is
-    // *doing*, not cards to read, so both stay until dismissed by click-outside or Esc. Every
-    // other view keeps the popover's own countdown. Leaving dictation out of this meant that
-    // opening the listening view armed the countdown, and the island folded — and then hid
-    // itself — a few seconds into a sentence that was still being spoken.
-    const sticky = view === "prompt" || view === "listening";
+    // The chat is typed in: it is something the user is *doing*, not a card to read, so it
+    // stays until dismissed by click-outside or Esc. Every other view keeps the popover's
+    // own countdown.
+    const sticky = view === "prompt";
     if (sticky === this.sticky) return;
     this.sticky = sticky;
     if (sticky) {

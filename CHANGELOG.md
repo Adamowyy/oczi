@@ -2,6 +2,15 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.7 — 2026-11-12
+
+**Szukanie w sieci nie kończy się już po dwóch pytaniach.**
+
+- Wyszukiwarka nie poddaje się, gdy DuckDuckGo zacznie blokować: Oczi próbuje dalej przez Bing
+  i Brave, a silnika, który odmówił, nie męczy przez kilka minut.
+- Dyktowanie zniknęło z aplikacji razem z instalatorem, który woził model mowy — zostaje jeden,
+  lekki instalator.
+
 ## 0.5.6 — 2026-11-06
 
 **Dwanaście przypinek naraz, i żadna nie znika sama.**

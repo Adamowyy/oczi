@@ -1,7 +1,14 @@
 // Live web access for the chat: the app performs the lookups and hands the model
 // text back to answer from. Keyless by default, and only on when the user asks.
+//
+// The keyless path is not one engine: any single free engine starts refusing a
+// machine after a couple of lookups, and the chat then answers that it cannot
+// reach the web. `free_search` walks three of them and skips whichever one has
+// just refused us.
 
-use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -59,14 +66,14 @@ pub async fn search(provider: &str, query: &str) -> Result<Vec<Hit>, String> {
 
     let hits = match keyed {
         Some(Ok(hits)) if !hits.is_empty() => hits,
-        Some(Ok(_)) => duckduckgo(&client, query).await?,
+        Some(Ok(_)) => free_search(&client, query).await?,
         Some(Err(err)) => {
             // A stale key should not cost the user their answer: log it and use
-            // the free backend instead.
-            crate::log::line(format!("web  {provider} failed ({err}) — falling back to duckduckgo"));
-            duckduckgo(&client, query).await?
+            // the free engines instead.
+            crate::log::line(format!("web  {provider} failed ({err}) — falling back to the free engines"));
+            free_search(&client, query).await?
         }
-        None => duckduckgo(&client, query).await?,
+        None => free_search(&client, query).await?,
     };
 
     if hits.is_empty() {
@@ -171,29 +178,209 @@ fn truncate_chars(text: &mut String, max: usize) {
 
 // ── Backends ──────────────────────────────────────────────────────────────────
 
+/// What one keyless engine had to say. The distinction is what the chain acts
+/// on: a block lasts minutes and the next engine should be tried at once, while
+/// an ordinary failure is worth one more attempt later.
+enum Attempt {
+    Hits(Vec<Hit>),
+    /// Answered and parsed, and there was nothing — not worth a cooldown.
+    Empty,
+    /// The engine refused this address: rate limit, captcha, an empty 202.
+    Blocked(String),
+    /// Anything else: a timeout, a 5xx, a body that would not parse.
+    Failed(String),
+}
+
+/// The keyless engines, in the order they are tried. No single one survives an
+/// ordinary session — DuckDuckGo starts answering 202 with an empty body after a
+/// couple of lookups from one address, which is how a chat comes to say it can
+/// no longer reach the web. Two more agreeing on the same query is enough for a
+/// lookup to come back.
+const FREE_BACKENDS: [&str; 3] = ["duckduckgo", "bing", "brave"];
+
+/// How long an engine that refused this address is skipped. Long enough that
+/// asking again does not deepen the block, short enough that one block does not
+/// cost the session.
+const BLOCK_COOLDOWN: Duration = Duration::from_secs(300);
+/// One failed request is not a verdict about the engine.
+const FAIL_COOLDOWN: Duration = Duration::from_secs(60);
+
+/// `engine → the moment it may be used again`. A block belongs to the machine
+/// and the engine together, so one cell per process is the right scope: the
+/// second search in the same minute is exactly the one that used to fail.
+fn cool_downs() -> &'static Mutex<HashMap<&'static str, Instant>> {
+    static CELL: OnceLock<Mutex<HashMap<&'static str, Instant>>> = OnceLock::new();
+    CELL.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cooling(engine: &str) -> bool {
+    let mut cell = cool_downs().lock().unwrap_or_else(|e| e.into_inner());
+    match cell.get(engine).copied() {
+        Some(until) if until > Instant::now() => true,
+        Some(_) => {
+            // Expired: forget it, so the map does not grow across a long run.
+            cell.remove(engine);
+            false
+        }
+        None => false,
+    }
+}
+
+fn cool_down(engine: &'static str, for_: Duration) {
+    cool_downs()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(engine, Instant::now() + for_);
+}
+
+/// The free path: every keyless engine in turn, skipping whichever ones refused
+/// us a moment ago. Returns the first non-empty set of hits.
+async fn free_search(client: &reqwest::Client, query: &str) -> Result<Vec<Hit>, String> {
+    let mut notes: Vec<String> = Vec::new();
+    for engine in FREE_BACKENDS {
+        if cooling(engine) {
+            notes.push(format!("{engine}: cooldown"));
+            continue;
+        }
+        let attempt = match engine {
+            "bing" => bing(client, query).await,
+            "brave" => brave_page(client, query).await,
+            _ => duckduckgo(client, query).await,
+        };
+        match attempt {
+            Attempt::Hits(hits) if !hits.is_empty() => {
+                crate::log::line(format!("web  {engine} „{query}” → {} hits", hits.len()));
+                return Ok(hits);
+            }
+            Attempt::Hits(_) | Attempt::Empty => notes.push(format!("{engine}: no results")),
+            Attempt::Blocked(why) => {
+                crate::log::line(format!(
+                    "web  {engine} blocked ({why}) — skipped for {} s",
+                    BLOCK_COOLDOWN.as_secs()
+                ));
+                cool_down(engine, BLOCK_COOLDOWN);
+                notes.push(format!("{engine}: blocked"));
+            }
+            Attempt::Failed(why) => {
+                crate::log::line(format!("web  {engine} failed ({why})"));
+                cool_down(engine, FAIL_COOLDOWN);
+                notes.push(format!("{engine}: failed"));
+            }
+        }
+    }
+    crate::log::line(format!("web  no engine answered „{query}”: {}", notes.join("; ")));
+    // i18n-ok: model-facing tool error; the model says it in the user's own language.
+    Err("Żadna wyszukiwarka teraz nie odpowiada — powiedz, że spróbujesz za chwilę, albo przeczytaj konkretną stronę przez fetch_url.".to_string())
+}
+
 /// DuckDuckGo's no-JavaScript endpoint. No key, no account, the reason web
-/// access needs no setup at all.
-async fn duckduckgo(client: &reqwest::Client, query: &str) -> Result<Vec<Hit>, String> {
-    let response = client
+/// access needs no setup at all — and the one that throttles soonest: after a
+/// couple of lookups the same address gets 202 with an empty body.
+async fn duckduckgo(client: &reqwest::Client, query: &str) -> Attempt {
+    let response = match client
         .post("https://html.duckduckgo.com/html/")
         .header("content-type", "application/x-www-form-urlencoded")
         .form(&[("q", query), ("kl", "wt-wt")])
         .send()
         .await
-        .map_err(|e| format!("DuckDuckGo did not answer: {e}"))?;
+    {
+        Ok(response) => response,
+        Err(e) => return Attempt::Failed(format!("did not answer: {e}")),
+    };
     let status = response.status();
-    let html = response
-        .text()
-        .await
-        .map_err(|e| format!("DuckDuckGo: read error: {e}"))?;
+    if status == reqwest::StatusCode::ACCEPTED {
+        return Attempt::Blocked("rate limit".to_string());
+    }
+    let html = match response.text().await {
+        Ok(html) => html,
+        Err(e) => return Attempt::Failed(format!("read error: {e}")),
+    };
     if !status.is_success() {
-        return Err(format!("DuckDuckGo answered {status}."));
+        return Attempt::Failed(format!("answered {status}"));
     }
-    let hits = parse_ddg(&html);
-    if hits.is_empty() {
-        return Err("DuckDuckGo returned no results (it may be rate-limiting).".to_string());
+    settled(parse_ddg(&html), &html)
+}
+
+/// Bing's result page. The markup has been the same for a decade and an app
+/// reading it is not what it fights, which makes it the dependable second
+/// engine.
+async fn bing(client: &reqwest::Client, query: &str) -> Attempt {
+    match search_page(client, "https://www.bing.com/search", query).await {
+        Ok(html) => settled(parse_bing(&html), &html),
+        Err(attempt) => attempt,
     }
-    Ok(hits)
+}
+
+/// Brave's own result page, read for the markup it renders on the server. The
+/// API wants a key; this page does not.
+async fn brave_page(client: &reqwest::Client, query: &str) -> Attempt {
+    match search_page(client, "https://search.brave.com/search", query).await {
+        Ok(html) => settled(parse_brave(&html), &html),
+        Err(attempt) => attempt,
+    }
+}
+
+/// One GET against a result page, reduced to what every engine here shares: the
+/// status tells a block from an outage, and the body goes to the parser that
+/// knows that engine's markup.
+async fn search_page(client: &reqwest::Client, url: &str, query: &str) -> Result<String, Attempt> {
+    let response = match client
+        .get(url)
+        .query(&[("q", query)])
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(e) => return Err(Attempt::Failed(format!("did not answer: {e}"))),
+    };
+    let status = response.status();
+    // 403 and 429 are the engines' way of saying "this address, later"; 202 with
+    // an empty body is DuckDuckGo's version of the same thing.
+    if status == reqwest::StatusCode::FORBIDDEN
+        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || status == reqwest::StatusCode::ACCEPTED
+    {
+        return Err(Attempt::Blocked(format!("answered {status}")));
+    }
+    let html = match response.text().await {
+        Ok(html) => html,
+        Err(e) => return Err(Attempt::Failed(format!("read error: {e}"))),
+    };
+    if !status.is_success() {
+        return Err(Attempt::Failed(format!("answered {status}")));
+    }
+    Ok(html)
+}
+
+/// A parse that found nothing means either "no such page on the web" or "this is
+/// the engine's block page". Only the second is worth a cooldown, so the body is
+/// read for the words those pages carry.
+fn settled(hits: Vec<Hit>, html: &str) -> Attempt {
+    if !hits.is_empty() {
+        return Attempt::Hits(hits);
+    }
+    match blocked_marker(html) {
+        Some(why) => Attempt::Blocked(why.to_string()),
+        None => Attempt::Empty,
+    }
+}
+
+/// Text that only a search engine's own "you are a robot" page carries.
+const BLOCK_MARKERS: [&str; 7] = [
+    "captcha",
+    "unusual traffic",
+    "anomaly",
+    "challenge-platform",
+    "verify you are human",
+    "are you a robot",
+    "enable javascript and reload",
+];
+
+fn blocked_marker(html: &str) -> Option<&'static str> {
+    BLOCK_MARKERS
+        .iter()
+        .copied()
+        .find(|needle| find_ci(html, needle).is_some())
 }
 
 async fn brave(client: &reqwest::Client, key: &str, query: &str) -> Result<Vec<Hit>, String> {
@@ -362,6 +549,135 @@ fn clean_ddg_url(href: &str) -> String {
         Some(value) => percent_decode(value),
         None => href,
     }
+}
+
+/// Pulls the results out of Bing's page: one `<li class="b_algo">` per result,
+/// the title in the `<h2>` anchor and the snippet in the first paragraph under
+/// it. The address arrives wrapped in Bing's own redirector.
+fn parse_bing(html: &str) -> Vec<Hit> {
+    let mut hits = Vec::new();
+    for block in blocks(html, "class=\"b_algo") {
+        let Some(heading) = block.find("<h2") else { continue };
+        let rest = &block[heading..];
+        let Some(anchor_at) = rest.find("<a") else { continue };
+        let anchor = &rest[anchor_at..];
+        let Some(tag_end) = anchor.find('>') else { continue };
+        let Some(url) = attr(&anchor[..tag_end], "href").map(|href| clean_bing_url(&href)) else {
+            continue;
+        };
+        let Some(title_end) = anchor.find("</a>") else { continue };
+        let title = one_line(&html_unescape(&strip_tags(&anchor[tag_end + 1..title_end])));
+        // Bing renders the snippet as the first paragraph after the heading; a
+        // result with none ends before the next one starts, which `blocks` cut.
+        let tail = &anchor[title_end..];
+        let snippet = tail
+            .find("<p")
+            .and_then(|p| {
+                let para = &tail[p..];
+                let open = para.find('>')? + 1;
+                let close = para.find("</p>")?;
+                (close > open).then(|| one_line(&html_unescape(&strip_tags(&para[open..close]))))
+            })
+            .unwrap_or_default();
+        if !url.is_empty() && !title.is_empty() {
+            hits.push(Hit { title, url, snippet });
+        }
+        if hits.len() >= SEARCH_RESULTS {
+            break;
+        }
+    }
+    hits
+}
+
+/// Bing wraps a result in `https://www.bing.com/ck/a?…&u=a1<base64url>`; the real
+/// address is that parameter, base64url-encoded behind a two-character marker.
+fn clean_bing_url(href: &str) -> String {
+    let href = html_unescape(href);
+    let Some((_, query)) = href.split_once("bing.com/ck/a?") else { return href };
+    let Some(value) = query.split('&').find_map(|pair| pair.strip_prefix("u=")) else { return href };
+    let encoded = value.strip_prefix("a1").unwrap_or(value);
+    base64url(encoded).unwrap_or(href)
+}
+
+/// Base64url without padding, decoded by hand: the only thing this module needs
+/// it for is Bing's redirector, and it is not worth a dependency.
+fn base64url(text: &str) -> Option<String> {
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let mut acc = 0u32;
+    let mut bits = 0u32;
+    for byte in text.bytes() {
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'-' | b'+' => 62,
+            b'_' | b'/' => 63,
+            b'=' => break,
+            _ => return None,
+        };
+        acc = (acc << 6) | value as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// Brave renders its results on the server, with the address on the anchor, the
+/// title in the div beside it and the snippet in a `generic-snippet` block.
+fn parse_brave(html: &str) -> Vec<Hit> {
+    let mut hits = Vec::new();
+    for block in blocks(html, "data-type=\"web\"") {
+        let Some(anchor_at) = block.find("<a") else { continue };
+        let anchor = &block[anchor_at..];
+        let Some(tag_end) = anchor.find('>') else { continue };
+        let Some(url) = attr(&anchor[..tag_end], "href") else { continue };
+        let Some(title_at) = anchor.find("class=\"title ") else { continue };
+        let title_block = &anchor[title_at..];
+        let Some(open) = title_block.find('>') else { continue };
+        let Some(close) = title_block.find("</div>") else { continue };
+        if close <= open {
+            continue;
+        }
+        let title = one_line(&html_unescape(&strip_tags(&title_block[open + 1..close])));
+        let snippet = anchor
+            .find("class=\"generic-snippet")
+            .and_then(|s| {
+                let tail = &anchor[s..];
+                let open = tail.find('>')? + 1;
+                let close = tail.find("</div>")?;
+                (close > open).then(|| one_line(&html_unescape(&strip_tags(&tail[open..close]))))
+            })
+            .unwrap_or_default();
+        if !url.is_empty() && !title.is_empty() {
+            hits.push(Hit { title, url, snippet });
+        }
+        if hits.len() >= SEARCH_RESULTS {
+            break;
+        }
+    }
+    hits
+}
+
+/// The chunks of `html` that start at `marker`, each running to the next marker.
+/// A result list is a flat run of identical blocks, so this is all the structure
+/// a parser needs — and it never slices inside a character.
+fn blocks<'a>(html: &'a str, marker: &str) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let mut rest = html;
+    while let Some(pos) = rest.find(marker) {
+        let chunk = &rest[pos..];
+        let end = chunk[marker.len()..]
+            .find(marker)
+            .map(|next| next + marker.len())
+            .unwrap_or(chunk.len());
+        out.push(&chunk[..end]);
+        rest = &chunk[end..];
+    }
+    out
 }
 
 fn attr(tag: &str, name: &str) -> Option<String> {
@@ -624,6 +940,73 @@ mod tests {
         assert_eq!(hits[0].snippet, "Lists the currently available models.");
         assert_eq!(hits[1].url, "https://example.com/a?b=1");
         assert!(hits[1].snippet.is_empty());
+    }
+
+    /// Trimmed from a real Bing answer: the address is the redirector, the title
+    /// sits in the `<h2>` and the snippet in the paragraph under it.
+    const BING: &str = r#"
+    <ol id="b_results">
+      <li class="b_algo" data-id iid=SERP.1><h2><a href="https://www.bing.com/ck/a?!&amp;&amp;p=52a1&amp;u=a1aHR0cHM6Ly9leGFtcGxlLmNvbS9hP2I9MQ&amp;ntb=1">Kursy &amp; waluty</a></h2><div class="b_caption"><p class="b_lineclamp2">Aktualne kursy&nbsp;walut &#0183; NBP</p></div></li>
+      <li class="b_algo b_algoBorder"><h2><a href="https://plain.example.org/x">Plain</a></h2></li>
+    </ol>"#;
+
+    #[test]
+    fn bing_results_and_redirector() {
+        let hits = parse_bing(BING);
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].title, "Kursy & waluty");
+        assert_eq!(hits[0].url, "https://example.com/a?b=1");
+        assert_eq!(hits[0].snippet, "Aktualne kursy walut · NBP");
+        assert_eq!(hits[1].url, "https://plain.example.org/x");
+        assert!(hits[1].snippet.is_empty());
+    }
+
+    #[test]
+    fn a_bing_redirector_that_will_not_decode_keeps_its_address() {
+        // Better a link that still opens than a result with no address at all.
+        let href = "https://www.bing.com/ck/a?!&&p=1&u=a1!!!!&ntb=1";
+        assert_eq!(clean_bing_url(href), href);
+        assert_eq!(clean_bing_url("https://example.com/plain"), "https://example.com/plain");
+    }
+
+    /// Trimmed from Brave's server-rendered page: the anchor carries the address,
+    /// the div beside it the title, the `generic-snippet` the text.
+    const BRAVE: &str = r#"
+    <div class="snippet svelte-jmfu5f" data-pos="0" data-type="web"><div class="result-body"><a href="https://apnews.com/hub/poland" target="_self" class="svelte-14r20fy l1"><div class="site-name-wrapper"></div> <div class="title search-snippet-title line-clamp-1" title="Poland | AP News">Poland | AP News</div></a><div class="generic-snippet svelte-1cwdgg3"><div class="content">2 days ago - Six people <strong>died</strong>.</div></div></div></div>
+    <div class="snippet svelte-jmfu5f" data-pos="1" data-type="web"><div class="result-body"><a href="https://example.com/b" class="l1"><div class="title search-snippet-title">Second &amp; last</div></a></div></div>"#;
+
+    #[test]
+    fn brave_results_parse() {
+        let hits = parse_brave(BRAVE);
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].title, "Poland | AP News");
+        assert_eq!(hits[0].url, "https://apnews.com/hub/poland");
+        assert_eq!(hits[0].snippet, "2 days ago - Six people died.");
+        assert_eq!(hits[1].title, "Second & last");
+        assert!(hits[1].snippet.is_empty());
+    }
+
+    /// The page DuckDuckGo serves once it has had enough: no results, and the
+    /// word that says so. This is the case that has to cool the engine down — an
+    /// empty page without it is a query that simply found nothing.
+    #[test]
+    fn a_block_page_cools_the_engine_down_and_an_empty_one_does_not() {
+        match settled(Vec::new(), "<html><body>No results found for that query.</body></html>") {
+            Attempt::Empty => {}
+            _ => panic!("an empty answer with no block word must not cool anything down"),
+        }
+        match settled(Vec::new(), "<html><h1>Please solve this CAPTCHA</h1></html>") {
+            Attempt::Blocked(_) => {}
+            _ => panic!("a captcha page must be reported as a block"),
+        }
+    }
+
+    #[test]
+    fn a_blocked_engine_is_skipped_until_its_cooldown_runs_out() {
+        cool_down("test-only", Duration::from_secs(60));
+        assert!(cooling("test-only"));
+        cool_down("test-only", Duration::ZERO);
+        assert!(!cooling("test-only"));
     }
 
     #[test]

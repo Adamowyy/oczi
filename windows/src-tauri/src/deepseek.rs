@@ -60,14 +60,7 @@ Never run something destructive as a side effect of a guess. \
 Every command is written to the app log, so report the command you ran and what it printed, and never claim a result you did not see. \nCall the tools the normal way: never write the call out as text or XML, because that does nothing at all. \
 When you have asked whether to do something and the user answers ok, yes, go ahead or anything else that reads as agreement, that is permission: do it, without asking a second time. \nTo put a page on the screen for the user, use open_url: fetch_url *reads* a page, open_url *opens* it in their browser. To play something — music, a song, a genre, a video, an episode — use play_video: it searches YouTube itself, starts the first result playing and keeps it going as that video's radio mix. A search page is not playback, so never answer a request to put something on with a list of links to choose from. To close a program, use kill_process with its name — it asks the program to close first, which is what lets Discord and Steam save their state, and only forces it when that request was ignored. Never kill a process to \"clean up\" without being asked.";
 
-/// Appended when the build carries dictation. What the user sends may be a *transcript*
-/// rather than something typed, decoded by a small model running locally: it is fast, and it
-/// is wrong sometimes, always in the same shape — two words run together, a borrowed name
-/// spelled the way it sounds, a Polish case ending on a name the machine has never heard of.
-/// Saying so here costs no latency (the turn was going to the model anyway) and it is the
-/// difference between a name that gets launched and a name that is only repeated back.
-#[cfg(feature = "voice")]
-const DICTATION_PROMPT: &str = "\nSome messages reach you as dictation: Oczi's own speech recognition, decoded by a small local model on this machine. Read the sentence for what the user meant before you act on it, because the mistakes are predictable — two words run together, a borrowed product name written the way it sounds, a Polish case ending attached to a name that has none. Before a name goes into a tool, especially launch_app, put it back in the plain form it has on the machine — the name as it is written in the Start menu, not the way it was spoken.";
+
 
 const REMINDER_PROMPT: &str = "\nAnything the user wants to be told about later — \"remind me\", \"przypomnij mi\", \"in 20 minutes\", \"tomorrow at 8\" — is one call to the remind tool. A card Oczi itself shows at that moment; the user needs nothing installed and nothing running for it. \
 Never build a reminder out of a script, a scheduled task, PowerShell, msg or a .ps1 file: the tool is the only thing the user will actually see, and anything else just leaves files behind. \
@@ -488,10 +481,6 @@ pub(crate) fn system_prompt(web: bool, terminal: bool, language: &str) -> String
     let date = crate::util::today();
     let mut prompt = SYSTEM_PROMPT.to_string();
     prompt.push_str(language_line(language));
-    // Dictation is a build feature, so the note about transcripts belongs only in a build
-    // that has the microphone: the ordinary installer never sends one.
-    #[cfg(feature = "voice")]
-    prompt.push_str(DICTATION_PROMPT);
     if web {
         prompt.push_str(&WEB_PROMPT.replace("{date}", &date));
     } else {

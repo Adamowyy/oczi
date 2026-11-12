@@ -9,26 +9,6 @@ import { State, type ChatMessage } from "../core/state";
 import { t, type TextKey } from "../core/i18n";
 import type { ViewActions, ViewHost } from "./views";
 
-/** Dictation hands its transcript here. The chat view is built once at boot and owns the
- *  input field and the send path, so a spoken question goes through the same code as a
- *  typed one instead of a second, subtly different path of its own. */
-let dictated: ((text: string) => void) | null = null;
-
-/** Told when a turn that was spoken has been answered, so dictation can start listening
- *  again on the chat itself — a conversation by voice should not need a keypress per
- *  sentence. Set by the island, which is the only place that knows the question was
- *  spoken rather than typed. */
-let answered: (() => void) | null = null;
-
-export function whenAnswered(fn: () => void) {
-  answered = fn;
-}
-
-/** Send `text` as if it had been typed. Called by the island with a transcript. */
-export function sendDictated(text: string) {
-  dictated?.(text);
-}
-
 let nextId = 1;
 
 /** A turn that never comes back would leave the island thinking for ever: the dots kept
@@ -236,21 +216,6 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
     svg(ICONS.eye, 13),
   );
   snip.addEventListener("click", () => actions.snip());
-  // Dictation, next to the eye: press once and speak. The text arrives on its own and goes
-  // out as if typed — see sendDictated below.
-  const mic = h(
-    "button",
-    { class: "mic-btn", title: t("chat.micTip") },
-    svg(ICONS.mic, 13),
-  );
-  mic.addEventListener("click", () => actions.dictate());
-  // Speaking with the chat already open: the microphone comes alive and nothing else
-  // moves — no listening shape, no sound. That is the state dictation puts itself in
-  // after answering a spoken question, so the conversation continues by voice.
-  State.subscribe(() => {
-    mic.classList.toggle("listening", State.voice === "listening");
-    mic.classList.toggle("busy", State.voice === "transcribing");
-  });
   // A fresh conversation: the old one goes away on both sides of the IPC, so the model
   // stops seeing it either. Labelled, because a bare plus reads as "add a file".
   const fresh = h(
@@ -259,7 +224,7 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
     svg(ICONS.plus, 11),
     h("span", { text: t("chat.new") }),
   );
-  const bar = h("div", { class: "chat-bar" }, fresh, snip, mic, input, send);
+  const bar = h("div", { class: "chat-bar" }, fresh, snip, input, send);
   /** The rotating suggestions, in the empty space above the bar. */
   const hints = h("div", { class: "chat-hints" });
 
@@ -316,9 +281,6 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
       State.snip = null;
       State.stateOverride = null;
       Sound.play("finish");
-      // Someone who spoke a question is likely to speak the next one: the island listens
-      // again from here, on the chat, without a keypress.
-      answered?.();
     } catch (err) {
       State.stateOverride = null;
       State.noteMessage = String(err).replace(/^Error:\s*/, "");
@@ -338,13 +300,6 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
   }
 
   send.addEventListener("click", () => void submit());
-  // Dictation lands here rather than in a second send path of its own: the field is filled
-  // and the ordinary submit runs, so a spoken question behaves exactly like a typed one —
-  // including the session timeout, the height change and the hold-open.
-  dictated = (text) => {
-    input.value = text;
-    void submit();
-  };
   fresh.addEventListener("click", () => {
     if (sending) return; // never pull the rug out from under a turn in flight
     State.chatHistory = [];
