@@ -1169,6 +1169,24 @@ async fn clean_run() -> clean::Freed {
         .unwrap_or_default()
 }
 
+/// How much a driver update and a Windows update left behind — measured apart from the two piles
+/// above, so the button that empties those never takes these with it.
+#[tauri::command]
+async fn clean_residue_scan() -> clean::Residue {
+    tauri::async_runtime::spawn_blocking(clean::residue_scan)
+        .await
+        .unwrap_or_default()
+}
+
+/// Clears one of the two residue piles: `nvidia` or `update`. The update one asks for an
+/// administrator, because Windows keeps its own payload folder under `C:\\Windows`.
+#[tauri::command]
+async fn clean_residue_run(kind: String) -> Result<clean::ResidueFreed, String> {
+    tauri::async_runtime::spawn_blocking(move || clean::residue_run(&kind))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
 /// Shows one of the two PC windows. Both exist from launch and are only ever hidden, so opening
 /// one is instant and the page keeps whatever the last scan left in it.
 #[tauri::command]
@@ -1451,6 +1469,8 @@ pub fn run() {
             startup_set,
             clean_scan,
             clean_run,
+            clean_residue_scan,
+            clean_residue_run,
             tweaks_list,
             tweak_set,
             tweak_choose,

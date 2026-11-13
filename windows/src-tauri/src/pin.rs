@@ -25,7 +25,9 @@ pub fn label(index: usize) -> String {
 
 pub fn index_of(label: &str) -> Option<usize> {
     let n: usize = label.strip_prefix("pin")?.parse().ok()?;
-    (1..=SLOTS).contains(&n).then_some(n - 1)
+    // The number in the label is the slot, and `pin0` and `pin13` are not slots: a label Windows
+    // could hand back is still a label, so it is refused rather than made to fit.
+    (1..=SLOTS).contains(&n).then(|| n - 1)
 }
 
 /// Where pin `index` is written. One file per window, deleted when the pin closes.

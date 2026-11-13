@@ -33,17 +33,28 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// Runs `script` through one UAC prompt and waits for it to finish, for a caller that has to measure
+/// the result afterwards. A refused prompt is reported the same way as above.
+pub(crate) fn run_elevated_wait(script: &str) -> Result<(), String> {
+    launch(script, true)
+}
+
 /// Runs `script` through one UAC prompt. Returns as soon as PowerShell has started, because the
 /// prompt itself is the part that can be refused — what the script then does is the caller's to
 /// read back from the machine.
 pub(crate) fn run_elevated(script: &str) -> Result<(), String> {
+    launch(script, false)
+}
+
+fn launch(script: &str, wait: bool) -> Result<(), String> {
     let utf16: Vec<u8> = script
         .encode_utf16()
         .flat_map(|unit| unit.to_le_bytes())
         .collect();
     let command = format!(
-        "Start-Process -FilePath 'powershell.exe' -Verb RunAs \
-         -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand','{}'",
+        "Start-Process -FilePath 'powershell.exe' -Verb RunAs {} -ArgumentList \
+         '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand','{}'",
+        if wait { "-Wait" } else { "" },
         base64(&utf16)
     );
     powershell(&command).map(|_| ()).map_err(|e| {

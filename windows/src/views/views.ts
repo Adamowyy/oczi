@@ -1254,6 +1254,10 @@ async function loadDebloat() {
     cleanBusy: false,
     cleanNote: previous?.cleanNote ?? null,
     cleanFreed: previous?.cleanFreed ?? null,
+    residue: previous?.residue ?? null,
+    residueBusy: null,
+    residueNote: previous?.residueNote ?? null,
+    residueFreed: previous?.residueFreed ?? null,
   };
   State.notify();
   try {
@@ -1266,6 +1270,9 @@ async function loadDebloat() {
     const changes = (await Bridge.tweaksHistory()) ?? [];
     const startup = await Bridge.startupList().catch(() => null);
     const clean = await Bridge.cleanScan().catch(() => null);
+    // The residue rows are their own reading and their own failure: a folder Windows will not let
+    // this process measure must not take the two piles down with it.
+    const residue = await Bridge.cleanResidueScan().catch(() => null);
     // A fresh reading is the truth about what is installed, so the ticks start from it: the safe
     // packages pre-ticked, the careful ones never.
     State.debloat = {
@@ -1290,6 +1297,10 @@ async function loadDebloat() {
       cleanBusy: false,
       cleanNote: State.debloat?.cleanNote ?? null,
       cleanFreed: State.debloat?.cleanFreed ?? null,
+      residue,
+      residueBusy: null,
+      residueNote: State.debloat?.residueNote ?? null,
+      residueFreed: State.debloat?.residueFreed ?? null,
     };
   } catch (e) {
     State.debloat = {
@@ -1314,6 +1325,10 @@ async function loadDebloat() {
       cleanBusy: false,
       cleanNote: State.debloat?.cleanNote ?? null,
       cleanFreed: State.debloat?.cleanFreed ?? null,
+      residue: State.debloat?.residue ?? null,
+      residueBusy: null,
+      residueNote: State.debloat?.residueNote ?? null,
+      residueFreed: State.debloat?.residueFreed ?? null,
     };
   }
   State.notify();
@@ -1821,6 +1836,126 @@ async function cleanRun() {
   State.notify();
 }
 
+// ── The residue of two updates, kept off the two piles' button ────────────────
+// A driver install and a Windows update both park gigabytes that the temp folder and the Recycle
+// Bin have nothing to do with. They get their own rows and their own buttons, so the sweep above is
+// never a surprise.
+
+async function residueScan() {
+  const d = State.debloat;
+  if (!d || d.residueBusy) return;
+  d.residueBusy = "scan";
+  d.residueNote = null;
+  State.notify();
+  try {
+    d.residue = await Bridge.cleanResidueScan();
+    d.residueNote = { text: t("clean.residueMeasured") };
+  } catch (e) {
+    d.residueNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)) };
+  }
+  d.residueBusy = null;
+  State.notify();
+}
+
+async function residueRun(kind: "nvidia" | "update") {
+  const d = State.debloat;
+  if (!d || d.residueBusy) return;
+  d.residueBusy = kind;
+  d.residueFreed = null;
+  d.residueNote = null;
+  State.notify();
+  try {
+    d.residueFreed = await Bridge.cleanResidueRun(kind);
+    d.residue = await Bridge.cleanResidueScan().catch(() => d.residue);
+    void Bridge.log(`clean residue: ${kind} swept`);
+  } catch (e) {
+    // An update sweep that never ran is a refused administrator prompt, and the window says so
+    // instead of showing zero freed as if it had worked.
+    d.residueNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)) };
+  }
+  d.residueBusy = null;
+  State.notify();
+}
+
+function residueBlock(d: DebloatState): HTMLElement {
+  const block = h(
+    "div",
+    { class: "tweak-group" },
+    h("div", { class: "game-eyebrow", text: t("clean.residueTitle") }),
+  );
+  const sizes = d.residue;
+  if (!sizes) {
+    block.append(
+      h("div", { class: "game-note", text: d.residueBusy ? t("clean.scanning") : "…" }),
+    );
+    return block;
+  }
+  block.append(
+    h(
+      "div",
+      { class: "game-row" },
+      h(
+        "span",
+        { class: "game-name" },
+        h("strong", { text: t("clean.nvidia") }),
+        h("span", { class: "pkg", text: t("clean.nvidiaSize", bytes(sizes.nvidia)) }),
+      ),
+    ),
+    h(
+      "div",
+      { class: "game-row" },
+      h(
+        "span",
+        { class: "game-name" },
+        h("strong", { text: t("clean.update") }),
+        h("span", { class: "pkg", text: t("clean.updateSize", bytes(sizes.update)) }),
+      ),
+    ),
+  );
+  if (d.residueNote) {
+    block.append(h("div", { class: "game-note", text: d.residueNote.text }));
+  }
+  if (d.residueFreed) {
+    block.append(
+      h("div", {
+        class: "game-note",
+        text: t(
+          "clean.residueFreed",
+          bytes(d.residueFreed.nvidia + d.residueFreed.update),
+          bytes(d.residueFreed.skipped),
+        ),
+      }),
+    );
+  }
+  block.append(
+    h(
+      "div",
+      { class: "tweaks-actions" },
+      h("button", {
+        class: "primary",
+        text: d.residueBusy === "nvidia" ? t("clean.residueBusy") : t("clean.nvidiaRun"),
+        disabled: d.residueBusy !== null || sizes.nvidia === 0,
+        onclick: () => void residueRun("nvidia"),
+      }),
+      h("button", {
+        class: "ghost",
+        text: d.residueBusy === "update" ? t("clean.residueBusy") : t("clean.updateRun"),
+        // Always offered: Windows may keep its payload folder unreadable for this process, so a zero
+        // on the row is not proof the folder is empty — the prompt is the only way to find out.
+        disabled: d.residueBusy !== null,
+        onclick: () => void residueRun("update"),
+      }),
+      h("button", {
+        class: "ghost",
+        text: t("clean.rescan"),
+        disabled: d.residueBusy !== null,
+        onclick: () => void residueScan(),
+      }),
+    ),
+  );
+  return block;
+}
+
 function cleanBlock(d: DebloatState): HTMLElement {
   const block = h(
     "div",
@@ -1946,6 +2081,10 @@ function buildDebloat(actions: ViewActions): ViewHost {
             d.cleanBusy,
             d.cleanNote?.text ?? null,
             d.cleanFreed ? d.cleanFreed.temp + d.cleanFreed.recycle : "none",
+            d.residue ? `${d.residue.nvidia}:${d.residue.update}` : "none",
+            d.residueBusy,
+            d.residueNote?.text ?? null,
+            d.residueFreed ? d.residueFreed.nvidia + d.residueFreed.update + d.residueFreed.skipped : "none",
           ].join(",")
         : "none";
       const next = d
@@ -2030,7 +2169,7 @@ function buildDebloat(actions: ViewActions): ViewHost {
       }
 
       if (d.tab === "clean") {
-        scroll.append(cleanBlock(d));
+        scroll.append(cleanBlock(d), residueBlock(d));
         return;
       }
 

@@ -251,6 +251,12 @@ export interface DebloatState {
   /** A line under the sizes: "measured again", so a fast scan still shows it ran. */
   cleanNote: { text: string } | null;
   cleanFreed: CleanFreed | null;
+  /** Leftovers after a driver install and a Windows update, measured apart from the two piles so
+   *  the button that empties those cannot take them by surprise. */
+  residue: ResidueSizes | null;
+  residueBusy: "nvidia" | "update" | "scan" | null;
+  residueNote: { text: string } | null;
+  residueFreed: ResidueFreed | null;
 }
 
 /** Game Bar as Windows reports it: the package, the user's capture switches, and the machine-wide
@@ -312,6 +318,19 @@ export interface CleanSizes {
 export interface CleanFreed {
   temp: number;
   recycle: number;
+  skipped: number;
+}
+
+/** What a driver update and a Windows update left behind, measured on their own. */
+export interface ResidueSizes {
+  nvidia: number;
+  update: number;
+}
+
+/** What one residue sweep freed. */
+export interface ResidueFreed {
+  nvidia: number;
+  update: number;
   skipped: number;
 }
 

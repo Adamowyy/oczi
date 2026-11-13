@@ -761,7 +761,9 @@ fn net_summary(rtts: &[(i64, u32, String)]) -> (u32, f64, u32, u32, Vec<(i64, u3
     times.sort_unstable();
     let min = times[0];
     let max = *times.last().unwrap();
-    let median = times[times.len() / 2];
+    // An even number of samples has two middle ones; the lower is taken, so the median is always a
+    // number that was actually measured rather than an average nobody pinged.
+    let median = times[(times.len() - 1) / 2];
     let avg = rtts.iter().map(|(_, ms, _)| *ms as f64).sum::<f64>() / rtts.len() as f64;
     // A spike is judged against the run's own normal, never against a fixed number: on a fibre
     // line 60 ms is a spike and on mobile internet it is an ordinary packet.

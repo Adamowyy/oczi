@@ -606,12 +606,15 @@ mod tests {
 
     #[test]
     fn the_polarity_is_what_the_window_would_expect() {
-        // Bing search off means zero; the Copilot kill-switch on means one. Both rows say "on" in
-        // the window when the quiet state is in place, however Windows spells it.
+        // The search row points at the policy 24H2 reads, where one is "suggestions off"; the
+        // Copilot kill-switch is on at one; silent app installs are quiet at zero. The row carries
+        // the number, so the window only ever has to say "on".
         let bing = TWEAKS.iter().find(|t| t.id == "privacy.bing").unwrap();
         let copilot = TWEAKS.iter().find(|t| t.id == "privacy.copilot").unwrap();
-        assert_eq!(bing.kind_on(), 0);
+        let silent = TWEAKS.iter().find(|t| t.id == "privacy.silentapps").unwrap();
+        assert_eq!(bing.kind_on(), 1);
         assert_eq!(copilot.kind_on(), 1);
+        assert_eq!(silent.kind_on(), 0);
     }
 
     #[test]
@@ -623,11 +626,19 @@ mod tests {
 
     #[test]
     fn the_elevated_script_names_only_the_row_it_was_given() {
-        let telemetry = TWEAKS.iter().find(|t| t.id == "privacy.telemetry").unwrap();
-        // This row is the one with inverted polarity: its "on" is zero, so the switch being off is
-        // the value one. The script has to follow the row, not the word.
-        let on = elevated_script(telemetry, true);
-        let off = elevated_script(telemetry, false);
+        // No row in the table needs an administrator today, so the script is proven against the
+        // shape a machine row has: one value, with the polarity the row carries.
+        let row = Tweak {
+            id: "probe.machine",
+            group: "privacy",
+            machine: true,
+            path: TELEMETRY_POLICY,
+            name: "AllowTelemetry",
+            kind: Kind::Dword { on: 0, off: 1 },
+            restart: false,
+        };
+        let on = elevated_script(&row, true);
+        let off = elevated_script(&row, false);
         assert!(on.contains("AllowTelemetry"));
         assert!(on.contains("-Value 0 "));
         assert!(off.contains("-Value 1 "));

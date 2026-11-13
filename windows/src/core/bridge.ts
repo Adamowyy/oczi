@@ -129,6 +129,19 @@ export interface CleanFreed {
   skipped: number;
 }
 
+/** What a driver update and a Windows update left behind, measured on their own. */
+export interface ResidueSizes {
+  nvidia: number;
+  update: number;
+}
+
+/** What one residue sweep freed. */
+export interface ResidueFreed {
+  nvidia: number;
+  update: number;
+  skipped: number;
+}
+
 export interface PricesOffer {
   title: string;
   appId: number;
@@ -227,6 +240,13 @@ export const Bridge = {
 
   /** Empties both and reports what the difference measured. */
   cleanRun: () => callOrThrow<CleanFreed>("clean_run"),
+
+  /** How much a driver update and a Windows update left behind — apart from the two piles above. */
+  cleanResidueScan: () => callOrThrow<ResidueSizes>("clean_residue_scan"),
+
+  /** Clears one of the two residue piles; `update` asks for an administrator. */
+  cleanResidueRun: (kind: "nvidia" | "update") =>
+    callOrThrow<ResidueFreed>("clean_residue_run", { kind }),
 
   /** Shows one of the two PC windows: `health` or `debloat`. */
   openPcWindow: (which: "health" | "debloat") => call<void>("open_pc_window", { which }),
