@@ -2,6 +2,21 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.8 — 2026-11-13
+
+**Sprzątanie ma wreszcie co sprzątać: pozostałości po aktualizacjach.**
+
+- W zakładce Sprzątanie, pod folderem tymczasowym i Koszem, doszły dwie osobne pozycje: poprzedni
+  sterownik NVIDIA i resztki po aktualizacjach Windows. Mają własne przyciski, więc „Opróżnij oba"
+  nigdy ich nie zabiera.
+- Poprzedni sterownik to pakiet, który w magazynie sterowników zostaje po aktualizacji (u mnie 2,9 GB);
+  usuwany przez `pnputil`, czyli z jedną zgodą administratora i bez możliwości cofnięcia sterownika.
+- Resztki po aktualizacjach Windows to pobrane aktualizacje, katalog `$WinREAgent`, `Windows.old`
+  i foldery etapowe po aktualizacji funkcji — razem kilka GB, które normalnie znikają dopiero przy
+  „Oczyszczaniu dysku".
+- Cache shaderów NVIDIA (`DXCache`) zostaje nietknięty: odbudowuje się podczas gry, więc nie jest
+  pozostałością i pilnuje tego test.
+
 ## 0.5.7 — 2026-11-12
 
 **Szukanie w sieci nie kończy się już po dwóch pytaniach.**
