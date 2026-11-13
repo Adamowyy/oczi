@@ -456,6 +456,26 @@ pub fn show(app: &AppHandle, index: usize, x: i32, y: i32, w: i32, h: i32) -> Re
         // four pages and each drew the same crop.
         app.emit_to(&name, &format!("pin-image-{name}"), url)
             .map_err(|e| format!("could not draw the pin: {e}"))?;
+    } else {
+        // A page that never asks for the crop it is waiting for (a slow load, a listener that came
+        // up after the ask) would leave an empty pin behind: one late emit, and only if the picture
+        // is still unclaimed, covers that without touching anything else.
+        let late = app.clone();
+        let waited = name.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            let unclaimed = match slots().lock() {
+                Ok(mut guard) => guard[index]
+                    .as_mut()
+                    .and_then(|slot| slot.pending.take().map(|_| true))
+                    .unwrap_or(false),
+                Err(_) => false,
+            };
+            if unclaimed {
+                log::line(format!("pin  {waited} needed the late picture"));
+                let _ = late.emit_to(&waited, &format!("pin-image-{waited}"), url);
+            }
+        });
     }
     log::line(format!("pin  {name} {w}x{h} at {x},{y}"));
     // Written down now, not at exit: the app may be killed, and a pin that came back at a stale

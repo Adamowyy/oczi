@@ -423,7 +423,12 @@ async fn begin_snip(app: AppHandle, pin_mode: Option<bool>) -> Result<(), String
 }
 
 /// The eye, step two: crop what was dragged and tell the island about it.
-#[tauri::command]
+///
+/// Off the main thread on purpose: a pin has to build its window here when it is the first one of
+/// the run, and Tauri answers a window build by posting to the event loop and waiting for the reply.
+/// On the main thread that wait never returns — the loop is inside this very call — and the whole
+/// app hangs with the overlay stuck on the screen.
+#[tauri::command(async)]
 fn finish_snip(
     app: AppHandle,
     snip: State<Snip>,
