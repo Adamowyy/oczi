@@ -16,6 +16,8 @@ All notable changes to **Oczi** are recorded here.
   „Oczyszczaniu dysku".
 - Cache shaderów NVIDIA (`DXCache`) zostaje nietknięty: odbudowuje się podczas gry, więc nie jest
   pozostałością i pilnuje tego test.
+- Przypinki nie budzą już dwunastu ukrytych okien przy starcie: okno powstaje wtedy, gdy przypinka
+  naprawdę jest na ekranie, więc bez przypinek Oczi trzyma kilkaset MB pamięci mniej.
 
 ## 0.5.7 — 2026-11-12
 

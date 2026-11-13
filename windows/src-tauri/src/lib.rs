@@ -916,30 +916,27 @@ fn pin_page_url(app: &AppHandle) -> WebviewUrl {
     WebviewUrl::App("pin.html".into())
 }
 
-/// The pins' windows: created at launch and only ever shown and hidden, one per slot.
-fn create_pin_windows(app: &AppHandle) {
-    for index in 0..pin::SLOTS {
-        let label = pin::label(index);
-        match WebviewWindowBuilder::new(app, label.clone(), pin_page_url(app))
-            .additional_browser_args(BROWSER_ARGS)
-            .title("Pin — Oczi")
-            .decorations(false)
-            .resizable(false)
-            .transparent(true)
-            .shadow(false)
-            .skip_taskbar(true)
-            .always_on_top(true)
-            .inner_size(320.0, 200.0)
-            // Hidden and unfocused at launch: nothing may take the foreground from what the user
-            // was typing in, and a pin only appears when one is asked for.
-            .focused(false)
-            .visible(false)
-            .build()
-        {
-            Ok(_) => log::line(format!("pin window {label} ready")),
-            Err(err) => log::line(format!("pin window {label} failed: {err}")),
-        }
-    }
+/// A pin window, hidden and unfocused: nothing may take the foreground from what the user was
+/// typing in, and a pin only appears when one is asked for. Built on demand by `pin::window` —
+/// a slot costs nothing until something is pinned, and a window is a WebView2 renderer.
+pub(crate) fn build_pin_window(
+    app: &AppHandle,
+    name: &str,
+) -> Result<tauri::WebviewWindow, String> {
+    WebviewWindowBuilder::new(app, name, pin_page_url(app))
+        .additional_browser_args(BROWSER_ARGS)
+        .title("Pin — Oczi")
+        .decorations(false)
+        .resizable(false)
+        .transparent(true)
+        .shadow(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .inner_size(320.0, 200.0)
+        .focused(false)
+        .visible(false)
+        .build()
+        .map_err(|e| format!("the pin window {name} could not be built: {e}"))
 }
 
 /// A health scan. One pass, on demand: a few seconds of load samples plus the event log, which is
@@ -1502,8 +1499,9 @@ pub fn run() {
                 island::own_file_drops(&handle);
             }
             // After the island has its real size: the pin windows built earlier delay `apply_geometry`
-            // and the greeting starts on a 240-pixel-wide window.
-            create_pin_windows(&handle);
+            // and the greeting starts on a 240-pixel-wide window. Only the pins a previous run left
+            // behind are built here — a slot nothing is pinned in costs no renderer.
+            pin::restore_kept(&handle);
             // Last, with every window created: a crash inside WebView2 must not
             // leave the island showing the runtime's own error page. See webview_guard.
             webview_guard::watch(&handle);

@@ -1,12 +1,12 @@
 // Pinned crops: regions that stay above other windows and can be dragged anywhere on the desktop,
-// including the other monitor. Pixels stay in Rust; the windows are made at launch and only shown
-// and hidden, because WebView2 will not build a usable one after start-up.
+// including the other monitor. Pixels stay in Rust; a window is built when a pin needs one — at
+// launch only for the pins a previous run left behind — and thereafter only shown and hidden.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
@@ -28,6 +28,54 @@ pub fn index_of(label: &str) -> Option<usize> {
     // The number in the label is the slot, and `pin0` and `pin13` are not slots: a label Windows
     // could hand back is still a label, so it is refused rather than made to fit.
     (1..=SLOTS).contains(&n).then(|| n - 1)
+}
+
+/// The window for slot `index`, built the first time a pin needs it and reused afterwards. A slot
+/// with nothing pinned in it costs nothing: each window is a WebView2 renderer, and all twelve used
+/// to be built at every launch whether or not anything was ever pinned.
+fn window(app: &AppHandle, index: usize) -> Result<WebviewWindow, String> {
+    let name = label(index);
+    if let Some(win) = app.get_webview_window(&name) {
+        return Ok(win);
+    }
+    let win = crate::build_pin_window(app, &name).map_err(|e| {
+        log::line(format!("pin  window {name} failed: {e}"));
+        e
+    })?;
+    log::line(format!("pin  window {name} ready"));
+    Ok(win)
+}
+
+/// Builds the windows for the pins a previous run left on the desk, and only for those. Their pages
+/// then ask for the picture themselves (`restore`), which is what puts them back where they were.
+pub fn restore_kept(app: &AppHandle) {
+    let kept = kept_list();
+    let remembered = kept.len();
+    // A record whose picture is gone is not a pin: forgotten here, because no page will ever ask.
+    let live: Vec<Kept> = kept
+        .into_iter()
+        .filter(|entry| {
+            let usable = entry.slot < SLOTS && active(entry.slot).exists();
+            if !usable {
+                log::line(format!(
+                    "pin  slot {} was remembered with no picture — forgotten",
+                    entry.slot + 1
+                ));
+            }
+            usable
+        })
+        .collect();
+    if live.len() != remembered {
+        save_kept(&live);
+    }
+    for entry in &live {
+        if let Err(err) = window(app, entry.slot) {
+            log::line(format!(
+                "pin  {} could not be rebuilt: {err}",
+                label(entry.slot)
+            ));
+        }
+    }
 }
 
 /// Where pin `index` is written. One file per window, deleted when the pin closes.
@@ -192,6 +240,17 @@ fn forget(index: usize) {
 /// the picture is listening by the time this is answered, which an emit during start-up could not
 /// count on.
 pub fn restore(app: &AppHandle, index: usize) -> Option<Restored> {
+    // A crop waiting for this page: the window was built for it a moment ago, so nothing was
+    // listening when the picture was cut. It is already sized and placed, and the page asks for it
+    // here the moment it is alive enough to draw it.
+    if let Ok(mut guard) = slots().lock() {
+        if let Some(slot) = guard[index].as_mut() {
+            if let Some(pending) = slot.pending.take() {
+                log::line(format!("pin  {} got its crop", label(index)));
+                return Some(pending);
+            }
+        }
+    }
     let kept = kept_list().into_iter().find(|kept| kept.slot == index)?;
     let path = active(index);
     let Ok(bytes) = std::fs::read(&path) else {
@@ -227,6 +286,7 @@ pub fn restore(app: &AppHandle, index: usize) -> Option<Restored> {
             topmost: kept.topmost,
             opacity,
             order: kept.order,
+            pending: None,
         });
     }
     log::line(format!(
@@ -298,6 +358,9 @@ struct Slot {
     /// written down and restored.
     opacity: u32,
     order: u64,
+    /// The crop this window was built for, waiting for its page to ask for it. Only a window made
+    /// on demand has one: a window that already existed has a page listening to the emit.
+    pending: Option<Restored>,
 }
 
 fn slots() -> &'static Mutex<[Option<Slot>; SLOTS]> {
@@ -347,6 +410,7 @@ pub fn reserve() -> Result<usize, String> {
         topmost: true,
         opacity: opaque(),
         order,
+        pending: None,
     });
     Ok(index)
 }
@@ -355,9 +419,10 @@ pub fn reserve() -> Result<usize, String> {
 /// desktop origin, which is what a window position takes.
 pub fn show(app: &AppHandle, index: usize, x: i32, y: i32, w: i32, h: i32) -> Result<(), String> {
     let name = label(index);
-    let Some(win) = app.get_webview_window(&name) else {
-        return Err(format!("the pin window {name} is missing"));
-    };
+    // A slot with no window yet builds one here — the first pin of the session does the building,
+    // and its page is not listening when it is that new, so `restore` hands it the picture instead.
+    let built_now = app.get_webview_window(&name).is_none();
+    let win = window(app, index)?;
     let bytes = std::fs::read(file(index)).map_err(|e| format!("could not read the pin: {e}"))?;
     let url = format!("data:image/png;base64,{}", util::base64_for(&bytes));
     let (w, h) = (w.max(1), h.max(1));
@@ -370,11 +435,8 @@ pub fn show(app: &AppHandle, index: usize, x: i32, y: i32, w: i32, h: i32) -> Re
         .map_err(|e| format!("could not place the pin: {e}"))?;
     win.show()
         .map_err(|e| format!("could not show the pin: {e}"))?;
-    // Named after the window: a JS listener takes every target, so one shared name reached all
-    // four pages and each drew the same crop.
-    app.emit_to(&name, &format!("pin-image-{name}"), url)
-        .map_err(|e| format!("could not draw the pin: {e}"))?;
 
+    // The slot first, so the page asking for its picture finds it there.
     if let Ok(mut guard) = slots().lock() {
         if let Some(slot) = guard[index].as_mut() {
             slot.base_size = (w as u32, h as u32);
@@ -383,7 +445,17 @@ pub fn show(app: &AppHandle, index: usize, x: i32, y: i32, w: i32, h: i32) -> Re
             slot.expanded_at = (0, 0);
             slot.topmost = true;
             slot.opacity = opaque();
+            slot.pending = built_now.then(|| Restored {
+                url: url.clone(),
+                opacity: opaque(),
+            });
         }
+    }
+    if !built_now {
+        // Named after the window: a JS listener takes every target, so one shared name reached all
+        // four pages and each drew the same crop.
+        app.emit_to(&name, &format!("pin-image-{name}"), url)
+            .map_err(|e| format!("could not draw the pin: {e}"))?;
     }
     log::line(format!("pin  {name} {w}x{h} at {x},{y}"));
     // Written down now, not at exit: the app may be killed, and a pin that came back at a stale
