@@ -18,6 +18,13 @@ All notable changes to **Oczi** are recorded here.
   pozostałością i pilnuje tego test.
 - Przypinki nie budzą już dwunastu ukrytych okien przy starcie: okno powstaje wtedy, gdy przypinka
   naprawdę jest na ekranie, więc bez przypinek Oczi trzyma kilkaset MB pamięci mniej.
+- Skan zdrowia czyta teraz to, co Windows zapisał o ostatnim nagłym zgaśnięciu: czy był blue screen,
+  czy powstał zrzut, czy sprzęt zgłosił błąd i co zmieniło się w minutach przed. Karta mówi jednym
+  zdaniem, co się stało, a w czacie odpowiada na to samo pytanie szczegółowo.
+- Usługi, które nie wstały przy starcie, i pojedyncze crashe programów zniknęły z listy. Program
+  pojawia się tam od trzeciej awarii, bo jedna zamknięta gra nie jest usterką komputera.
+- Wpisy starsze niż doba przestają psuć ocenę: zostają w raporcie jako `past`, więc karta sama wraca
+  do 100%, gdy nic nowego się nie dzieje.
 
 ## 0.5.7 — 2026-11-12
 

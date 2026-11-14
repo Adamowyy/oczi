@@ -2570,6 +2570,11 @@ html.asleep *::after {
   color: inherit;
 }
 
+/* A fact from before today: still listed, quieter than a finding, and worth no points. */
+.panel-row.past {
+  opacity: 0.55;
+}
+
 .panel-row .text {
   flex: 1 1 auto;
   min-width: 0;
@@ -2586,13 +2591,15 @@ html.asleep *::after {
 }
 
 /* The second line under a finding: what the crash most likely was, in the dim colour, because it
-   is context for the line above rather than another alarm. */
+   is context for the line above rather than another alarm. Two lines, because one ellipsis in the
+   middle of the sentence was the whole explanation a person could not read. */
 .panel-row .cause {
-  font: 400 11px var(--font);
+  font: 400 11px/1.35 var(--font);
   color: var(--dim-2);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 /* One button shape for the whole panel: a pill, with a real edge and a hover, rather than the flat

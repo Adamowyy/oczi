@@ -68,6 +68,44 @@ pub(crate) fn read_dword(root: HKEY, path: &str, name: &str, machine: bool) -> O
     (status == ERROR_SUCCESS && size >= 4).then(|| u32::from_le_bytes(data))
 }
 
+/// Reads a string value. Two calls, the way the API wants it: the first asks how long the value
+/// is, the second brings it back — a fixed buffer would cut a long path silently.
+pub(crate) fn read_string(root: HKEY, path: &str, name: &str, machine: bool) -> Option<String> {
+    let key = open(root, path, machine, KEY_READ)?;
+    let wide_name = wide(name);
+    let mut size = 0u32;
+    let status = unsafe {
+        RegQueryValueExW(
+            key.0,
+            PCWSTR(wide_name.as_ptr()),
+            None,
+            None,
+            None,
+            Some(&mut size),
+        )
+    };
+    if status != ERROR_SUCCESS || size < 2 {
+        return None;
+    }
+    // REG_SZ: UTF-16 code units including the terminator.
+    let mut data = vec![0u16; (size as usize).div_ceil(2)];
+    let status = unsafe {
+        RegQueryValueExW(
+            key.0,
+            PCWSTR(wide_name.as_ptr()),
+            None,
+            None,
+            Some(data.as_mut_ptr() as *mut u8),
+            Some(&mut size),
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return None;
+    }
+    let end = data.iter().position(|&c| c == 0).unwrap_or(data.len());
+    Some(String::from_utf16_lossy(&data[..end]))
+}
+
 /// Writes a DWORD, creating the key when Windows has never had that value. `false` means the write
 /// did not land — which is the whole answer for a machine-level value under an ordinary account.
 pub(crate) fn write_dword(root: HKEY, path: &str, name: &str, machine: bool, value: u32) -> bool {

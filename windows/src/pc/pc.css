@@ -179,6 +179,11 @@ button:disabled {
   font-weight: 500;
 }
 
+/* A fact from before today: listed, and worth no points against the score. */
+.finding.past {
+  opacity: 0.55;
+}
+
 .f-ask {
   display: flex;
   align-items: center;

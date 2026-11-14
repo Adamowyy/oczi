@@ -84,7 +84,9 @@ export interface DueRoutine {
  *  see `health.f.<kind>`. Src: `src-tauri/src/health.rs`. */
 export interface HealthFinding {
   kind: string;
-  severity: "crit" | "warn" | "info";
+  /** How loud this is *now*: `past` is a fact from before today — listed, and worth nothing
+   *  against the score. */
+  severity: "crit" | "warn" | "info" | "past";
   subject: string;
   value: string;
   /** What it most likely means — a token, `health.cause.<cause>` — or empty. */

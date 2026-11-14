@@ -33,8 +33,8 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::System::EventLog::{
-    EvtClose, EvtNext, EvtQuery, EvtQueryChannelPath, EvtQueryForwardDirection, EvtRender,
-    EvtRenderEventXml, EVT_HANDLE,
+    EvtClose, EvtNext, EvtQuery, EvtQueryChannelPath, EvtQueryForwardDirection,
+    EvtQueryReverseDirection, EvtQueryTolerateQueryErrors, EvtRender, EvtRenderEventXml, EVT_HANDLE,
 };
 use windows::Win32::System::SystemInformation::{
     GetSystemInfo, GetTickCount64, GlobalMemoryStatusEx, MEMORYSTATUSEX, SYSTEM_INFO,
@@ -63,6 +63,15 @@ const DEEP_STEPS: u32 = 240;
 /// went, and was replaced by a quiet day.
 const EVENT_WINDOW_MS: i64 = 72 * 3_600 * 1_000;
 const EVENT_WINDOW_DEEP_MS: i64 = 7 * 24 * 3_600 * 1_000;
+/// How long something that went wrong still counts as wrong *now*. The event window above is how far
+/// a scan looks; this is how far the score reaches. A freeze understood yesterday is a fact to keep
+/// in the report and nothing to hold against the machine today — otherwise the same two crashes kept
+/// the card at "5 %" for days after there was nothing left to learn from them.
+const FRESH_SECS: i64 = 24 * 3_600;
+/// How often a program has to fall over before it is worth a line. One crashed game is an exit —
+/// especially a Unity one, helped along with Alt+F4 — and a card that reports every one of them is a
+/// card nobody reads. Three is where it stops being an accident.
+const APP_REPEAT: u32 = 3;
 
 /// Processes whose CPU use says nothing about the machine's health: Windows' own plumbing, the
 /// renderer every WebView2 app shares (Oczi's island is one of them), the audio engine, Defender
@@ -1423,12 +1432,80 @@ pub fn describe_watch(watch: &Watch) -> String {
 /// The bits of an event this module reads: what Windows calls it, and the parameters that say
 /// which program, service or driver it was about.
 #[derive(Debug, Clone, Default)]
-struct Event {
-    id: u32,
-    provider: String,
+pub(crate) struct Event {
+    pub(crate) id: u32,
+    pub(crate) provider: String,
     /// The event's own parameters, in the order Windows wrote them: the program for an
     /// application error, the service for a service failure, the driver for a display reset.
-    data: Vec<String>,
+    pub(crate) data: Vec<String>,
+    /// The same parameters by name, for the providers that label them. Kernel-Power's 41 is the
+    /// one this module needs: `BugcheckCode` and `PowerButtonTimestamp` are what turn "it went
+    /// down" into "it went down without a bugcheck, and nobody pressed the button".
+    pub(crate) named: HashMap<String, String>,
+    /// Local wall-clock seconds, so an event can be subtracted from a scan's stamp or from a boot
+    /// time. Zero when Windows wrote no time, which no real event does.
+    pub(crate) at: i64,
+}
+
+/// A quoted attribute's value, whichever quote mark it uses. `EvtRender` writes the event XML with
+/// **single** quotes — matching on `Name="` therefore found nothing, every event came back with an
+/// empty provider, and the classification table below matched no event at all. Two crashes in one
+/// night were logged as "event log: fine" because of that one character.
+fn attr(text: &str, name: &str) -> Option<String> {
+    let open = format!("{name}=");
+    let start = text.find(&open)? + open.len();
+    let rest = &text[start..];
+    let quote = rest.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let body = &rest[1..];
+    let end = body.find(quote)?;
+    Some(body[..end].to_string())
+}
+
+/// Days since 1970-01-01 for a proleptic Gregorian date (Howard Hinnant's `days_from_civil`), the
+/// one piece of calendar arithmetic needed to turn an event's UTC stamp into a comparable second.
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// The machine's own clock offset from UTC, in seconds. Event stamps are UTC; everything the app
+/// shows and stores is local wall-clock, so one conversion here keeps the two comparable.
+pub(crate) fn local_offset() -> i64 {
+    let utc = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    crate::reminders::now_local() - utc
+}
+
+/// When this session started, in the same local seconds: uptime subtracted from now. An event
+/// stamped before this belongs to whatever ran before the boot.
+pub(crate) fn boot_local() -> i64 {
+    crate::reminders::now_local() - (unsafe { GetTickCount64() } / 1_000) as i64
+}
+
+/// `2026-11-13T23:13:06.4701472Z` → local wall-clock seconds.
+fn local_at(xml: &str) -> Option<i64> {
+    let stamp = xml
+        .split_once("<TimeCreated ")
+        .and_then(|(_, rest)| attr(rest, "SystemTime"))?;
+    let (date, time) = stamp.split_once('T')?;
+    let mut parts = date.split('-');
+    let y: i64 = parts.next()?.parse().ok()?;
+    let mo: i64 = parts.next()?.parse().ok()?;
+    let d: i64 = parts.next()?.parse().ok()?;
+    let hh: i64 = time.get(0..2)?.parse().ok()?;
+    let mm: i64 = time.get(3..5)?.parse().ok()?;
+    let ss: i64 = time.get(6..8)?.parse().ok()?;
+    Some(days_from_civil(y, mo, d) * 86_400 + hh * 3_600 + mm * 60 + ss + local_offset())
 }
 
 /// Text between `<tag …>` and `</tag>`, for the flat fields of the event XML.
@@ -1464,15 +1541,31 @@ fn data_values(xml: &str) -> Vec<String> {
 fn parse_event(xml: &str) -> Option<Event> {
     let id: u32 = tag_value(xml, "EventID")?.trim().parse().ok()?;
     let provider = xml
-        .split("<Provider Name=\"")
-        .nth(1)
-        .and_then(|rest| rest.split('"').next())
-        .unwrap_or_default()
-        .to_string();
+        .split_once("<Provider ")
+        .and_then(|(_, rest)| attr(rest, "Name"))
+        .unwrap_or_default();
+    // The labelled parameters, for the providers that have them. A `<Data Name='BugcheckCode'>`
+    // carries its meaning in the attribute, and the positional list cannot say which is which.
+    let mut named = HashMap::new();
+    for chunk in xml.split("<Data ").skip(1) {
+        let Some(gt) = chunk.find('>') else {
+            continue;
+        };
+        let Some(name) = attr(&chunk[..gt], "Name") else {
+            continue;
+        };
+        let rest = &chunk[gt + 1..];
+        let Some(end) = rest.find("</Data>") else {
+            continue;
+        };
+        named.insert(name, rest[..end].trim().to_string());
+    }
     Some(Event {
         id,
         provider,
         data: data_values(xml),
+        named,
+        at: local_at(xml).unwrap_or(0),
     })
 }
 
@@ -1502,19 +1595,32 @@ fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// Errors and warnings from one channel, newest first, capped. The query filters by level and by
-/// age inside Windows, so a machine with a busy log is not read event by event.
-fn channel_events(channel: &str, cap: usize, window_ms: i64) -> Vec<Event> {
-    let query =
-        format!("*[System[(Level<=3) and TimeCreated[timediff(@SystemTime) <= {window_ms}]]]");
+/// One query against one channel, capped. The XPath is the caller's: a scan wants everything that
+/// went wrong in three days, while a forensic pass wants a handful of specific providers, and
+/// `reverse` reads newest first — which is how the last thing before the machine died is found
+/// without walking a day of log to get to it.
+pub(crate) fn query_events(channel: &str, xpath: &str, cap: usize, reverse: bool) -> Vec<Event> {
     let channel_w = wide(channel);
-    let query_w = wide(&query);
+    let query_w = wide(xpath);
+    // A tolerant query: one unreadable channel is a missing row, not an empty answer for all of
+    // them. `EvtQuery` refusing the whole set is how a scan reported "no events" about a log it
+    // had never opened.
+    // Newest-first has to be asked for: without a direction flag Windows reads the log oldest
+    // first, and "the last thing before the machine died" then came back as the oldest line it was
+    // allowed to read.
+    let flags = EvtQueryChannelPath.0
+        | EvtQueryTolerateQueryErrors.0
+        | if reverse {
+            EvtQueryReverseDirection.0
+        } else {
+            EvtQueryForwardDirection.0
+        };
     let Ok(set) = (unsafe {
         EvtQuery(
             None,
             PCWSTR(channel_w.as_ptr()),
             PCWSTR(query_w.as_ptr()),
-            EvtQueryChannelPath.0 | EvtQueryForwardDirection.0,
+            flags,
         )
     }) else {
         log::line(format!("health: cannot read the {channel} log"));
@@ -1539,6 +1645,14 @@ fn channel_events(channel: &str, cap: usize, window_ms: i64) -> Vec<Event> {
     }
     let _ = unsafe { EvtClose(set) };
     out
+}
+
+/// Errors and warnings from one channel, newest first, capped. The query filters by level and by
+/// age inside Windows, so a machine with a busy log is not read event by event.
+fn channel_events(channel: &str, cap: usize, window_ms: i64) -> Vec<Event> {
+    let xpath =
+        format!("*[System[(Level<=3) and TimeCreated[timediff(@SystemTime) <= {window_ms}]]]");
+    query_events(channel, &xpath, cap, false)
 }
 
 /// One report Windows left behind in its WER archive: the file that names a crash's faulting module
@@ -1671,17 +1785,18 @@ fn classify(e: &Event) -> Option<(&'static str, &'static str)> {
     let p = e.provider.trim_start_matches("Microsoft-Windows-");
     Some(match (p, e.id) {
         ("Kernel-Power", 41) => ("restart", "crit"),
-        ("EventLog", 6008) => ("restart", "crit"),
+        // 6008 says the same thing about the same shutdown that 41 already reported, and its
+        // parameter is a date string rather than a program — counting both put three critical rows
+        // on the card for two crashes, one of them reading "unexpected restart (23:20:09".
         ("WER-SystemErrorReporting", 1001) => ("bugcheck", "crit"),
         ("WHEA-Logger", _) => ("hardware", "crit"),
         ("Application Error", 1000) => ("appCrash", "warn"),
         ("Application Hang", 1002) => ("appHang", "warn"),
         ("Display", 4101) => ("driverReset", "warn"),
-        ("Service Control Manager", 7000)
-        | ("Service Control Manager", 7009)
-        | ("Service Control Manager", 7011)
-        | ("Service Control Manager", 7031)
-        | ("Service Control Manager", 7034) => ("service", "warn"),
+        // A service that failed to start or timed out is not a finding: Windows writes a 7000+7009
+        // pair whenever a background service is not ready at boot (Steam's is a manual service that
+        // starts with the game), and there is nothing a person can do about it. What stays here is
+        // only what is worth acting on.
         ("Kernel-Processor-Power", 37) => ("throttle", "warn"),
         ("disk", 7) | ("disk", 51) | ("disk", 153) => ("diskError", "warn"),
         ("Ntfs", 55) | ("Ntfs", 130) => ("diskError", "crit"),
@@ -1763,6 +1878,10 @@ fn score(findings: &[Finding]) -> u32 {
         score -= match f.severity.as_str() {
             "crit" => 22,
             "warn" => 8,
+            // `past` is a fact about what happened before, not a problem now: the card still lists
+            // it, the score does not carry it. A machine that hung three days ago is not a machine
+            // that is wrong today.
+            "past" => 0,
             _ => 2,
         };
     }
@@ -1771,26 +1890,43 @@ fn score(findings: &[Finding]) -> u32 {
 
 /// Groups the events by what they were about, so forty crashed launches of one program read as
 /// one finding with the number 40 rather than as forty identical lines.
-fn event_findings(events: &[Event]) -> Vec<Finding> {
-    // (kind, subject) → (count, severity)
-    let mut grouped: HashMap<(String, String), (u32, &'static str)> = HashMap::new();
+fn event_findings(events: &[Event], now: i64, reported_boot: Option<i64>) -> Vec<Finding> {
+    // (kind, subject) → (count, severity, newest stamp)
+    let mut grouped: HashMap<(String, String), (u32, &'static str, i64)> = HashMap::new();
     for e in events {
+        // The 41 written at the boot the crash report already covers describes the same freeze, and
+        // that report says more about it than "an unexpected restart". One crash, one row.
+        if let Some(boot) = reported_boot {
+            if e.provider.ends_with("Kernel-Power") && e.id == 41 && (e.at - boot).abs() < 120 {
+                continue;
+            }
+        }
         let Some((kind, severity)) = classify(e) else {
             continue;
         };
-        // The subject is whichever program, service or driver the event was about — Windows puts
-        // it in the first parameter. Anything without one is named after its provider, which is
-        // the most a card can say about it.
-        let subject = e
-            .data
-            .first()
-            .map(|raw| short_subject(raw))
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| e.provider.trim_start_matches("Microsoft-Windows-").to_string());
+        // The subject is whichever program or driver the event was about — Windows puts it in the
+        // first parameter. Anything without one is named after its provider, which is the most a
+        // card can say about it. 41 is the exception: its first parameter is the bugcheck code, and
+        // "unexpected restart (0, 2×)" is what that reads as, so the moment it happened is named
+        // instead.
+        let subject = if e.provider.ends_with("Kernel-Power") && e.id == 41 {
+            crate::reminders::format_local(e.at)
+        } else {
+            e.data
+                .first()
+                .map(|raw| short_subject(raw))
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| {
+                    e.provider
+                        .trim_start_matches("Microsoft-Windows-")
+                        .to_string()
+                })
+        };
         let slot = grouped
             .entry((kind.to_string(), subject))
-            .or_insert((0, severity));
+            .or_insert((0, severity, e.at));
         slot.0 += 1;
+        slot.2 = slot.2.max(e.at);
         // One critical event makes the whole group critical.
         if severity == "crit" {
             slot.1 = "crit";
@@ -1798,14 +1934,27 @@ fn event_findings(events: &[Event]) -> Vec<Finding> {
     }
     let mut out: Vec<Finding> = grouped
         .into_iter()
-        .map(|((kind, subject), (count, severity))| {
-            finding(&kind, severity, &subject, &count.to_string())
+        .filter_map(|((kind, subject), (count, severity, newest))| {
+            // A program that fell over once is an exit, not a fault of the machine.
+            if matches!(kind.as_str(), "appCrash" | "appHang") && count < APP_REPEAT {
+                return None;
+            }
+            // A crash from before yesterday is history, not a fault: the card still lists it, but
+            // dressed as a fact and worth nothing against the score. Without this the same two
+            // freezes kept the machine at "5 %" for three days after they were understood.
+            let severity = if now - newest > FRESH_SECS {
+                "past"
+            } else {
+                severity
+            };
+            Some(finding(&kind, severity, &subject, &count.to_string()))
         })
         .collect();
     out.sort_by(|a, b| {
         let rank = |s: &str| match s {
             "crit" => 0,
             "warn" => 1,
+            "past" => 3,
             _ => 2,
         };
         rank(&a.severity)
@@ -1896,9 +2045,13 @@ pub fn scan(deep: bool) -> Report {
     } else {
         EVENT_WINDOW_MS
     };
+    // Read before the log, because the two describe the same event: a crash report names the boot it
+    // follows, and the 41 written at that boot must not also be counted as "an unexpected restart" —
+    // one freeze, one row.
+    let crash = crate::crash::record();
     let mut events = channel_events("System", EVENT_CAP, window);
     events.extend(channel_events("Application", EVENT_CAP, window));
-    let from_log = event_findings(&events);
+    let from_log = event_findings(&events, at, crash.as_ref().map(|c| c.boot_at));
     checks.push(check(
         "events",
         if from_log.iter().any(|f| f.severity == "crit") {
@@ -1910,6 +2063,66 @@ pub fn scan(deep: bool) -> Report {
         },
     ));
     findings.extend(from_log);
+
+    // ── The last time the machine went down on its own: read for a cause, not for the event. The
+    // kernel's own 41 parameters, the dump that a bugcheck would have written and did not, a
+    // hardware error, and whatever changed in the minutes before — plus the history, because the
+    // same verdict three times is a pattern rather than an accident.
+    match crash {
+        Some(crash) => {
+            // Fresh means "worth holding against the machine now": the same day the freeze happened
+            // it is a problem, the day after it is a fact the report keeps. Without that line the
+            // card sat at 5 % for as long as the log remembered the crash.
+            let fresh = at - crash.at <= FRESH_SECS;
+            let when = crash.at_text.clone();
+            // A bugcheck already has its own finding from the event log, with the code the WER
+            // report carried; repeating it here would be the same crash counted twice.
+            if crash.verdict != "bugcheck" {
+                let mut f = match crash.verdict.as_str() {
+                    "powerMode" => finding(
+                        "crashPower",
+                        "crit",
+                        &crash.minutes.to_string(),
+                        &crash.trigger,
+                    ),
+                    "powerSource" => {
+                        finding("crashPowerSource", "crit", &crash.minutes.to_string(), "")
+                    }
+                    "sleep" => finding("crashSleep", "crit", &crash.minutes.to_string(), ""),
+                    "driver" => finding(
+                        "crashDriver",
+                        "crit",
+                        &crash.minutes.to_string(),
+                        &crash.trigger,
+                    ),
+                    "throttle" => finding("crashThrottle", "crit", "", &when),
+                    "hardware" => finding("crashHardware", "crit", "", &when),
+                    "forced" => finding("crashForced", "warn", "", &when),
+                    _ => finding("crashHang", "crit", "", &when),
+                };
+                f.cause = format!("crash.{}", crash.verdict);
+                if !fresh {
+                    f.severity = "past".to_string();
+                }
+                findings.push(f);
+            }
+            if crash.repeats >= 2 {
+                let mut f = finding(
+                    "crashRepeat",
+                    "warn",
+                    &crash.repeats.to_string(),
+                    &crash.total.to_string(),
+                );
+                f.cause = "crash.pattern".to_string();
+                if !fresh {
+                    f.severity = "past".to_string();
+                }
+                findings.push(f);
+            }
+            checks.push(check("crash", if fresh { "bad" } else { "ok" }));
+        }
+        None => checks.push(check("crash", "ok")),
+    }
 
     // ── The machine's own state: room on the disks, what starts with it, what is waiting.
     let (disks, low_disk) = crate::pc::disk_health();
@@ -1949,7 +2162,7 @@ pub fn scan(deep: bool) -> Report {
     // and "nvwgf2umx.dll crashed it, three times, since Tuesday".
     if deep {
         let reports = wer_reports(window, at);
-        let mut seen: HashMap<(String, String), u32> = HashMap::new();
+        let mut seen: HashMap<(String, String), (u32, i64)> = HashMap::new();
         for report in &reports {
             let event = report.event.to_ascii_lowercase();
             if event.contains("bugcheck") || event.contains("bluescreen") {
@@ -1959,25 +2172,37 @@ pub fn scan(deep: bool) -> Report {
                 else {
                     continue;
                 };
-                *seen.entry(("bugcheck".to_string(), code)).or_insert(0) += 1;
+                let slot = seen.entry(("bugcheck".to_string(), code)).or_insert((0, report.at));
+                slot.0 += 1;
+                slot.1 = slot.1.max(report.at);
             } else if event.contains("appcrash") || event.contains("apphang") {
                 // The faulting module, not the application: the application is the victim, and the
                 // event log already names it. This is the driver or DLL that took it down.
                 let module = wer_field(&report.fields, "fault module name")
                     .filter(|m| !m.is_empty() && !m.eq_ignore_ascii_case("unknown"));
                 if let Some(module) = module {
-                    *seen
+                    let slot = seen
                         .entry((
                             if event.contains("hang") { "hangModule" } else { "crashModule" }.to_string(),
                             short_subject(&module),
                         ))
-                        .or_insert(0) += 1;
+                        .or_insert((0, report.at));
+                    slot.0 += 1;
+                    slot.1 = slot.1.max(report.at);
                 }
             }
         }
-        let found = !seen.is_empty();
-        for ((kind, subject), count) in seen {
-            let mut f = finding(&kind, "crit", &subject, &count.to_string());
+        // A report from a week ago is history, and a program that fell over once is an exit: only a
+        // repeated one earns a line and a red dot on this check.
+        let found = seen.iter().any(|((kind, _), (count, newest))| {
+            at - *newest <= FRESH_SECS && (kind == "bugcheck" || *count >= APP_REPEAT)
+        });
+        for ((kind, subject), (count, newest)) in seen {
+            if kind != "bugcheck" && count < APP_REPEAT {
+                continue;
+            }
+            let severity = if at - newest > FRESH_SECS { "past" } else { "crit" };
+            let mut f = finding(&kind, severity, &subject, &count.to_string());
             f.cause = if kind == "bugcheck" {
                 bugcheck_cause(&subject)
             } else {

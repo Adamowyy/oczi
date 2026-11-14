@@ -2,6 +2,7 @@
 
 mod clean;
 mod clipboard;
+mod crash;
 mod debloat;
 mod deepseek;
 mod elevate;
@@ -1351,6 +1352,14 @@ pub fn run() {
         return;
     }
 
+    // The crash report without a window: `oczi.exe --crash` prints what the model's tool hands
+    // back, so a verdict can be checked against the machine it is about. Runs the same one pass;
+    // nothing is left running afterwards.
+    if std::env::args().any(|arg| arg == "--crash") {
+        println!("{}", crash::describe());
+        return;
+    }
+
     if std::env::args().any(|arg| arg == "--health") {
         let report = health::scan(std::env::args().any(|arg| arg == "--deep"));
         println!("{}", health::describe(&report));
@@ -1528,6 +1537,16 @@ pub fn run() {
                 "--- Oczi {} started ---",
                 env!("CARGO_PKG_VERSION")
             ));
+            // One pass over the last shutdown, off the main thread: if the machine went down on its
+            // own, the reason is already in the log and this is where it gets read, written down
+            // once per boot and left for the card and the model to quote.
+            std::thread::spawn(|| {
+                let crash = crash::record();
+                if crash.is_none() {
+                    // i18n-ok: log-facing.
+                    log::line("crash: poprzednie zamknięcie czyste");
+                }
+            });
             integrations::start(handle.clone());
             media::start(handle.clone());
             // Reminders are the app's own promise, so they are watched here rather

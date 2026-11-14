@@ -71,7 +71,9 @@ After setting one, say when it will come — and whether it repeats — briefly.
 
 const ROUTINE_PROMPT: &str = "\nA routine is something the user wants Oczi to *do* later, at a time they name — \"in 10 minutes open a page and search for something\", \"in 15 minutes launch a game and run a script from the desktop\", \"in 20 minutes close a couple of programs\", \"put music on in an hour\". Set it with schedule_routine: the moment in the same forms the remind tool documents, a short label, and the steps. \nYou plan the steps yourself, at the moment you are asked: each one is a call to a tool you have in this turn — launch_app, open_url, run_terminal, kill_process — with the arguments you would pass it right now. There is no catalogue of routines and no prepared script to fall back on; whatever the user thinks of works as long as you can express it as those calls, and the app performs exactly the steps you wrote, at that moment, then shows a card saying what it did. \nIf the request needs something you cannot do at all — and what you cannot do now you cannot promise for later — say so in one line in the same answer. Never set a routine you are not sure will work: a step that fails at the time is a promise broken while nobody is there to fix it. \nSteps are machine actions, so terminal access has to be on in the settings: if it is off, say that instead of setting anything. \nNever build a routine out of a Windows scheduled task, a script, PowerShell, msg or a file left on the disk — schedule_routine is what a routine is, and it leaves nothing behind. \nLike a reminder it can come back: pass `repeat` as \"daily\", \"weekdays\", \"weekly\" or \"monthly\", or an interval in minutes like \"every 30 minutes\", which runs again that long after each run. list_routines shows what is set and how the last run went; cancel_routine removes one. After setting one, say when it will run, briefly.";
 
-const HEALTH_PROMPT: &str = "\nThis computer's health is a real capability, not a guess: call health_report before answering anything about what is wrong with the machine, why it freezes or stutters, what crashed, what a bugcheck code means, or what the scan found. It returns the last scan — the score, the load, and every finding with its cause — and it changes nothing. If there is no report yet, say the Health button in the PC pill is where a scan starts instead of inventing an answer. The debloat list lives in the same pill and is the user's to tick; never claim to have removed anything.\n";
+const HEALTH_PROMPT: &str = "\nThis computer's health is a real capability, not a guess: call health_report before answering anything about what is wrong with the machine, why it freezes or stutters, what crashed, what a bugcheck code means, or what the scan found. It returns the last scan — the score, the load, and every finding with its cause — and it changes nothing. If there is no report yet, say the Health button in the PC pill is where a scan starts instead of inventing an answer. The debloat list lives in the same pill and is the user's to tick; never claim to have removed anything.
+
+For why the machine hung or restarted on its own, call crash_report: it reads the last unclean shutdown out of Windows' own log — the kernel's 41 parameters, whether a dump exists, hardware errors, and what changed in the minutes before — and answers with a verdict and the evidence behind it. Prefer it over health_report for \"why did it freeze\", and never answer that question from a bugcheck code alone when the tool can say whether there was a bugcheck at all.\n";
 
 const PRICES_PROMPT: &str = "\nGame prices come from gg.deals through the game_price tool: give it the title the user said and it answers with the lowest price right now — retail shops and keyshops separately — the historical low, the currency their own API key reports, and the gg.deals page that lists the shops. Use it for anything about what a game costs, whether it is worth waiting for a sale, or what its lowest price ever was. The pricing API carries no shop address of its own, so point the user at the gg.deals page instead of inventing a store, and when the currency is not the one they expected, say which currency the key reports rather than converting it.\n";
 
@@ -129,6 +131,8 @@ fn tool_names(web: bool, terminal: bool) -> Vec<&'static str> {
         // The machine's own verdict: always offered, like the reminder tools, because a question
         // about "why does it stutter" is the app's oldest use and needs no key or switch.
         "health_report",
+        // And the one that answers "why did it hang": the same rule, one pass at a time.
+        "crash_report",
     ];
     if web {
         names.extend(["web_search", "fetch_url"]);
@@ -172,6 +176,18 @@ fn tools(web: bool, terminal: bool) -> Value {
             "function": {
                 "name": "health_report",
                 "description": "The verdict of the last health scan of this computer, as text: the score, the load it measured, and every finding with its program, service or drive, its count and what it most likely means (a bugcheck code's cause, the module that crashed a program, an autostart entry pointing at nothing). Call it for any question about what is wrong with this PC, why it freezes, what crashed, or what it found. It changes nothing on the machine — the scan is read-only. If there is no report yet it says so; a fresh scan is the Health button in the PC pill.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "crash_report",
+                "description": "Why this computer hung, froze or restarted on its own, read from Windows' own record of the last unclean shutdown: whether the kernel wrote a bugcheck or never got that far, whether a crash dump exists, whether the hardware reported an error (WHEA), how long the machine was silent, and what changed in the minutes before (a power-mode switch by a program, a sleep transition, a driver installed, firmware throttling). It answers with a verdict, the evidence behind it, and how often the same verdict has come back. Call it for \"why did it freeze\", \"what happened last night\", \"did it blue screen\". It changes nothing and runs one pass, not a background monitor.",
                 "parameters": {
                     "type": "object",
                     "properties": {},
@@ -519,6 +535,8 @@ async fn run_tool(name: &str, args: &Value, provider: &str, terminal: bool) -> R
         // The tool result carries the numbers so the model can talk about them without the card.
         // What the last scan found, from the same text the app itself reads back.
         "health_report" => Ok(crate::health::describe_last()),
+        // The last unclean shutdown, read again in one pass: the same text `--crash` prints.
+        "crash_report" => Ok(crate::crash::describe()),
         "game_price" => {
             let title = args
                 .get("title")
