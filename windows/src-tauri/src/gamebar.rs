@@ -1,23 +1,6 @@
-// Game Bar and Game DVR: the overlay Windows puts over a game, and the capture it keeps running
-// behind one whether or not anybody asked.
-//
-// A fresh install has both on — Win+G raises Game Bar, and DVR holds the last thirty seconds ready
-// to be saved. This module owns the three things a person can turn off, and reads them back from
-// Windows before saying anything about them:
-//
-// * The package (`Microsoft.XboxGamingOverlay`), with its name, version, one button, and the Store
-//   id it can be put back with. The debloat catalogue deliberately does **not** offer it: removing
-//   an Appx package says nothing about the capture switches, and a machine without the overlay but
-//   with DVR still armed is exactly the half-removal this module exists to prevent. `uninstall`
-//   below is therefore the only removal path, and it turns the recording off first.
-// * The capture switches. Windows keeps that answer in four registry values and all four have to
-//   agree, which is why one toggle writes a set rather than one key. Two of them are per-user and
-//   any process may write them; the other two are machine-wide policy and need an administrator,
-//   so a refusal there is reported as a refusal — never smoothed over. The user-level switch alone
-//   is enough to stop the recording; the policy is what keeps Windows from turning it back on.
-//
-// Everything that reads is read after the write, so the window shows the machine and not the
-// intent. Errors are Polish because they are shown as they are; see `i18n-ok` below.
+// Game Bar and Game DVR: the overlay, and the capture it runs behind a game. Both switches are
+// four registry values that have to agree, two of them machine-wide. `uninstall` is the only
+// removal path, because the package alone leaves the recording armed.
 
 use std::ffi::OsString;
 use std::os::windows::process::CommandExt;
@@ -307,16 +290,8 @@ pub fn install() -> Result<GameBar, String> {
     }))
 }
 
-/// Takes Game Bar away in the only order that leaves nothing behind: the capture switches off
-/// first, then the package, then a fresh reading.
-///
-/// A plain `Remove-AppxPackage` — what this app's own package list used to do — unregisters the
-/// overlay and says nothing about Game DVR, so the recording values stay set and the machine keeps
-/// a capture feature with nothing on screen to switch it. Both halves belong to one button, and this
-/// is that button; the debloat catalogue refuses the package by name so no other path can reach it.
-///
-/// The capture write is required, the removal is not fatal on its own: the reading afterwards is the
-/// answer, and a package Windows still reports as installed is the failure.
+/// Recording off first, then the package, then a reading. A refusal from the capture write is
+/// returned; a package Windows still lists afterwards is the failure.
 pub fn uninstall() -> Result<GameBar, String> {
     let started = std::time::Instant::now();
     // The recording goes first: a machine that loses the overlay with DVR still armed is exactly
@@ -340,9 +315,7 @@ pub fn uninstall() -> Result<GameBar, String> {
     Ok(state)
 }
 
-/// The removal script, kept apart from the spawning for the same reason `policy_script` is: what is
-/// about to run on the machine can be read — and tested — as text. One package, this user, no
-/// wildcard, and no second command.
+/// The removal script as text, so it can be read and tested.
 fn remove_script() -> String {
     format!("$ErrorActionPreference='SilentlyContinue'; Get-AppxPackage -User $env:USERNAME -Name '{PACKAGE}' | Remove-AppxPackage")
 }

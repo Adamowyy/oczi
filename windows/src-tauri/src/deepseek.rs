@@ -1188,16 +1188,12 @@ struct CallError {
     /// The provider answered "this model has no capacity right now" (503) or "this model's
     /// allowance is spent" (429) — a different model is worth a try, the same one is not.
     capacity: bool,
-    /// The size of a daily allowance the 429 named, when it named one. `Some` is what separates
-    /// "this free day is gone" from "this model is busy", and it is what the sentence at the end
-    /// of the walk is built from.
+    /// The size of a daily allowance the 429 named, when it named one.
     spent: Option<u32>,
     message: String,
 }
 
-/// Every model in the table has refused. A day that ran out and a model that is merely busy are
-/// different news: the first names the allowance and the hour it comes back, the second asks for a
-/// moment. Both come after the walk, never in the middle of it.
+/// The sentence after every model refused: a spent day, or a provider that is merely busy.
 fn no_model_left(provider: &Provider, spent: Option<u32>) -> String {
     let other = providers::PROVIDERS
         .iter()
@@ -1219,12 +1215,8 @@ fn no_model_left(provider: &Provider, spent: Option<u32>) -> String {
     }
 }
 
-/// Up to `MAX_ATTEMPTS` tries, and never two of them on the same model when the model itself is the
-/// problem. A stall or a network hiccup gets the same model again on a fresh connection; "this model
-/// is at capacity" (503) or "its allowance is spent" (429) moves to the next model in the provider's
-/// table instead — the free tier meters each model separately, so a spent flagship Flash is a bad
-/// name to retry and a good moment to ask the Lite model behind it. The attempt budget covers the
-/// whole table, so a three-model provider can be walked end to end.
+/// A stall retries the same name, a 503 or 429 moves to the next untried one. The budget covers
+/// the whole table, so a three-model provider can be walked end to end.
 async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result<Value, String> {
     let mut body = body.clone();
     let mut last = String::new();
@@ -1319,10 +1311,7 @@ async fn call_once(key: &str, body: &Value, provider: &Provider) -> Result<Value
         let detail = providers::error_detail(&text)
             .unwrap_or_else(|| text.chars().take(200).collect());
         crate::log::line(format!("chat  {} API {status}: {detail}", provider.label));
-        // A daily allowance that is spent (a 429 whose body carries `limit:`) belongs to *that
-        // model*, not to the provider: the free tier meters each model separately, so the caller
-        // walks to the next name — the Lite model behind a spent flagship — instead of failing the
-        // whole turn. Only a table with nothing left to try ends with the allowance sentence.
+        // A spent allowance belongs to that model, not to the provider, so the caller walks on.
         let spent = if status.as_u16() == 429 {
             providers::daily_quota_spent(&text)
         } else {

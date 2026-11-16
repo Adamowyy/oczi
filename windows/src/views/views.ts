@@ -1334,10 +1334,8 @@ async function loadDebloat() {
   State.notify();
 }
 
-/** Game Bar and the capture behind it are one thing: the overlay records, and a machine without
- *  the overlay has nothing to record with. So one row, one button — and each direction is a single
- *  command on the Rust side (`gamebar_uninstall` / `gamebar_install`), which writes the switches
- *  and the package in the order that leaves nothing half-removed behind. */
+/** One row, one button: each direction is a single command, so the switches and the package move
+ *  in the order they have to. */
 function gameBarRow(d: DebloatState, g: GameBarState): HTMLElement {
   const busy = d.gameBusy !== null;
   const state = t(g.capture ? "game.dvrOn" : "game.dvrOff");

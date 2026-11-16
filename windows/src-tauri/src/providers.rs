@@ -45,15 +45,8 @@ pub const DEEPSEEK: Provider = Provider {
     reasoning: Reasoning::ThinkingSwitch,
 };
 
-/// Three free-tier models, in the order a turn tries them.
-///
-/// The free tier counts requests **per model**, and the flagship Flash gets the smallest slice of
-/// them — a real free key reported `limit: 20` for a whole day on `gemini-3.6-flash`, which one
-/// question that uses the tools spends in five rounds. So the table is a budget rather than a
-/// preference list: 3.6-flash answers in 0.7-2.0 s and is what a turn starts with, and when its
-/// day is spent the next name is a Lite model with the far larger allowance a Lite model carries.
-/// Measured on a real key: 3.6-flash 0.7 s, 3.5-flash-lite 1.2 s, 3.1-flash-lite 27 s (never
-/// offered), 3.8-flash refuses `minimal` and needs the `low` retry in `deepseek::call_once`.
+/// Tried in this order. The free tier meters each model separately: 3.6-flash gives 20 a day,
+/// the Lite model behind it far more. Measured: 0.7 s, 1.2 s, and 3.8-flash needs the `low` retry.
 pub const GEMINI: Provider = Provider {
     id: "gemini",
     label: "Gemini",
@@ -90,14 +83,7 @@ pub fn model_ok(id: &str, model: &str) -> bool {
     get(id).models.contains(&model)
 }
 
-/// The next model in this provider's table that this call has not tried yet, or `None` when the
-/// whole table has been tried.
-///
-/// A model answering 503 is out of capacity for everyone on the free tier, and a 429 is a limit
-/// of its own — per model on Gemini, where the flagship Flash carries the smallest daily slice and
-/// a Lite model carries the largest. The next *untried* name is therefore the only thing worth
-/// spending an attempt on: retrying the same name, or wrapping back to it, spends the attempts the
-/// user does not have.
+/// The next model this call has not tried yet, `None` once the table is exhausted.
 pub fn next_untried(provider: &Provider, tried: &[String]) -> Option<&'static str> {
     provider
         .models

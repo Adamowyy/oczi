@@ -1059,8 +1059,7 @@ async fn gamebar_install() -> Result<gamebar::GameBar, String> {
         .unwrap_or_else(|e| Err(e.to_string()))
 }
 
-/// The one removal path for Game Bar: background recording off first, then the package, then a
-/// reading. The package list refuses this name on purpose, so both surfaces call this instead.
+/// Recording off, then the package. The package list refuses this name, so both surfaces call this.
 #[tauri::command]
 async fn gamebar_uninstall() -> Result<gamebar::GameBar, String> {
     tauri::async_runtime::spawn_blocking(gamebar::uninstall)

@@ -202,8 +202,7 @@ export const Bridge = {
   /** Puts Game Bar back from the Store — the only honest way to undo its removal. */
   gamebarInstall: () => callOrThrow<GameBarState>("gamebar_install"),
 
-  /** The one removal path for Game Bar: background recording off first, then the package. The
-   *  package list refuses this name on purpose, so a removal has to come through here. */
+  /** Recording off, then the package. The package list refuses this name on purpose. */
   gamebarUninstall: () => callOrThrow<GameBarState>("gamebar_uninstall"),
 
   /** Every Windows setting in the tweaks table, read from the registry. */

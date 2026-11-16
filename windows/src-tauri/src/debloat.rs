@@ -63,12 +63,8 @@ pub struct Removal {
 /// means a Windows feature or a program somebody may actually use, so it is offered but never ticked
 /// by default. Everything not named here is invisible to the window on purpose.
 ///
-/// Xbox Game Bar is missing on purpose. It is more than its Appx package: the Win+G overlay and the
-/// background recording behind it are separate switches in the registry, and a plain
-/// `Remove-AppxPackage` leaves that recording armed and its values behind — a machine that no longer
-/// has the overlay but still records, which is what a person who ticked a box once could not have
-/// expected. `gamebar::uninstall` owns that package and does the two halves in the right order, so the
-/// removal is offered by the gaming card only; `tier_of` refusing the name is what enforces it.
+/// Game Bar is missing on purpose: it is a package plus a recording switch, so `gamebar::uninstall`
+/// owns it and `tier_of` refuses the name here.
 const CATALOGUE: &[(&str, &str)] = &[
     // ── Store apps and trials Windows ships with. Nothing depends on any of them.
     ("Microsoft.MicrosoftSolitaireCollection", "safe"),
@@ -323,9 +319,7 @@ fn record(names: &[String]) {
     }
 }
 
-/// Records a removal that did not come through this module's own `remove` — Game Bar, whose
-/// dedicated module owns the order of its two halves. The window shows one history, so it lands in
-/// the same file as the rest.
+/// For a removal another module made, so the window's history stays one list.
 pub(crate) fn record_removed(names: &[String]) {
     record(names);
 }
