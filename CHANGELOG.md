@@ -15,6 +15,10 @@ All notable changes to **Oczi** are recorded here.
   ale zostawiało włączone nagrywanie w tle i jego wpisy w rejestrze. Teraz usuwa go wyłącznie karta
   Game Bar w pigułce: najpierw wyłącza nagrywanie, potem zabiera pakiet, a na końcu sprawdza, co
   Windows naprawdę usunął.
+- Skan zdrowia czyta teraz także sam zrzut pamięci: gdy po blue screenie Windows zapisał plik, Oczi
+  otwiera go debuggerem Microsoftu i podaje nazwę bugchecka, moduł i symbol, w którym wyjątek wybuchł,
+  oraz górę stosu. Debugger doinstalowuje sam, zrzut kopiuje jedną zgodą administratora, a raport kończy
+  wersją BIOS-u i najnowszymi sterownikami.
 - Naprawione cztery testy zdrowia, które nie kompilowały się od poprzedniego wydania.
 
 ## 0.5.8 — 2026-11-13

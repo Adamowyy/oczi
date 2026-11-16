@@ -156,75 +156,527 @@ fn short(raw: &str) -> String {
         .collect()
 }
 
+/// The newest dump on disk, with the moment it was written and its size. `max_age_days` is what
+/// keeps a month-old file from answering a question about last night.
+fn newest_dump(now: i64, max_age_days: i64) -> Option<(std::path::PathBuf, i64, u64)> {
+    let at_of = |meta: &std::fs::Metadata| {
+        meta.modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0)
+            + crate::health::local_offset()
+    };
+    let mut best: Option<(i64, std::path::PathBuf, u64)> = None;
+    for entry in std::fs::read_dir("C:\\Windows\\Minidump")
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if !meta.is_file() || meta.len() == 0 {
+            continue;
+        }
+        let at = at_of(&meta);
+        if now - at > max_age_days * 86_400 {
+            continue;
+        }
+        if best.as_ref().map(|(b, _, _)| at > *b).unwrap_or(true) {
+            best = Some((at, entry.path(), meta.len()));
+        }
+    }
+    if let Some((at, path, size)) = best {
+        return Some((path, at, size));
+    }
+    let memory = std::path::PathBuf::from("C:\\Windows\\MEMORY.DMP");
+    let meta = std::fs::metadata(&memory).ok()?;
+    if meta.len() == 0 {
+        return None;
+    }
+    Some((memory, at_of(&meta), meta.len()))
+}
+
 /// Which dump file Windows left behind, in one line. `none` is the load-bearing answer: a bugcheck
 /// always writes one before it goes down, so no file means no bugcheck.
 fn dump_files(now: i64) -> String {
-    let mut best: Option<(i64, String, u64)> = None;
-    for dir in ["C:\\Windows\\Minidump"] {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let Ok(meta) = entry.metadata() else {
-                continue;
-            };
-            if !meta.is_file() || meta.len() == 0 {
-                continue;
-            }
-            let at = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0)
-                + crate::health::local_offset();
-            // Only the ones this crash could have produced: an old dump in the folder says nothing
-            // about last night.
-            if now - at > 7 * 86_400 {
-                continue;
-            }
-            let better = best.as_ref().map(|(b, _, _)| at > *b).unwrap_or(true);
-            if better {
-                best = Some((
-                    at,
-                    entry.file_name().to_string_lossy().to_string(),
-                    meta.len(),
-                ));
-            }
-        }
-    }
-    if let Some((at, name, size)) = best {
+    let Some((path, at, size)) = newest_dump(now, 7) else {
+        // i18n-ok: model/log-facing text, translated where a card shows it.
+        return "brak".to_string();
+    };
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if name.eq_ignore_ascii_case("MEMORY.DMP") {
         return format!(
-            "{} ({} KB, {})",
-            name,
-            size / 1024,
+            "MEMORY.DMP ({} MB, {})",
+            size / 1_048_576,
             crate::reminders::format_local(at)
         );
     }
-    for full in ["C:\\Windows\\MEMORY.DMP"] {
-        if let Ok(meta) = std::fs::metadata(full) {
-            if meta.len() > 0 {
-                let at = meta
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0)
-                    + crate::health::local_offset();
-                return format!(
-                    "MEMORY.DMP ({} MB, {})",
-                    meta.len() / 1_048_576,
-                    crate::reminders::format_local(at)
-                );
-            }
+    format!(
+        "{} ({} KB, {})",
+        name,
+        size / 1024,
+        crate::reminders::format_local(at)
+    )
+}
+
+// ── The dump itself ─────────────────────────────────────────────────────────
+
+/// A first symbol download is the slow part of a first run; the analysis itself is seconds.
+const DEBUGGER_TIMEOUT_SECS: u64 = 180;
+/// A winget install gets its own budget: it downloads and deploys, where the debugger only reads.
+const INSTALL_TIMEOUT_SECS: u64 = 420;
+
+/// The debugger to run: the Store package's aliases first, then a Windows SDK install.
+fn debugger() -> Option<std::path::PathBuf> {
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        for alias in ["cdbX64.exe", "cdbX86.exe", "cdbARM64.exe"] {
+            candidates.push(
+                std::path::PathBuf::from(&local)
+                    .join("Microsoft")
+                    .join("WindowsApps")
+                    .join(alias),
+            );
         }
     }
-    // i18n-ok: model/log-facing text, translated where a card shows it.
-    "brak".to_string()
+    for kit in [
+        "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe",
+        "C:\\Program Files\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe",
+    ] {
+        candidates.push(std::path::PathBuf::from(kit));
+    }
+    candidates.into_iter().find(|p| p.is_file())
+}
+
+/// The dump this process can open: the file itself, or a copy taken under one UAC prompt.
+fn readable_copy(src: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    if std::fs::File::open(src).is_ok() {
+        return Ok(src.to_path_buf());
+    }
+    let dir = crate::settings::local_dir().join("dumps");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Nie mogę utworzyć {}: {e}", dir.display()))?;
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("dmp"))
+            .unwrap_or(false)
+        {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+    let name = src
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "dump.dmp".to_string());
+    let dest = dir.join(name);
+    // The one prompt this needs: Windows keeps %WINDIR%\Minidump to administrators.
+    let script = format!(
+        "Copy-Item -LiteralPath '{}' -Destination '{}' -Force",
+        src.display(),
+        dest.display()
+    );
+    crate::elevate::run_elevated_wait(&script)?;
+    match std::fs::metadata(&dest) {
+        Ok(meta) if meta.len() > 0 => Ok(dest),
+        // i18n-ok: model/log-facing text.
+        _ => Err("Kopia zrzutu się nie udała — plik został nieczytelny nawet z uprawnieniami administratora.".to_string()),
+    }
+}
+
+/// Runs one program to completion with a deadline and returns both streams and the timeout flag.
+fn capture(
+    program: &std::path::Path,
+    args: &[&str],
+    seconds: u64,
+) -> Result<(String, bool), String> {
+    use std::io::Read;
+
+    let mut child = std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Nie mogę uruchomić {}: {e}", program.display()))?;
+    // Both pipes on their own thread: a full stderr pipe stops the child just as dead as stdout.
+    let drain = |mut stream: Box<dyn Read + Send>| {
+        std::thread::spawn(move || {
+            let mut buf = String::new();
+            let _ = stream.read_to_string(&mut buf);
+            buf
+        })
+    };
+    let out = child.stdout.take().map(|s| drain(Box::new(s)));
+    let err = child.stderr.take().map(|s| drain(Box::new(s)));
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+    let mut timed_out = false;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                timed_out = true;
+                break;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            Err(e) => return Err(format!("{} padł: {e}", program.display())),
+        }
+    }
+    let text = format!(
+        "{}\n{}",
+        out.and_then(|h| h.join().ok()).unwrap_or_default(),
+        err.and_then(|h| h.join().ok()).unwrap_or_default()
+    );
+    Ok((text, timed_out))
+}
+
+/// `!analyze -v` in one pass, with the symbol store the debugger downloads into on first use.
+fn run_debugger(
+    exe: &std::path::Path,
+    dump: &std::path::Path,
+    symbols: &std::path::Path,
+) -> Result<String, String> {
+    // Native backslashes: DbgHelp rejects the store outright when the path arrives as C:/..., and the
+    let store = symbols.display().to_string().replace('/', "\\");
+    let sympath = format!("srv*{store}*https://msdl.microsoft.com/download/symbols");
+    let (text, timed_out) = capture(
+        exe,
+        &[
+            "-z",
+            &dump.to_string_lossy(),
+            "-y",
+            &sympath,
+            "-c",
+            "!analyze -v;q",
+        ],
+        DEBUGGER_TIMEOUT_SECS,
+    )?;
+    if timed_out && !text.contains("Bugcheck Analysis") {
+        // i18n-ok: model/log-facing text.
+        return Err(format!(
+            "Debugger nie skończył w {DEBUGGER_TIMEOUT_SECS} s — pierwsze ładowanie symboli bywa wolne, więc druga próba zwykle jest szybka."
+        ));
+    }
+    Ok(text)
+}
+
+/// The debugger, installed with one winget run when the machine has none.
+fn ensure_debugger() -> Result<std::path::PathBuf, String> {
+    if let Some(exe) = debugger() {
+        return Ok(exe);
+    }
+    log::line("dump  no debugger installed — installing WinDbg from the Store".to_string());
+    let powershell = std::path::Path::new("powershell.exe");
+    let (text, timed_out) = capture(
+        powershell,
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "winget install --id Microsoft.WinDbg --accept-source-agreements --accept-package-agreements --disable-interactivity",
+        ],
+        INSTALL_TIMEOUT_SECS,
+    )?;
+    if timed_out {
+        log::line("dump  the WinDbg install did not finish in time".to_string());
+    }
+    match debugger() {
+        Some(exe) => {
+            log::line(format!("dump  debugger ready: {}", exe.display()));
+            Ok(exe)
+        }
+        // i18n-ok: model/log-facing text.
+        None => Err(format!(
+            "Nie ma debuggera i nie udało się go doinstalować. Ostatnie linie instalacji:\n{}",
+            text.lines()
+                .rev()
+                .take(6)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("\n")
+        )),
+    }
+}
+
+/// The firmware and the newest drivers, so the answer can name what is worth updating.
+fn firmware_and_drivers() -> String {
+    let script = "Get-CimInstance Win32_BIOS | ForEach-Object { 'BIOS ' + $_.SMBIOSBIOSVersion + ' (' + $_.ReleaseDate.ToString('yyyy-MM-dd') + ')' }; Get-CimInstance Win32_PnPSignedDriver | Where-Object { $_.DeviceName -and $_.DriverDate } | Sort-Object DriverDate -Descending | Select-Object -First 6 | ForEach-Object { $_.DriverDate.ToString('yyyy-MM-dd') + ' | ' + $_.DriverProviderName + ' | ' + $_.DeviceName + ' | ' + $_.DriverVersion }";
+    match capture(
+        std::path::Path::new("powershell.exe"),
+        &["-NoProfile", "-NonInteractive", "-Command", script],
+        45,
+    ) {
+        Ok((text, _)) => text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Err(_) => String::new(),
+    }
+}
+
+/// What `!analyze -v` answered, in the fields a person asks about.
+struct Analysis {
+    bugcheck_name: String,
+    bugcheck_code: String,
+    exception: String,
+    access: String,
+    module: String,
+    image: String,
+    bucket: String,
+    process: String,
+    session: String,
+    frames: Vec<String>,
+    stack_command: String,
+}
+
+/// One `KEY: value` line of the debugger's own output.
+fn field(text: &str, key: &str) -> String {
+    text.lines()
+        .find_map(|line| {
+            line.strip_prefix(key)
+                .and_then(|rest| rest.strip_prefix(':'))
+                .map(|value| value.trim().to_string())
+        })
+        .unwrap_or_default()
+}
+
+/// The name the debugger puts in front of the code: `SYSTEM_THREAD_EXCEPTION_NOT_HANDLED (7e)`.
+fn bugcheck_name(text: &str, code: &str) -> String {
+    if code.is_empty() {
+        return String::new();
+    }
+    let want = format!("({code})");
+    text.lines()
+        .map(str::trim)
+        .find(|line| line.ends_with(&want) && !line.contains(':') && line.len() < want.len() + 64)
+        .map(|line| line.trim_end_matches(&want).trim().to_string())
+        .unwrap_or_default()
+}
+
+/// The `AV.Type` key, which says whether the bad access was a read, a write or an execute.
+fn access_kind(text: &str) -> String {
+    let mut wanted = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with("Key") && line.contains("AV.Type") {
+            wanted = true;
+            continue;
+        }
+        if wanted {
+            if let Some(value) = line.strip_prefix("Value") {
+                return value.trim_start_matches(':').trim().to_string();
+            }
+            wanted = false;
+        }
+    }
+    String::new()
+}
+
+/// The frames under `STACK_TEXT:`, symbol side only, since the hex is already in the log.
+fn stack_frames(text: &str) -> Vec<String> {
+    let mut frames = Vec::new();
+    let mut inside = false;
+    for line in text.lines() {
+        if line.starts_with("STACK_TEXT:") {
+            inside = true;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        let line = line.trim();
+        if line.is_empty() || line.starts_with("SYMBOL_NAME") {
+            if frames.is_empty() {
+                continue;
+            }
+            break;
+        }
+        if let Some(frame) = line.rsplit(" : ").next() {
+            let frame = frame.trim();
+            let clean = frame.contains('!') && !frame.contains(char::is_whitespace);
+            if clean && !frames.iter().any(|f| f == frame) {
+                frames.push(frame.to_string());
+            }
+        }
+        if frames.len() >= 12 {
+            break;
+        }
+    }
+    frames
+}
+
+impl Analysis {
+    fn parse(text: &str) -> Self {
+        let code = field(text, "BUGCHECK_CODE");
+        Analysis {
+            bugcheck_name: bugcheck_name(text, &code),
+            exception: field(text, "EXCEPTION_CODE"),
+            access: access_kind(text),
+            module: field(text, "SYMBOL_NAME"),
+            image: match (field(text, "IMAGE_NAME"), field(text, "IMAGE_VERSION")) {
+                (image, version) if !image.is_empty() && !version.is_empty() => {
+                    format!("{image} {version}")
+                }
+                (image, _) => image,
+            },
+            bucket: field(text, "FAILURE_BUCKET_ID"),
+            process: field(text, "PROCESS_NAME"),
+            // Not a `KEY: value` line: the debugger prints it as prose.
+            session: text
+                .lines()
+                .find_map(|line| line.trim().strip_prefix("Debug session time:"))
+                .map(|rest| rest.trim().to_string())
+                .unwrap_or_default(),
+            frames: stack_frames(text),
+            stack_command: field(text, "STACK_COMMAND"),
+            bugcheck_code: code,
+        }
+    }
+
+    fn known(&self) -> bool {
+        u32::from_str_radix(self.bugcheck_code.trim(), 16).unwrap_or(0) != 0
+    }
+
+    /// The report the model answers from: what went down, what took it down, and the stack that says
+    fn describe(&self, name: &str, size: u64, at: i64) -> String {
+        let mut out = String::new();
+        // i18n-ok: model/log-facing text.
+        out.push_str(&format!(
+            "Zrzut: {name} ({} KB, {})\n",
+            size / 1024,
+            crate::reminders::format_local(at)
+        ));
+        let mut head = format!("BUGCHECK: 0x{}", self.bugcheck_code);
+        if !self.bugcheck_name.is_empty() {
+            head.push(' ');
+            head.push_str(&self.bugcheck_name);
+        }
+        if !self.access.is_empty() {
+            // i18n-ok: model/log-facing text.
+            head.push_str(&format!(" · błąd dostępu ({})", self.access));
+        }
+        out.push_str(&head);
+        out.push('\n');
+        if !self.module.is_empty() {
+            // i18n-ok: model/log-facing text.
+            out.push_str(&format!(
+                "WINNY: {}{}{}\n",
+                self.module,
+                if self.image.is_empty() {
+                    String::new()
+                } else {
+                    format!(" w {}", self.image)
+                },
+                if self.process.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (proces {})", self.process)
+                }
+            ));
+        }
+        if !self.exception.is_empty() && self.exception != self.bugcheck_code {
+            // i18n-ok: model-facing text.
+            out.push_str(&format!("KOD WYJĄTKU: {}\n", self.exception));
+        }
+        if !self.bucket.is_empty() {
+            out.push_str(&format!("BUCKET: {}\n", self.bucket));
+        }
+        if !self.session.is_empty() {
+            // i18n-ok: model-facing text.
+            out.push_str(&format!("CZAS ZRZUTU: {}\n", self.session));
+        }
+        if !self.frames.is_empty() {
+            // i18n-ok: model/log-facing text.
+            out.push_str("STOS:\n");
+            for (index, frame) in self.frames.iter().enumerate() {
+                out.push_str(&format!("  {}. {frame}\n", index + 1));
+            }
+        }
+        if !self.stack_command.is_empty() {
+            out.push_str(&format!("STACK_COMMAND: {}\n", self.stack_command));
+        }
+        out.trim_end().to_string()
+    }
+}
+
+/// The newest dump read by Microsoft's debugger, through everything Windows puts in front of it.
+pub fn analyze_dump() -> Result<String, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+        + crate::health::local_offset();
+    let Some((dump, at, size)) = newest_dump(now, 30) else {
+        // i18n-ok: model/log-facing text.
+        return Err("Nie ma żadnego zrzutu: Windows nie zapisał ani jednego, więc nie było bugchecka. crash_report mówi, co w takim razie zatrzymało maszynę.".to_string());
+    };
+    let name = dump
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    log::line(format!("dump  analysing {name} ({size} B)"));
+    let exe = ensure_debugger()?;
+    let local = readable_copy(&dump)?;
+    let symbols = crate::settings::local_dir().join("symbols");
+    let _ = std::fs::create_dir_all(&symbols);
+    let text = run_debugger(&exe, &local, &symbols)?;
+    let analysis = Analysis::parse(&text);
+    if text.contains("WRONG_SYMBOLS") {
+        log::line("dump  the debugger ran without matching symbols".to_string());
+        // i18n-ok: model/log-facing text.
+        return Err("Debugger przeczytał zrzut bez pasujących symboli, więc nazwy nie znaczą nic. To zwykle pierwsze uruchomienie — powtórz, symbole są już pobrane.".to_string());
+    }
+    if !analysis.known() {
+        let head: Vec<&str> = text
+            .lines()
+            .map(str::trim)
+            .filter(|line| {
+                !line.is_empty() && !line.contains("NatVis") && !line.contains("DBGHELP")
+            })
+            .take(15)
+            .collect();
+        log::line("dump  the debugger found no bugcheck in the file".to_string());
+        // i18n-ok: model/log-facing text.
+        return Err(format!(
+            "Debugger nie znalazł bugchecka w {name}. Jego pierwsze linie:\n{}",
+            head.join("\n")
+        ));
+    }
+    let mut report = analysis.describe(&name, size, at);
+    let hardware = firmware_and_drivers();
+    if !hardware.is_empty() {
+        // i18n-ok: model/log-facing text.
+        report.push_str("\n\nBIOS i najnowsze sterowniki:\n");
+        report.push_str(&hardware);
+    }
+    log::line(format!(
+        // i18n-ok: model/log-facing text.
+        "dump  bugcheck 0x{} {} · {}",
+        analysis.bugcheck_code, analysis.bugcheck_name, analysis.module
+    ));
+    Ok(report)
+}
+
+/// The analysis text for a debugger log the caller already has, so a test needs no dump or UAC prompt.
+#[cfg(test)]
+fn describe_text(text: &str) -> String {
+    Analysis::parse(text).describe("sample.dmp", 3022908, 0)
 }
 
 /// The Windows power mode, by the GUIDs its own overlay settings hold. This is the setting a
-/// laptop's firmware is known to fall over on, so it belongs in the report as it stands right now.
 pub fn power_mode() -> String {
     use windows::Win32::System::Registry::HKEY_LOCAL_MACHINE;
     const PATH: &str = "SYSTEM\\CurrentControlSet\\Control\\Power\\User\\PowerSchemes";
@@ -250,7 +702,6 @@ pub fn power_mode() -> String {
 }
 
 /// What a crash's own trigger events say, in the order they matter: a hardware error outranks a
-/// settings change, because it is not a coincidence anyone can configure away.
 struct Trigger {
     verdict: &'static str,
     subject: String,
@@ -339,16 +790,12 @@ fn trigger(events: &[crate::health::Event], death: i64) -> Option<Trigger> {
 }
 
 /// One forensic pass over the boot this session followed. `None` when the previous shutdown was a
-/// normal one — there is nothing to explain then, and inventing a report for a clean restart is how
-/// a diagnostic tool turns into noise.
 pub fn inspect() -> Option<Crash> {
     let boot = boot_local();
     let now = crate::reminders::now_local();
     let events = markers(WINDOW_HOURS);
 
     // The markers are written *at* the boot they describe, so the one that matters is the newest
-    // whose stamp lands next to this session's start. An older 41 is a crash from a previous boot,
-    // which the history already has.
     let dead_marker = events
         .iter()
         .find(|e| e.provider.ends_with("Kernel-Power") && e.id == 41 && (e.at - boot).abs() <= 900);
@@ -360,13 +807,10 @@ pub fn inspect() -> Option<Crash> {
     }
 
     // When it stopped: the last thing logged before the machine went quiet. Falling back to the
-    // boot keeps the report honest — the gap is then unknown rather than invented as zero.
     let last = last_before_boot(boot);
     let death = last.as_ref().map(|e| e.at).unwrap_or(boot);
 
     // Only what was written *before* the machine stopped. The boot that follows writes its own
-    // power events (a source change, a helper resetting the scheme), and those are the machine
-    // waking up, not the reason it died — counting them produced "0 min before" on every run.
     let cutoff = if last.is_some() { death } else { boot - 3 };
     let pre_boot: Vec<crate::health::Event> = events
         .iter()
@@ -433,7 +877,6 @@ pub fn inspect() -> Option<Crash> {
     let dump = dump_files(now);
 
     // What the 41 itself says. These four parameters are the difference between "it hung" and "it
-    // went down without a bugcheck, without a reset, and without anyone touching the button".
     if let Some(marker) = dead_marker {
         evidence.push(format!(
             "41: BugcheckCode={} PowerButtonTimestamp={} LongPress={} SleepInProgress={}",
@@ -463,7 +906,6 @@ pub fn inspect() -> Option<Crash> {
     };
 
     // Every candidate goes into the evidence, not just the winner: on a machine that hangs for a
-    // platform reason the losers are what rule the software out.
     let mut seen: Vec<String> = Vec::new();
     for e in &pre_boot {
         let provider = e.provider.trim_start_matches("Microsoft-Windows-");
@@ -497,7 +939,6 @@ pub fn inspect() -> Option<Crash> {
         };
         if let Some(what) = what {
             // Same window as the verdict: an event from before the last boot is not what made the
-            // machine stop this time, and a negative "min before" is the boot talking.
             let minutes = (death - e.at + 59) / 60;
             if minutes < 0 || minutes > DRIVER_MINUTES {
                 continue;
@@ -584,8 +1025,6 @@ pub fn last() -> Option<Crash> {
 }
 
 /// The pass plus the bookkeeping: store the crash once per boot, count how often the same verdict
-/// came back, and log the whole thing. Called at startup and from a health scan; the dedupe by boot
-/// time is what keeps two calls in one session from writing two identical crashes.
 pub fn record() -> Option<Crash> {
     let mut crash = inspect()?;
     let mut history = load_history();
@@ -603,7 +1042,6 @@ pub fn record() -> Option<Crash> {
             minutes: crash.minutes,
         });
         // A year of weekly crashes is still a handful of lines; anything past this is a machine
-        // that does not stay up long enough to be diagnosed, and the newest twenty say as much.
         while history.len() > 20 {
             history.remove(0);
         }
@@ -637,8 +1075,6 @@ pub fn record() -> Option<Crash> {
 }
 
 /// The crash as the text the model reads: the verdict first, then what it was read from, then the
-/// pattern — because "it hung twice this week after a power-mode switch" is an answer, and "there
-/// was an unexpected restart" is not.
 pub fn describe() -> String {
     let Some(crash) = record().or_else(last) else {
         // i18n-ok: model-facing text.
@@ -708,3 +1144,71 @@ pub fn describe() -> String {
     out
 }
 
+
+#[cfg(test)]
+mod dump_tests {
+    use super::*;
+
+    /// The lines `!analyze -v` actually printed for a 0x7e, cut down to the ones the parse reads.
+    const SAMPLE: &str = "\
+Bugcheck Analysis
+SYSTEM_THREAD_EXCEPTION_NOT_HANDLED (7e)
+Arguments:
+Arg1: ffffffffc0000005, The exception code that was not handled
+    Key  : AV.Type
+    Value: Read
+BUGCHECK_CODE:  7e
+BUGCHECK_P1: ffffffffc0000005
+EXCEPTION_CODE: (NTSTATUS) 0xc0000005 - Instrukcja w 0x%p odwo a a si  do pami ci
+STACK_TEXT:
+ffffb901`18477618 fffff803`c7ebcd11     : 00000000`00000000 ffffbb8d`ae73bdb0 : nt!HalpIommuIsInPermanentPassthrough+0xa
+ffffb901`18477620 fffff803`c7ec7bc4     : ffffbb8d`ac85bd30 00000000`00000000 : nt!HalpIommuLeaveDmaDomain+0x69
+ffffb901`18477670 fffff803`c81492a7     : 00000000`00000000 ffffcb80`5e3559c0 : nt!HalpIommuBlockDevice+0xd4
+
+SYMBOL_NAME:  nt!HalpIommuIsInPermanentPassthrough+a
+MODULE_NAME: nt
+IMAGE_NAME:  ntkrnlmp.exe
+IMAGE_VERSION:  10.0.26100.9818
+FAILURE_BUCKET_ID:  AV_nt!HalpIommuIsInPermanentPassthrough
+PROCESS_NAME:  System
+STACK_COMMAND:  .cxr 0xffffb90118476bf0 ; kb
+";
+
+    #[test]
+    fn the_report_names_the_bugcheck_the_module_and_the_stack() {
+        let text = describe_text(SAMPLE);
+        assert!(text.contains("BUGCHECK: 0x7e SYSTEM_THREAD_EXCEPTION_NOT_HANDLED"));
+        assert!(text.contains("błąd dostępu (Read)"));
+        assert!(text.contains("WINNY: nt!HalpIommuIsInPermanentPassthrough+a w ntkrnlmp.exe 10.0.26100.9818 (proces System)"));
+        assert!(text.contains("BUCKET: AV_nt!HalpIommuIsInPermanentPassthrough"));
+        assert!(text.contains("1. nt!HalpIommuIsInPermanentPassthrough+0xa"));
+        assert!(text.contains("2. nt!HalpIommuLeaveDmaDomain+0x69"));
+        assert!(text.contains("3. nt!HalpIommuBlockDevice+0xd4"));
+        assert!(text.contains("STACK_COMMAND: .cxr 0xffffb90118476bf0 ; kb"));
+        // The frames stop at the blank line instead of swallowing the keys that follow it.
+        assert!(!text.contains("IMAGE_NAME"));
+    }
+
+    #[test]
+    fn a_log_without_a_bugcheck_is_not_mistaken_for_one() {
+        let text = "Loading Dump File [C:/Users/x/d.dmp]\nThe system cannot find the file specified.\n";
+        assert!(!Analysis::parse(text).known());
+    }
+
+    #[test]
+    fn the_debugger_aliases_are_looked_for_where_the_store_puts_them() {
+        // The name is what a Store install exposes; `cdb.exe` exists only in an SDK install.
+        let found = debugger();
+        if let Some(path) = found {
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            assert!(
+                name.starts_with("cdb"),
+                "unexpected debugger chosen: {}",
+                path.display()
+            );
+        }
+    }
+}

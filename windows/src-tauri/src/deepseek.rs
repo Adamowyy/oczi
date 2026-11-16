@@ -73,7 +73,7 @@ const ROUTINE_PROMPT: &str = "\nA routine is something the user wants Oczi to *d
 
 const HEALTH_PROMPT: &str = "\nThis computer's health is a real capability, not a guess: call health_report before answering anything about what is wrong with the machine, why it freezes or stutters, what crashed, what a bugcheck code means, or what the scan found. It returns the last scan — the score, the load, and every finding with its cause — and it changes nothing. If there is no report yet, say the Health button in the PC pill is where a scan starts instead of inventing an answer. The debloat list lives in the same pill and is the user's to tick; never claim to have removed anything.
 
-For why the machine hung or restarted on its own, call crash_report: it reads the last unclean shutdown out of Windows' own log — the kernel's 41 parameters, whether a dump exists, hardware errors, and what changed in the minutes before — and answers with a verdict and the evidence behind it. Prefer it over health_report for \"why did it freeze\", and never answer that question from a bugcheck code alone when the tool can say whether there was a bugcheck at all.\n";
+For why the machine hung or restarted on its own, call crash_report: it reads the last unclean shutdown out of Windows' own log — the kernel's 41 parameters, whether a dump exists, hardware errors, and what changed in the minutes before — and answers with a verdict and the evidence behind it. Prefer it over health_report for \"why did it freeze\", and never answer that question from a bugcheck code alone when the tool can say whether there was a bugcheck at all. \\nWhen crash_report does show a bugcheck and the user wants to know which driver did it — \\\"what was the blue screen\\\", \\\"co się wysypało\\\" — call analyze_dump: it opens the dump with Microsoft's own debugger and answers with the bugcheck name, the module and symbol of the exception, and the top of the stack. It can raise one administrator prompt (Windows keeps C:\\\\Windows\\\\Minidump readable by administrators only) and it downloads symbols on the first run, so say so rather than working around it. Never try to launch cdb.exe, kd.exe or anything under C:\\\\Program Files\\\\WindowsApps yourself: a Store WinDbg runs only through the cdbX64.exe alias in %LOCALAPPDATA%\\\\Microsoft\\\\WindowsApps, and hunting for a debugger you cannot start burns the whole turn. It installs the debugger itself when a machine has none, and it ends with the BIOS version and the newest drivers, so name what is worth updating instead of guessing at a version.\n";
 
 const PRICES_PROMPT: &str = "\nGame prices come from gg.deals through the game_price tool: give it the title the user said and it answers with the lowest price right now — retail shops and keyshops separately — the historical low, the currency their own API key reports, and the gg.deals page that lists the shops. Use it for anything about what a game costs, whether it is worth waiting for a sale, or what its lowest price ever was. The pricing API carries no shop address of its own, so point the user at the gg.deals page instead of inventing a store, and when the currency is not the one they expected, say which currency the key reports rather than converting it.\n";
 
@@ -133,6 +133,8 @@ fn tool_names(web: bool, terminal: bool) -> Vec<&'static str> {
         "health_report",
         // And the one that answers "why did it hang": the same rule, one pass at a time.
         "crash_report",
+        // The same question one level deeper: the dump read by Microsoft's own debugger.
+        "analyze_dump",
     ];
     if web {
         names.extend(["web_search", "fetch_url"]);
@@ -188,6 +190,18 @@ fn tools(web: bool, terminal: bool) -> Value {
             "function": {
                 "name": "crash_report",
                 "description": "Why this computer hung, froze or restarted on its own, read from Windows' own record of the last unclean shutdown: whether the kernel wrote a bugcheck or never got that far, whether a crash dump exists, whether the hardware reported an error (WHEA), how long the machine was silent, and what changed in the minutes before (a power-mode switch by a program, a sleep transition, a driver installed, firmware throttling). It answers with a verdict, the evidence behind it, and how often the same verdict has come back. Call it for \"why did it freeze\", \"what happened last night\", \"did it blue screen\". It changes nothing and runs one pass, not a background monitor.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "analyze_dump",
+                "description": "Reads the newest crash dump on this PC — the file Windows writes when the kernel bugchecks — with Microsoft's own debugger (!analyze -v): the bugcheck code and its name, the module and symbol the exception happened in, the failure bucket, and the top of the stack, plus the BIOS and the newest drivers on the machine so the answer can point at what to update. Call it when crash_report shows a bugcheck and the user wants to know which driver did it, or for \"what was the blue screen\". It installs WinDbg from the Microsoft Store itself when the machine has none (a winget run, a few minutes) and reaches it through its cdbX64.exe alias — C:\\Program Files\\WindowsApps cannot be started from), and since Windows keeps the dump readable by administrators only, it raises ONE prompt to copy the file out; a refused prompt comes back as an error, never as an empty answer. The first run also downloads symbols, so it can take a minute.",
                 "parameters": {
                     "type": "object",
                     "properties": {},
@@ -537,6 +551,8 @@ async fn run_tool(name: &str, args: &Value, provider: &str, terminal: bool) -> R
         "health_report" => Ok(crate::health::describe_last()),
         // The last unclean shutdown, read again in one pass: the same text `--crash` prints.
         "crash_report" => Ok(crate::crash::describe()),
+        // The same crash one level deeper: the dump itself, read by Microsoft's debugger.
+        "analyze_dump" => crate::crash::analyze_dump(),
         "game_price" => {
             let title = args
                 .get("title")
