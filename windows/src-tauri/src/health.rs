@@ -2621,6 +2621,8 @@ mod tests {
                 id: 10016,
                 provider: "Microsoft-Windows-DistributedCOM".to_string(),
                 data: Vec::new(),
+                named: HashMap::new(),
+                at: 0,
             }),
             None
         );
@@ -2663,18 +2665,26 @@ mod tests {
 
     #[test]
     fn forty_crashes_of_one_program_are_one_finding_named_after_the_program() {
+        // A scan's own clock, and events from a minute ago: fresh enough to be a fault of today,
+        // which is what the "past" rule would otherwise take away.
+        let now = 1_790_000_000;
+        let at = now - 60;
         let crash = |app: &str| Event {
             id: 1000,
             provider: "Application Error".to_string(),
             data: vec![app.to_string()],
+            named: HashMap::new(),
+            at,
         };
         let mut events: Vec<Event> = (0..40).map(|_| crash("C:\\Apps\\Game\\game.exe")).collect();
         events.push(Event {
             id: 1001,
             provider: "Microsoft-Windows-WER-SystemErrorReporting".to_string(),
             data: vec!["0x0000009f".to_string()],
+            named: HashMap::new(),
+            at,
         });
-        let findings = event_findings(&events);
+        let findings = event_findings(&events, now, None);
         assert_eq!(findings.len(), 2);
         // Sorted loudest first, and the critical one is the loud one.
         assert_eq!(findings[0].kind, "bugcheck");

@@ -45,15 +45,25 @@ pub const DEEPSEEK: Provider = Provider {
     reasoning: Reasoning::ThinkingSwitch,
 };
 
-/// One model, and it is the only one that answered every time: 1.2-2.0 s here, while
-/// 3.1-flash-lite and 3.8-flash came back 503 and 3.5-flash-lite took 8-22 s.
-/// No fallback when this one is at capacity or out of quota, the chat retries and says so.
+/// Three free-tier models, in the order a turn tries them.
+///
+/// The free tier counts requests **per model**, and the flagship Flash gets the smallest slice of
+/// them — a real free key reported `limit: 20` for a whole day on `gemini-3.6-flash`, which one
+/// question that uses the tools spends in five rounds. So the table is a budget rather than a
+/// preference list: 3.6-flash answers in 0.7-2.0 s and is what a turn starts with, and when its
+/// day is spent the next name is a Lite model with the far larger allowance a Lite model carries.
+/// Measured on a real key: 3.6-flash 0.7 s, 3.5-flash-lite 1.2 s, 3.1-flash-lite 27 s (never
+/// offered), 3.8-flash refuses `minimal` and needs the `low` retry in `deepseek::call_once`.
 pub const GEMINI: Provider = Provider {
     id: "gemini",
     label: "Gemini",
     endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
     key_name: "gemini-api-key",
-    models: &["gemini-3.6-flash"],
+    models: &[
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.8-flash",
+    ],
     default_model: "gemini-3.6-flash",
     reasoning: Reasoning::EffortLevel,
 };
@@ -80,15 +90,20 @@ pub fn model_ok(id: &str, model: &str) -> bool {
     get(id).models.contains(&model)
 }
 
-/// The next model in this provider's list, wrapping around. A model answering 503 is out of
-/// capacity for everyone on the free tier, and a 429 is its own per-model quota — in both cases
-/// the next name in the table is the only other thing the app may send.
-pub fn next_model(provider: &Provider, current: &str) -> &'static str {
-    let models = provider.models;
-    match models.iter().position(|model| *model == current) {
-        Some(at) => models[(at + 1) % models.len()],
-        None => provider.default_model,
-    }
+/// The next model in this provider's table that this call has not tried yet, or `None` when the
+/// whole table has been tried.
+///
+/// A model answering 503 is out of capacity for everyone on the free tier, and a 429 is a limit
+/// of its own — per model on Gemini, where the flagship Flash carries the smallest daily slice and
+/// a Lite model carries the largest. The next *untried* name is therefore the only thing worth
+/// spending an attempt on: retrying the same name, or wrapping back to it, spends the attempts the
+/// user does not have.
+pub fn next_untried(provider: &Provider, tried: &[String]) -> Option<&'static str> {
+    provider
+        .models
+        .iter()
+        .copied()
+        .find(|model| !tried.iter().any(|t| t.eq_ignore_ascii_case(model)))
 }
 
 /// Adds the provider's own reasoning field to a request body. Both are sent explicitly:
@@ -211,13 +226,44 @@ mod tests {
 
     #[test]
     fn the_next_model_walks_the_table_and_wraps() {
-        // One model per provider is a valid table: the walk then stays on it.
-        assert_eq!(next_model(&GEMINI, "gemini-3.6-flash"), "gemini-3.6-flash");
-        assert_eq!(next_model(&DEEPSEEK, "deepseek-flash"), "deepseek-v4-pro");
-        assert_eq!(next_model(&DEEPSEEK, "deepseek-v4-pro"), "deepseek-flash");
-        // An unknown name is not a panic: the default is a model the provider serves.
-        assert_eq!(next_model(&GEMINI, "nonsense"), GEMINI.default_model);
+        let none: Vec<String> = Vec::new();
+        // A turn starts on the default, then the walk moves through the rest and stops.
+        assert_eq!(next_untried(&GEMINI, &none), Some("gemini-3.6-flash"));
+        let first = vec!["gemini-3.6-flash".to_string()];
+        assert_eq!(next_untried(&GEMINI, &first), Some("gemini-3.5-flash-lite"));
+        let two = vec![
+            "gemini-3.6-flash".to_string(),
+            "gemini-3.5-flash-lite".to_string(),
+        ];
+        assert_eq!(next_untried(&GEMINI, &two), Some("gemini-3.8-flash"));
+        // Nothing left to try is a `None`, not a wrap back to a name that just refused: on a free
+        // tier that wrap is what turns "its day is spent" into three more attempts and no answer.
+        let all = vec![
+            "gemini-3.6-flash".to_string(),
+            "gemini-3.5-flash-lite".to_string(),
+            "gemini-3.8-flash".to_string(),
+        ];
+        assert_eq!(next_untried(&GEMINI, &all), None);
+        // A name the provider does not serve is not a model this call has used up.
+        let nonsense = vec!["nonsense".to_string()];
+        assert_eq!(next_untried(&GEMINI, &nonsense), Some("gemini-3.6-flash"));
+        // DeepSeek keeps its two-name walk.
+        assert_eq!(
+            next_untried(&DEEPSEEK, &["deepseek-flash".to_string()]),
+            Some("deepseek-v4-pro")
+        );
     }
+
+    #[test]
+    fn the_gemini_table_is_a_budget_not_a_preference_list() {
+        // The free tier meters each model separately, so the Lite model behind the fast one is
+        // what keeps a spent day usable — dropping it silently returns the 20-a-day ceiling.
+        assert!(GEMINI.models.len() >= 2);
+        assert!(GEMINI.models.contains(&"gemini-3.5-flash-lite"));
+        // …and the slow models measured at 27 s are not offered at all.
+        assert!(!GEMINI.models.contains(&"gemini-3.1-flash-lite"));
+    }
+
 
     #[test]
     fn reasoning_is_translated_per_provider() {

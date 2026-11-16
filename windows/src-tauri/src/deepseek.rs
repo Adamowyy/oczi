@@ -1186,21 +1186,58 @@ fn last_resort(output: Option<&str>) -> String {
 struct CallError {
     retryable: bool,
     /// The provider answered "this model has no capacity right now" (503) or "this model's
-    /// quota is spent" (429) — a different model is worth a try, the same one is not.
+    /// allowance is spent" (429) — a different model is worth a try, the same one is not.
     capacity: bool,
+    /// The size of a daily allowance the 429 named, when it named one. `Some` is what separates
+    /// "this free day is gone" from "this model is busy", and it is what the sentence at the end
+    /// of the walk is built from.
+    spent: Option<u32>,
     message: String,
 }
 
-/// Up to `MAX_ATTEMPTS` tries. A stall or a network hiccup gets the same model again on a fresh
-/// connection; "this model is at capacity" (503) or "its quota is spent" (429) moves to the next
-/// model in the provider's table instead — retrying a name that has no capacity spends the
-/// attempts the user does not have, and on the free tier it is the difference between an answer
-/// in two seconds and none at all.
+/// Every model in the table has refused. A day that ran out and a model that is merely busy are
+/// different news: the first names the allowance and the hour it comes back, the second asks for a
+/// moment. Both come after the walk, never in the middle of it.
+fn no_model_left(provider: &Provider, spent: Option<u32>) -> String {
+    let other = providers::PROVIDERS
+        .iter()
+        .find(|other| other.id != provider.id)
+        .map(|other| other.label)
+        .unwrap_or("another provider");
+    match spent {
+        Some(0) | None => format!(
+            "{} is not answering right now — every model it offers is at capacity or rate-limited. \
+             Try again in a moment, or switch to {other} in the settings (its own API key).",
+            provider.label
+        ),
+        Some(limit) => format!(
+            "{} is out of requests for today: the free tier gives {limit} a day per model and every \
+             model in the table is spent. It resets at midnight Pacific Time. Switch to {other} in \
+             the settings (its own API key) to keep going now.",
+            provider.label
+        ),
+    }
+}
+
+/// Up to `MAX_ATTEMPTS` tries, and never two of them on the same model when the model itself is the
+/// problem. A stall or a network hiccup gets the same model again on a fresh connection; "this model
+/// is at capacity" (503) or "its allowance is spent" (429) moves to the next model in the provider's
+/// table instead — the free tier meters each model separately, so a spent flagship Flash is a bad
+/// name to retry and a good moment to ask the Lite model behind it. The attempt budget covers the
+/// whole table, so a three-model provider can be walked end to end.
 async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result<Value, String> {
     let mut body = body.clone();
     let mut last = String::new();
-    for attempt in 1..=MAX_ATTEMPTS {
-        crate::log::line(format!("chat  attempt {attempt}/{MAX_ATTEMPTS}"));
+    let attempts = MAX_ATTEMPTS.max(provider.models.len() as u32);
+    // Which models this call has already spent an attempt on, and the allowance the last 429 named.
+    let mut tried: Vec<String> = Vec::new();
+    let mut spent: Option<u32> = None;
+    for attempt in 1..=attempts {
+        let current = body["model"].as_str().unwrap_or_default().to_string();
+        if !tried.iter().any(|name| name.eq_ignore_ascii_case(&current)) {
+            tried.push(current.clone());
+        }
+        crate::log::line(format!("chat  attempt {attempt}/{attempts}"));
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(ATTEMPT_TIMEOUT_SECS),
             call_once(key, &body, provider),
@@ -1213,25 +1250,20 @@ async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result
                     return Err(err.message);
                 }
                 last = err.message;
+                if let Some(limit) = err.spent {
+                    spent = Some(limit);
+                }
                 if err.capacity {
-                    let current = body["model"].as_str().unwrap_or_default().to_string();
-                    let next = providers::next_model(provider, &current);
-                    if next != current {
-                        crate::log::line(format!("chat  {current} has no capacity, trying {next}"));
-                        body["model"] = json!(next);
-                    } else {
-                        // A one-model table has nothing to fall back to, so the sleep and the
-                        // two attempts after it buy nothing — the user is better served by a
-                        // sentence than by six more seconds of nothing. The API's own detail is
-                        // already in the log, above.
-                        crate::log::line(format!(
-                            "chat  {current} has no capacity and the table has no second model"
-                        ));
-                        return Err(format!(
-                            "{} is not answering right now — its model is at capacity or rate-limited. \
-                             Try again in a moment.",
-                            provider.label
-                        ));
+                    match providers::next_untried(provider, &tried) {
+                        Some(next) => {
+                            crate::log::line(format!(
+                                "chat  {current} has no capacity or is out of quota, trying {next}"
+                            ));
+                            body["model"] = json!(next);
+                        }
+                        // Nothing left to try: the sleep and the attempts after it buy nothing,
+                        // so the sentence comes here, once, instead of six seconds of nothing.
+                        None => return Err(no_model_left(provider, spent)),
                     }
                 }
             }
@@ -1240,11 +1272,11 @@ async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result
                 crate::log::line(format!("chat  attempt {attempt} stalled: {last}"));
             }
         }
-        if attempt < MAX_ATTEMPTS {
+        if attempt < attempts {
             tokio::time::sleep(std::time::Duration::from_secs(attempt as u64 * 2)).await;
         }
     }
-    crate::log::line(format!("chat  giving up after {MAX_ATTEMPTS} attempts: {last}"));
+    crate::log::line(format!("chat  giving up after {attempts} attempts: {last}"));
     Err(format!(
         "The model did not answer ({last}). {} may be overloaded — try again.",
         provider.label
@@ -1258,6 +1290,7 @@ async fn call_once(key: &str, body: &Value, provider: &Provider) -> Result<Value
         .map_err(|e| CallError {
             retryable: true,
             capacity: false,
+            spent: None,
             message: e.to_string(),
         })?;
 
@@ -1286,43 +1319,33 @@ async fn call_once(key: &str, body: &Value, provider: &Provider) -> Result<Value
         let detail = providers::error_detail(&text)
             .unwrap_or_else(|| text.chars().take(200).collect());
         crate::log::line(format!("chat  {} API {status}: {detail}", provider.label));
-        // A daily allowance that is spent does not refill in two seconds: retrying it spends
-        // three attempts and six seconds of the user's glance on a wall, so this one fails
-        // here, once, and says which allowance ran out instead of quoting Google's metric name.
-        if status.as_u16() == 429 {
-            if let Some(limit) = providers::daily_quota_spent(&text) {
-                crate::log::line(format!("chat  {} daily allowance spent (limit {limit})", provider.label));
-                let other = providers::PROVIDERS
-                    .iter()
-                    .find(|other| other.id != provider.id)
-                    .map(|other| other.label)
-                    .unwrap_or("the other provider");
-                let size = if limit > 0 {
-                    format!("{limit} requests a day is all the free tier gives")
-                } else {
-                    "the free tier's daily allowance is used up".to_string()
-                };
-                return Err(CallError {
-                    retryable: false,
-                    capacity: false,
-                    message: format!(
-                        "{} is out of requests for today — {size}, and it resets at midnight Pacific Time. \
-                         Switch to {other} in the settings (its own API key) to keep going now.",
-                        provider.label
-                    ),
-                });
-            }
+        // A daily allowance that is spent (a 429 whose body carries `limit:`) belongs to *that
+        // model*, not to the provider: the free tier meters each model separately, so the caller
+        // walks to the next name — the Lite model behind a spent flagship — instead of failing the
+        // whole turn. Only a table with nothing left to try ends with the allowance sentence.
+        let spent = if status.as_u16() == 429 {
+            providers::daily_quota_spent(&text)
+        } else {
+            None
+        };
+        if let Some(limit) = spent {
+            crate::log::line(format!(
+                "chat  {} daily allowance spent (limit {limit})",
+                provider.label
+            ));
         }
         let at_capacity = status.as_u16() == 503 || status.as_u16() == 429;
         return Err(CallError {
             retryable: status.is_server_error() || at_capacity,
             capacity: at_capacity,
+            spent,
             message: format!("{} API {status}: {detail}", provider.label),
         });
     }
     serde_json::from_str(&text).map_err(|e| CallError {
         retryable: true,
         capacity: false,
+        spent: None,
         message: format!("Bad API response: {e}"),
     })
 }
@@ -1348,6 +1371,7 @@ async fn post_once(
             CallError {
                 retryable: true,
                 capacity: false,
+                spent: None,
                 message: format!("Network error: {e}"),
             }
         })?;
@@ -1359,6 +1383,7 @@ async fn post_once(
         CallError {
             retryable: true,
             capacity: false,
+            spent: None,
             message: e.to_string(),
         }
     })?;
