@@ -20,6 +20,9 @@ All notable changes to **Oczi** are recorded here.
   oraz górę stosu. Debugger doinstalowuje sam, zrzut kopiuje jedną zgodą administratora, a raport kończy
   wersją BIOS-u i najnowszymi sterownikami.
 - Naprawione cztery testy zdrowia, które nie kompilowały się od poprzedniego wydania.
+- Okna, których nikt nie używa — ustawienia, zdrowie, sprzątanie i wybór obszaru zrzutu — nie wiszą
+  już w tle: powstają przy pierwszym otwarciu i znikają po zamknięciu. Przy bezczynności to cztery
+  procesy mniej i kilkadziesiąt megabajtów.
 
 ## 0.5.8 — 2026-11-13
 

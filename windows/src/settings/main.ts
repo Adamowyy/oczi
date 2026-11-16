@@ -705,8 +705,8 @@ async function main() {
     settings = { ...settings, ...s };
   });
 
-  // The window is built once at launch and only shown/hidden afterwards, so the
-  // monitor list is re-read each time it comes back to the screen.
+  // The page outlives a visit to another window, so the monitor list is re-read each
+  // time it comes back to the screen.
   void onEvent<null>("settings-shown", () => {
     if (screenSelect) void listMonitors(screenSelect);
   });

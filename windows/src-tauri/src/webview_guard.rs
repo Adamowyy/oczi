@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::webview::PlatformWebview;
@@ -30,9 +31,10 @@ use windows_core_062::{Interface, PWSTR};
 
 use crate::{island, log, settings};
 
-/// The island is the window the user is looking at; the other two share its
-/// environment and go blank together with it.
-const WATCHED: [&str; 3] = [island::WINDOW_LABEL, "settings", "snip"];
+/// The island is the window the user is looking at; the other windows share its
+/// environment and go blank together with it. They attach themselves as they are built —
+/// one of them is built only when it is first opened, see lib.rs.
+const WATCHED: [&'static str; 1] = [island::WINDOW_LABEL];
 
 /// How often the app may restart itself before it stops trying, and over how
 /// long. Three failures in ten minutes mean the runtime is broken rather than
@@ -44,22 +46,40 @@ const LOOP_LIMIT: usize = 3;
 /// environment raises its own ProcessFailed for the same dead browser process.
 static RESTARTING: AtomicBool = AtomicBool::new(false);
 
-/// Attach the guard to every webview. Called once, after the windows exist.
+/// Attach the guard to every webview built at launch. Called once, after the island exists.
 pub fn watch(app: &AppHandle) {
     for label in WATCHED {
         attach(app, label);
     }
 }
 
-fn attach(app: &AppHandle, label: &str) {
+/// A window that is built again must not register a second handler: the old one dies with the
+/// webview it was attached to, and nothing here would ever release it.
+fn claimed(label: &'static str) -> bool {
+    static SEEN: OnceLock<Mutex<Vec<&'static str>>> = OnceLock::new();
+    let mut seen = SEEN
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if seen.contains(&label) {
+        return true;
+    }
+    seen.push(label);
+    false
+}
+
+/// Also called by the builders of the windows that are created on demand.
+pub(crate) fn attach(app: &AppHandle, label: &'static str) {
+    if claimed(label) {
+        return;
+    }
     let Some(window) = app.get_webview_window(label) else {
         log::line(format!("webview  {label}: no window, not watched"));
         return;
     };
     let owner = app.clone();
     let name = label.to_string();
-    // A second, owned copy: the closure below has to be 'static, and `label` is a
-    // borrow of the caller's string.
+    // A second, owned copy: the handler's closure moves `name`, the log lines above it need one.
     let in_closure = name.clone();
     // Runs on the main thread, inside the COM apartment the webview was created in.
     let result = window.with_webview(move |platform| {

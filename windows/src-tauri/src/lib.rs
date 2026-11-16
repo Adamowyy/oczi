@@ -396,6 +396,12 @@ async fn begin_snip(app: AppHandle, pin_mode: Option<bool>) -> Result<(), String
     if let Some(win) = island::window(&app) {
         let _ = win.hide();
     }
+    // Built before the island goes away, and off the main thread like the grab below: the first
+    // capture of a run pays for the overlay here instead of on the screen.
+    let building = app.clone();
+    tauri::async_runtime::spawn_blocking(move || ensure_snip_window(&building))
+        .await
+        .map_err(|e| format!("the selection overlay crashed: {e}"))??;
     let grabbing = app.clone();
     let frozen = tauri::async_runtime::spawn_blocking(move || {
         // The pause gives the compositor time to really drop the island before the
@@ -794,76 +800,130 @@ fn page_url(app: &AppHandle, page: &str) -> WebviewUrl {
     WebviewUrl::App(page.into())
 }
 
-/// The health report and the debloat list: two windows of their own, created hidden at launch and
-/// only ever shown — the same reason as the settings window, opening one has to feel instant.
-fn create_pc_windows(app: &AppHandle) {
-    for (label, page) in [("health", "health.html"), ("debloat", "debloat.html")] {
-        match WebviewWindowBuilder::new(app, label, page_url(app, page))
-            .additional_browser_args(BROWSER_ARGS)
-            .title("Oczi")
-            .inner_size(600.0, 720.0)
-            .min_inner_size(460.0, 420.0)
-            .resizable(true)
-            .focused(false)
-            .visible(false)
-            .center()
-            .build()
-        {
-            Ok(win) => {
-                // Closing must only hide it, or it could never be reopened.
-                let hidden = win.clone();
-                win.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = hidden.hide();
-                    }
-                });
+/// Shows a window that was hidden rather than destroyed.
+fn reveal_window(win: &tauri::WebviewWindow) {
+    let _ = win.unminimize();
+    let _ = win.show();
+    let _ = win.set_focus();
+}
+
+/// A window that was asked for has to end up on screen. `on_page_load` normally shows it, but that
+/// callback is not guaranteed — a window built while the event loop is already serving a command has
+/// been seen to stay hidden — so this is the net under it: no paint within a moment and the window
+/// is shown anyway.
+fn reveal_unless_painted(win: tauri::WebviewWindow, label: &'static str) {
+    std::thread::spawn(move || {
+        for _ in 0..8 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            match win.is_visible() {
+                Ok(true) => return,
+                Ok(false) => {}
+                // The window is gone: closed before it ever showed.
+                Err(_) => return,
             }
-            Err(err) => log::line(format!("{label} window failed: {err}")),
+        }
+        log::line(format!(
+            "{label} window shown by fallback — the page-load callback did not fire"
+        ));
+        reveal_window(&win);
+    });
+}
+
+/// The health report and the debloat list: one window each, built the first time it is opened and
+/// destroyed when it is closed. A hidden window still holds a WebView2 renderer, and a page nobody
+/// has asked for must not hold one.
+fn ensure_pc_window(
+    app: &AppHandle,
+    label: &'static str,
+    page: &'static str,
+) -> Option<tauri::WebviewWindow> {
+    match WebviewWindowBuilder::new(app, label, page_url(app, page))
+        .additional_browser_args(BROWSER_ARGS)
+        .title("Oczi")
+        .inner_size(600.0, 720.0)
+        .min_inner_size(460.0, 420.0)
+        .resizable(true)
+        .focused(false)
+        .visible(false)
+        .center()
+        // Shown only once the page has painted, or the frame arrives empty. The window is the one
+        // handed to the callback: during creation it is not yet in the manager, so a lookup by
+        // label here returns nothing.
+        .on_page_load(move |win, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                log::line(format!("{label} window painted"));
+                reveal_window(&win);
+            }
+        })
+        .build()
+    {
+        Ok(win) => {
+            log::line(format!("{label} window built"));
+            reveal_unless_painted(win.clone(), label);
+            Some(win)
+        }
+        Err(err) => {
+            log::line(format!("{label} window failed: {err}"));
+            None
         }
     }
 }
 
-fn create_settings_window(app: &AppHandle, settings: &Settings) {
-    let url = settings_page_url(app);
-    match WebviewWindowBuilder::new(app, "settings", url)
+/// Built the first time the settings are opened, then destroyed when that window is closed:
+/// a hidden window is still a WebView2 renderer.
+fn ensure_settings_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
+    let language = settings::load().language;
+    match WebviewWindowBuilder::new(app, "settings", settings_page_url(app))
         .additional_browser_args(BROWSER_ARGS)
-        .title(settings_title(&settings.language))
+        .title(settings_title(&language))
         .inner_size(560.0, 680.0)
         .min_inner_size(460.0, 480.0)
         .resizable(true)
-        // Created hidden and unfocused: showing it is a user action, and until then it
-        // must not take the keyboard away from whatever they were doing at launch.
+        // Built hidden and unfocused: nothing may take the keyboard away from what the
+        // user was doing, and the frame is shown once the page has painted.
         .focused(false)
         .visible(false)
         .center()
+        .on_page_load(move |win, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                log::line("settings window painted".to_string());
+                reveal_window(&win);
+            }
+        })
         .build()
     {
         Ok(win) => {
-            // Closing it must only hide it, or it could never be reopened.
-            let hidden = win.clone();
-            win.on_window_event(move |event| {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = hidden.hide();
-                }
-            });
+            webview_guard::attach(app, "settings");
+            log::line("settings window built".to_string());
+            reveal_unless_painted(win.clone(), "settings");
+            Some(win)
         }
-        Err(err) => log::line(format!("settings window failed: {err}")),
+        Err(err) => {
+            log::line(format!("settings window failed: {err}"));
+            None
+        }
     }
 }
 
 pub fn show_settings_window(app: &AppHandle) {
-    let Some(win) = app.get_webview_window("settings") else {
-        log::line("settings window missing");
-        return;
-    };
-    let _ = win.unminimize();
-    let _ = win.show();
-    let _ = win.set_focus();
-    // The page lives on between visits, so tell it to re-read the monitors: one
-    // plugged in since launch would otherwise never appear in the picker.
-    let _ = win.emit("settings-shown", ());
+    match app.get_webview_window("settings") {
+        Some(win) => {
+            reveal_window(&win);
+            // The page lives on between visits, so tell it to re-read the monitors: one
+            // plugged in since the last visit would otherwise never appear in the picker.
+            let _ = win.emit("settings-shown", ());
+        }
+        // Built on a thread of its own. A command runs on the main thread, inside the callback the
+        // island's webview is delivering; creating a second WebView2 from there nests it in that
+        // callback and the page never arrives. Off the main thread the build waits for the event
+        // loop to answer, which is the same reason `finish_snip` is `#[tauri::command(async)]`.
+        None => {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                ensure_settings_window(&app);
+            });
+        }
+    }
 }
 
 fn snip_page_url(app: &AppHandle) -> WebviewUrl {
@@ -876,11 +936,14 @@ fn snip_page_url(app: &AppHandle) -> WebviewUrl {
     WebviewUrl::App("snip.html".into())
 }
 
-/// The selection overlay: created at launch and only ever shown and hidden, for the
-/// same reason as the settings window. It covers the whole virtual desktop, fetched
-/// from Windows in physical pixels and handed to the builder in logical ones.
-fn create_snip_window(app: &AppHandle) {
-    let url = snip_page_url(app);
+/// The selection overlay, built by the first capture of the run and only ever hidden after that:
+/// it covers the whole virtual desktop, and a window nobody uses must not hold a renderer for it.
+/// The call waits for the page to paint, so a capture started a moment after launch cannot put up
+/// an empty frame.
+fn ensure_snip_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
+    if let Some(win) = app.get_webview_window("snip") {
+        return Ok(win);
+    }
     let (x, y, w, h) = snip::desktop_bounds();
     let scale = app
         .primary_monitor()
@@ -888,7 +951,9 @@ fn create_snip_window(app: &AppHandle) {
         .flatten()
         .map(|m| m.scale_factor())
         .unwrap_or(1.0);
-    match WebviewWindowBuilder::new(app, "snip", url)
+    let painted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = painted.clone();
+    let win = WebviewWindowBuilder::new(app, "snip", snip_page_url(app))
         .additional_browser_args(BROWSER_ARGS)
         .title("Snip — Oczi")
         .decorations(false)
@@ -899,17 +964,28 @@ fn create_snip_window(app: &AppHandle) {
         .always_on_top(true)
         .position(x as f64 / scale, y as f64 / scale)
         .inner_size(w as f64 / scale, h as f64 / scale)
-        // Hidden and unfocused at launch: a window that is never shown must not take
-        // the foreground away from whatever the user was typing in.
         .focused(false)
         .visible(false)
+        .on_page_load(move |_, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                flag.store(true, Ordering::SeqCst);
+            }
+        })
         .build()
-    {
-        Ok(_) => log::line(format!(
-            "snip overlay ready — desktop {x},{y} {w}x{h} @{scale}x"
-        )),
-        Err(err) => log::line(format!("snip overlay failed: {err}")),
+        .map_err(|e| format!("the selection overlay could not be built: {e}"))?;
+    webview_guard::attach(app, "snip");
+    log::line(format!(
+        "snip overlay ready — desktop {x},{y} {w}x{h} @{scale}x"
+    ));
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+    while !painted.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
+    if !painted.load(Ordering::SeqCst) {
+        log::line("snip overlay: the page did not finish painting");
+    }
+    Ok(win)
 }
 
 fn pin_page_url(app: &AppHandle) -> WebviewUrl {
@@ -1198,23 +1274,31 @@ async fn clean_residue_run(kind: String) -> Result<clean::ResidueFreed, String> 
         .unwrap_or_else(|e| Err(e.to_string()))
 }
 
-/// Shows one of the two PC windows. Both exist from launch and are only ever hidden, so opening
-/// one is instant and the page keeps whatever the last scan left in it.
+/// Shows one of the two PC windows, building it the first time it is asked for. Both pages keep
+/// nothing between visits: a closed window is gone, and the next open reads what it shows again.
 #[tauri::command]
 fn open_pc_window(app: AppHandle, which: String) {
-    if !matches!(which.as_str(), "health" | "debloat") {
-        log::line(format!("open_pc_window: unknown window {which}"));
-        return;
-    }
-    let Some(win) = app.get_webview_window(&which) else {
-        log::line(format!("{which} window missing"));
-        return;
+    let (label, page) = match which.as_str() {
+        "health" => ("health", "health.html"),
+        "debloat" => ("debloat", "debloat.html"),
+        other => {
+            log::line(format!("open_pc_window: unknown window {other}"));
+            return;
+        }
     };
-    let _ = win.unminimize();
-    let _ = win.show();
-    let _ = win.set_focus();
-    // The page lives on between visits; tell it to re-read what it shows.
-    let _ = win.emit("pc-shown", ());
+    match app.get_webview_window(label) {
+        Some(win) => {
+            reveal_window(&win);
+            let _ = win.emit("pc-shown", ());
+        }
+        // Off the main thread for the same reason as the settings window: see show_settings_window.
+        None => {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                ensure_pc_window(&app, label, page);
+            });
+        }
+    }
 }
 
 #[tauri::command]
@@ -1507,12 +1591,8 @@ pub fn run() {
             // The price card is emitted from a tool call, which has no window handle of its own.
             let _ = APP.set(handle.clone());
             tray::build(&handle, &loaded.language)?;
-            // Before the island: see create_settings_window.
-            create_settings_window(&handle, &loaded);
-            // The two PC windows, for the same reason: created once, then shown.
-            create_pc_windows(&handle);
-            // Same reason, and the overlay must exist before anything can ask for it.
-            create_snip_window(&handle);
+            // Only the island is built here: every other window is built the first time it is
+            // opened, so a page nobody uses costs no renderer. See ensure_settings_window.
             if let Some(win) = island::window(&handle) {
                 island::make_non_activating(&win);
                 island::apply_geometry(&handle, &loaded.screen, loaded.island_anchor);
