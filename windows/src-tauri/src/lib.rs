@@ -1059,6 +1059,15 @@ async fn gamebar_install() -> Result<gamebar::GameBar, String> {
         .unwrap_or_else(|e| Err(e.to_string()))
 }
 
+/// The one removal path for Game Bar: background recording off first, then the package, then a
+/// reading. The package list refuses this name on purpose, so both surfaces call this instead.
+#[tauri::command]
+async fn gamebar_uninstall() -> Result<gamebar::GameBar, String> {
+    tauri::async_runtime::spawn_blocking(gamebar::uninstall)
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+}
+
 // ── The tweaks tab ────────────────────────────────────────────────────────────
 // Thirteen registry values, one table, and the same four commands in every language: read them,
 // set one, reset one, put back what was there. Each answers with the whole table re-read, so the
@@ -1476,6 +1485,7 @@ pub fn run() {
             gamebar_capture,
             gamebar_policy_elevated,
             gamebar_install,
+            gamebar_uninstall,
             startup_list,
             startup_set,
             clean_scan,

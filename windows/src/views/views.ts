@@ -1334,12 +1334,10 @@ async function loadDebloat() {
   State.notify();
 }
 
-/** The one package the block owns by name; the catalogue still lists it below. */
-const GAME_BAR = "Microsoft.XboxGamingOverlay";
-
 /** Game Bar and the capture behind it are one thing: the overlay records, and a machine without
- *  the overlay has nothing to record with. So one row, one button — removing it switches the
- *  recording off, installing it switches the recording back on. */
+ *  the overlay has nothing to record with. So one row, one button — and each direction is a single
+ *  command on the Rust side (`gamebar_uninstall` / `gamebar_install`), which writes the switches
+ *  and the package in the order that leaves nothing half-removed behind. */
 function gameBarRow(d: DebloatState, g: GameBarState): HTMLElement {
   const busy = d.gameBusy !== null;
   const state = t(g.capture ? "game.dvrOn" : "game.dvrOff");
@@ -1384,12 +1382,9 @@ async function switchGameBar(state: GameBarState) {
   State.notify();
   try {
     if (removing) {
-      const outcome = await Bridge.debloatRemove([GAME_BAR]);
-      if (outcome.removed.length === 0) {
-        throw new Error(outcome.failed.join(", ") || t("game.gone"));
-      }
-      // Removed: nothing can record any more, so the switches follow the package.
-      d.game = await Bridge.gamebarCapture(false);
+      // One command, both halves in the order that matters: the recording goes off before the
+      // package does. The answer is a fresh reading, so the row shows the machine.
+      d.game = await Bridge.gamebarUninstall();
       d.gameNote = { text: t("game.gone") };
     } else {
       await Bridge.gamebarInstall();

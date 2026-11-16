@@ -14,7 +14,8 @@ import type { DebloatItem, DebloatRemoved, GameBarState } from "../core/bridge";
 
 const root = document.getElementById("pc-root")!;
 
-/** The one package the gaming card owns by name; the catalogue still lists it below. */
+/** The package behind the gaming card, for the label only: the catalogue never offers it, and the
+ *  card's own command is the one removal path (`gamebar::uninstall`). */
 const GAME_BAR = "Microsoft.XboxGamingOverlay";
 
 let items: DebloatItem[] = [];
@@ -223,19 +224,18 @@ function raiseAdmin(on: boolean) {
   return gameAction("admin", () => Bridge.gamebarPolicyElevated(on), t("game.adminDone"));
 }
 
-/** Removal goes through the same command the package list uses; afterwards the list is re-read,
- *  because Game Bar is in it and a package that is gone cannot stay ticked. */
+/** Removal is one command of its own: Game Bar's own module turns the recording off and then takes
+ *  the package away, which is the only order that leaves nothing behind. It is not in the package
+ *  list's catalogue for exactly that reason. Afterwards the list is re-read, because the history
+ *  this app keeps has one more row in it. */
 async function removeBar() {
   if (gameBusy) return;
   gameBusy = "remove";
   gameNote = null;
   paint();
   try {
-    const outcome = await Bridge.debloatRemove([GAME_BAR]);
-    gameNote =
-      outcome.removed.length > 0
-        ? { text: t("game.gone") }
-        : { text: t("game.failed", outcome.failed.join(", ")), bad: true };
+    game = await Bridge.gamebarUninstall();
+    gameNote = { text: t("game.gone") };
   } catch (e) {
     gameNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
   } finally {

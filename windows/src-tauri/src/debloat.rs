@@ -62,6 +62,13 @@ pub struct Removal {
 /// taking it away is. `safe` means a consumer app — nothing's work breaks when it is gone; `careful`
 /// means a Windows feature or a program somebody may actually use, so it is offered but never ticked
 /// by default. Everything not named here is invisible to the window on purpose.
+///
+/// Xbox Game Bar is missing on purpose. It is more than its Appx package: the Win+G overlay and the
+/// background recording behind it are separate switches in the registry, and a plain
+/// `Remove-AppxPackage` leaves that recording armed and its values behind — a machine that no longer
+/// has the overlay but still records, which is what a person who ticked a box once could not have
+/// expected. `gamebar::uninstall` owns that package and does the two halves in the right order, so the
+/// removal is offered by the gaming card only; `tier_of` refusing the name is what enforces it.
 const CATALOGUE: &[(&str, &str)] = &[
     // ── Store apps and trials Windows ships with. Nothing depends on any of them.
     ("Microsoft.MicrosoftSolitaireCollection", "safe"),
@@ -82,7 +89,6 @@ const CATALOGUE: &[(&str, &str)] = &[
     ("Microsoft.Todos", "safe"),
     ("Microsoft.PowerAutomateDesktop", "safe"),
     ("Microsoft.XboxApp", "safe"),
-    ("Microsoft.XboxGamingOverlay", "safe"),
     ("Microsoft.MicrosoftStickyNotes", "safe"),
     ("Microsoft.549981C3F5F10", "safe"), // Cortana
     // ── Features somebody may be using, so they are offered unticked.
@@ -317,6 +323,13 @@ fn record(names: &[String]) {
     }
 }
 
+/// Records a removal that did not come through this module's own `remove` — Game Bar, whose
+/// dedicated module owns the order of its two halves. The window shows one history, so it lands in
+/// the same file as the rest.
+pub(crate) fn record_removed(names: &[String]) {
+    record(names);
+}
+
 /// Everything this app has taken away, newest first.
 pub fn removed_history() -> Vec<Removed> {
     let mut list = history();
@@ -355,6 +368,17 @@ mod tests {
         assert_eq!(tier_of("Microsoft.WindowsStore"), None);
         assert_eq!(tier_of("Microsoft.YourPhone"), Some("safe"));
         assert_eq!(tier_of(""), None);
+    }
+
+    #[test]
+    fn the_package_with_its_own_module_is_never_offered_by_this_list() {
+        // Game Bar is a package *and* two registry switches. Removing it from here would leave
+        // background recording armed, so `tier_of` refuses it and its own card (`gamebar::uninstall`,
+        // capture off first) is the only path — including for a name that reached `remove()` from a
+        // stale window or a chat.
+        assert_eq!(tier_of(crate::gamebar::PACKAGE), None);
+        assert_eq!(tier_of("microsoft.xboxgamingoverlay"), None);
+        assert!(remove(&[crate::gamebar::PACKAGE.to_string()]).is_err());
     }
 
     #[test]
