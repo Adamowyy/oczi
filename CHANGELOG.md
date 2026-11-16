@@ -2,6 +2,21 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.9 — 2026-11-16
+
+**Darmowe Gemini wytrzymuje więcej niż jedno zadanie, a Game Bar znika tylko tak, jak należy.**
+
+- Gemini ma teraz trzy modele zamiast jednego i Oczi sam przechodzi na następny, gdy jeden zużyje
+  swój dzienny limit. Darmowy klucz liczy limit osobno dla każdego modelu, więc 20 zapytań na dobę
+  przestaje kończyć dzień po pierwszym zadaniu z terminalem czy wyszukiwaniem.
+- Dopiero gdy wyczerpią się wszystkie modele, karta mówi ile darmowy plan daje, o której limit się
+  resetuje i na którego providera przełączyć.
+- Xbox Game Bar zniknął z listy paczek do wyczyszczenia. Usunięcie go stamtąd zdejmowało nakładkę,
+  ale zostawiało włączone nagrywanie w tle i jego wpisy w rejestrze. Teraz usuwa go wyłącznie karta
+  Game Bar w pigułce: najpierw wyłącza nagrywanie, potem zabiera pakiet, a na końcu sprawdza, co
+  Windows naprawdę usunął.
+- Naprawione cztery testy zdrowia, które nie kompilowały się od poprzedniego wydania.
+
 ## 0.5.8 — 2026-11-13
 
 **Sprzątanie ma wreszcie co sprzątać: pozostałości po aktualizacjach.**
