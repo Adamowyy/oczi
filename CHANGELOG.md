@@ -7,9 +7,11 @@ All notable changes to **Oczi** are recorded here.
 **Debloat sprząta także to, co po instalatorach i buildach zostaje na dysku.**
 
 - Nowe wiersze w Debloat: `Package Cache` (instalatory trzymane do naprawy), sieroce pakiety
-  w `C:\Windows\Installer` i cache narzędzi (cargo, npm, uv). Każdy ma własny rozmiar i własny przycisk.
-- Sieroce pakiety usuwa jedna zgoda administratora: Oczi sprawdza w rejestrze i przez MSI, czy żaden
-  zarejestrowany produkt nadal go potrzebuje, i pomija wszystko zapisane w ostatnim tygodniu.
+  w `C:\Windows\Installer` i cache narzędzi (cargo, npm, uv). Każdy ma własny rozmiar i własny przycisk,
+  a `Wyczyść wszystko` bierze wszystkie naraz pod jedną zgodą administratora.
+- Sierocy pakiet to ten, którego nie nazywa już żaden zarejestrowany produkt: Oczi czyta to z rejestru
+  i pokazuje rozmiar bez pytania o zgodę, usuwa dopiero po niej, a wszystko zapisane w ostatnim
+  tygodniu pomija.
 - Wiersz poprzedniego sterownika NVIDIA obejmuje teraz też pakiety, które NVIDIA App pobiera
   i rozpakowuje przy każdej aktualizacji sterownika.
 - Shader cache'y i zrzuty awarii zostają nietknięte — odbudowują się albo są potrzebne do diagnozy.

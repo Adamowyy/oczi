@@ -400,38 +400,88 @@ fn msi_store() -> PathBuf {
         .join("Installer")
 }
 
-/// The orphan report the administrator's script writes: what went and what it would not take.
-fn read_msi_report(path: &Path) -> (u64, u64) {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return (0, 0);
+/// Every package a registered product still names, lowercased. Readable without a prompt — the
+/// machine's own hive is — and `None` when nothing came back, because an empty set would make every
+/// file in the store look like an orphan.
+fn msi_reference_set() -> Option<std::collections::HashSet<String>> {
+    let script = "$ErrorActionPreference='SilentlyContinue';\
+         foreach($root in @('HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Installer\\UserData','HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Installer\\UserData','HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Installer\\UserData')){{\
+           foreach($sid in (Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue)){{\
+             foreach($prod in (Get-ChildItem -LiteralPath (Join-Path $sid.PSPath 'Products') -ErrorAction SilentlyContinue)){{\
+               $lp=(Get-ItemProperty -LiteralPath (Join-Path $prod.PSPath 'InstallProperties') -Name LocalPackage -ErrorAction SilentlyContinue).LocalPackage;\
+               if($lp){{[IO.Path]::GetFileName($lp).ToLower()}};\
+               foreach($patch in (Get-ChildItem -LiteralPath (Join-Path $prod.PSPath 'Patches') -ErrorAction SilentlyContinue)){{\
+                 foreach($prop in (Get-ItemProperty -LiteralPath $patch.PSPath -ErrorAction SilentlyContinue).PSObject.Properties){{\
+                   $value=[string]$prop.Value;\
+                   if($value -match '\\.(msp|msi)$'){{[IO.Path]::GetFileName($value).ToLower()}}\
+                 }}\
+               }}\
+             }}\
+           }}\
+         }}";
+    let text = match crate::debloat::powershell(script) {
+        Ok(text) => text,
+        Err(e) => {
+            log::line(format!("clean: the installer references would not list: {e}"));
+            return None;
+        }
     };
-    let number = |key: &str| {
-        text.lines()
-            .find_map(|line| line.trim().strip_prefix(key))
-            .and_then(|rest| rest.trim().parse::<u64>().ok())
-            .unwrap_or(0)
-    };
-    (number("freed="), number("kept="))
+    let set: std::collections::HashSet<String> = text
+        .lines()
+        .map(|line| line.trim().to_ascii_lowercase())
+        .filter(|line| line.ends_with(".msi") || line.ends_with(".msp"))
+        .collect();
+    if set.is_empty() {
+        return None;
+    }
+    Some(set)
 }
 
-/// The script that decides which packages are orphans and takes them. A package is an orphan only
-/// when no registered product in any context names it: the registry says which copy a product still
-/// needs for a repair, `WindowsInstaller.Installer` answers the same question through MSI, and the
-/// union of the two is what the sweep trusts. Anything written in the last week is left alone — a
-/// setup may be in the middle of installing.
-fn msi_script(result: &Path) -> String {
-    let report = result.display().to_string().replace('\'', "''");
-    let store = msi_store().display().to_string().replace('\'', "''");
+/// The packages no product names any more, as (bytes, count). Anything written in the last week is
+/// left out: a setup may be in the middle of installing.
+fn msi_orphans() -> (u64, u64) {
+    let Some(references) = msi_reference_set() else {
+        return (0, 0);
+    };
+    let Ok(entries) = std::fs::read_dir(msi_store()) else {
+        return (0, 0);
+    };
+    let week = std::time::Duration::from_secs(7 * 24 * 60 * 60);
+    let mut bytes = 0u64;
+    let mut count = 0u64;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if !(name.ends_with(".msi") || name.ends_with(".msp")) || references.contains(&name) {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else { continue };
+        let fresh = meta
+            .modified()
+            .ok()
+            .and_then(|at| at.elapsed().ok())
+            .map(|age| age < week)
+            .unwrap_or(true);
+        if fresh {
+            continue;
+        }
+        bytes += meta.len();
+        count += 1;
+    }
+    (bytes, count)
+}
+
+/// The part of an elevated script that takes the orphaned packages away. It reads the references
+/// again as an administrator, so a stale window cannot hand it a name it would regret.
+fn msi_sweep() -> String {
     format!(
-        "$ErrorActionPreference='SilentlyContinue';\
-         $refs=New-Object 'System.Collections.Generic.HashSet[string]';\
+        "$refs=New-Object 'System.Collections.Generic.HashSet[string]';\
          foreach($root in @('HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Installer\\UserData','HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Installer\\UserData','HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Installer\\UserData')){{\
            foreach($sid in (Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue)){{\
              foreach($prod in (Get-ChildItem -LiteralPath (Join-Path $sid.PSPath 'Products') -ErrorAction SilentlyContinue)){{\
                $lp=(Get-ItemProperty -LiteralPath (Join-Path $prod.PSPath 'InstallProperties') -Name LocalPackage -ErrorAction SilentlyContinue).LocalPackage;\
                if($lp){{[void]$refs.Add([IO.Path]::GetFileName($lp).ToLower())}};\
                foreach($patch in (Get-ChildItem -LiteralPath (Join-Path $prod.PSPath 'Patches') -ErrorAction SilentlyContinue)){{\
-                 foreach($prop in (Get-ItemProperty -LiteralPath $patch.Name -ErrorAction SilentlyContinue).PSObject.Properties){{\
+                 foreach($prop in (Get-ItemProperty -LiteralPath $patch.PSPath -ErrorAction SilentlyContinue).PSObject.Properties){{\
                    $value=[string]$prop.Value;\
                    if($value -match '\\.(msp|msi)$'){{[void]$refs.Add([IO.Path]::GetFileName($value).ToLower())}}\
                  }}\
@@ -439,20 +489,18 @@ fn msi_script(result: &Path) -> String {
              }}\
            }}\
          }};\
-         try{{$com=New-Object -ComObject WindowsInstaller.Installer;\
-           foreach($p in @($com.Products)){{\
-             $lp=$com.ProductInfo($p,'LocalPackage'); if($lp){{[void]$refs.Add([IO.Path]::GetFileName($lp).ToLower())}};\
-             foreach($pt in @($com.Patches($p))){{$pp=$com.PatchInfo($pt,'LocalPackage'); if($pp){{[void]$refs.Add([IO.Path]::GetFileName($pp).ToLower())}}}}\
-           }}}}catch{{}};\
-         $freed=0;$kept=0;\
          foreach($f in (Get-ChildItem -LiteralPath '{store}' -File -Force -ErrorAction SilentlyContinue)){{\
            if($f.Extension -notin '.msi','.msp'){{continue}};\
            if($refs.Contains($f.Name.ToLower())){{continue}};\
            if($f.LastWriteTime -gt (Get-Date).AddDays(-7)){{continue}};\
-           try{{Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop;$freed+=$f.Length}}catch{{$kept+=$f.Length}}\
-         }};\
-         \"freed=$freed`nkept=$kept\" | Set-Content -LiteralPath '{report}' -Encoding utf8"
+           Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue\
+         }};",
+        store = msi_store().display().to_string().replace('\'', "''")
     )
+}
+
+fn msi_script() -> String {
+    format!("$ErrorActionPreference='SilentlyContinue';{}", msi_sweep())
 }
 
 /// The older driver packages, the installer's own folders, the two `Package Cache`s and the
@@ -473,14 +521,7 @@ fn clear_package_cache() -> Result<ResidueFreed, String> {
         skipped += empty_contents(dir);
     }
     if !machine.is_empty() {
-        let mut script = String::from("$ErrorActionPreference='SilentlyContinue';");
-        for dir in &machine {
-            script.push_str(&format!(
-                " if (Test-Path -LiteralPath '{path}') {{ Get-ChildItem -LiteralPath '{path}' -Force | Remove-Item -Recurse -Force }};",
-                path = dir.display().to_string().replace('\'', "''")
-            ));
-        }
-        crate::elevate::run_elevated_wait(&script)?;
+        crate::elevate::run_elevated_wait(&package_cache_script(&machine))?;
     }
     let after: u64 = dirs.iter().map(|dir| size_of(dir)).sum();
     let freed = before.saturating_sub(after);
@@ -495,29 +536,34 @@ fn clear_package_cache() -> Result<ResidueFreed, String> {
     })
 }
 
-/// Which packages no product names any more — asked of an administrator, because only that reading
-/// sees the machine's own registry.
+/// The elevated half of the `Package Cache` sweep: the folder stays, its contents go.
+fn package_cache_script(dirs: &[&PathBuf]) -> String {
+    let mut script = String::from("$ErrorActionPreference='SilentlyContinue';");
+    for dir in dirs {
+        script.push_str(&format!(
+            " if (Test-Path -LiteralPath '{path}') {{ Get-ChildItem -LiteralPath '{path}' -Force | Remove-Item -Recurse -Force }};",
+            path = dir.display().to_string().replace('\'', "''")
+        ));
+    }
+    script
+}
+
+/// Which packages no product names any more. Readable without a prompt, so the window shows a
+/// number; deleting them is what needs the administrator.
 fn clear_msi_orphans() -> Result<ResidueFreed, String> {
-    let store = msi_store();
-    if !store.is_dir() {
+    let before = msi_orphans().0;
+    if before == 0 {
         return Ok(ResidueFreed::default());
     }
-    let report = std::env::temp_dir().join(format!("oczi-msi-{}.txt", std::process::id()));
-    let _ = std::fs::remove_file(&report);
-    let before = size_of(&store);
-    crate::elevate::run_elevated_wait(&msi_script(&report))?;
-    let (freed, kept) = read_msi_report(&report);
-    let _ = std::fs::remove_file(&report);
-    let after = size_of(&store);
-    // The report is the sweep's own accounting; the store is the second reading, and the smaller of
-    // the two is what the window may claim.
-    let freed = freed.min(before.saturating_sub(after));
+    crate::elevate::run_elevated_wait(&msi_script())?;
+    let after = msi_orphans().0;
+    let freed = before.saturating_sub(after);
     log::line(format!(
-        "clean msi orphans: {freed} B freed of {before} B, {kept} B refused"
+        "clean msi orphans: {freed} B freed of {before} B"
     ));
     Ok(ResidueFreed {
         msi: freed,
-        skipped: kept + after,
+        skipped: after,
         ..Default::default()
     })
 }
@@ -543,28 +589,108 @@ fn clear_dev() -> Result<ResidueFreed, String> {
     })
 }
 
-/// What the residue rows show before anything is clicked.
-pub fn residue_scan() -> Residue {
-    let nvidia = nvidia_residue();
-    let update: u64 = update_dirs().iter().map(|dir| size_of(dir)).sum();
-    let package_cache: u64 = package_cache_dirs().iter().map(|dir| size_of(dir)).sum();
-    let dev: u64 = dev_dirs().iter().map(|dir| size_of(dir)).sum();
-    log::line(format!(
-        "clean residue scan: {nvidia} B nvidia, {update} B windows update, {package_cache} B package cache, {dev} B dev caches"
-    ));
+/// What every pile weighs right now, by the same reading the rows show.
+fn pile_sizes() -> Residue {
     Residue {
-        nvidia,
-        update,
-        package_cache,
-        // Only an administrator can read which package a product still needs, so a plain scan says
-        // zero and the button is what finds out.
-        msi: 0,
-        dev,
+        nvidia: nvidia_residue(),
+        update: update_dirs().iter().map(|dir| size_of(dir)).sum(),
+        package_cache: package_cache_dirs().iter().map(|dir| size_of(dir)).sum(),
+        msi: msi_orphans().0,
+        dev: dev_dirs().iter().map(|dir| size_of(dir)).sum(),
     }
 }
 
-/// Clears one of the piles. One name per button, and none of them touches the temp folder, the
-/// Recycle Bin or a shader cache.
+/// Everything in one pass: the folders a plain process may empty are emptied here, and one
+/// administrator prompt carries the driver store, the update payloads, the machine's `Package Cache`
+/// and the orphaned installers. One prompt instead of four is the whole point of this button.
+fn clear_all() -> Result<ResidueFreed, String> {
+    let before = pile_sizes();
+    let mut skipped = 0u64;
+    for dir in nvidia_dirs() {
+        skipped += empty_contents(&dir);
+    }
+    let cache_dirs = package_cache_dirs();
+    let machine_cache: Vec<&PathBuf> = cache_dirs
+        .iter()
+        .filter(|dir| {
+            std::env::var_os("ProgramData")
+                .map(|program| dir.starts_with(PathBuf::from(program)))
+                .unwrap_or(false)
+        })
+        .collect();
+    let user_cache: Vec<&PathBuf> = cache_dirs
+        .iter()
+        .filter(|dir| !machine_cache.iter().any(|machine| machine == dir))
+        .collect();
+    for dir in &user_cache {
+        skipped += empty_contents(dir);
+    }
+    for dir in dev_dirs() {
+        skipped += empty_contents(&dir);
+    }
+
+    let mut script = String::from("$ErrorActionPreference='SilentlyContinue';");
+    let packages = older_packages();
+    if !packages.is_empty() {
+        for package in packages.iter().filter(|p| is_published(&p.published)) {
+            script.push_str(&format!(
+                " pnputil.exe /delete-driver {} /uninstall /force;",
+                package.published
+            ));
+        }
+    }
+    let dirs = update_dirs();
+    if !dirs.is_empty() {
+        script.push_str(" Stop-Service -Name wuauserv,bits -Force;");
+        for dir in &dirs {
+            script.push_str(&format!(
+                " if (Test-Path -LiteralPath '{path}') {{ Get-ChildItem -LiteralPath '{path}' -Force | Remove-Item -Recurse -Force }};",
+                path = dir.display().to_string().replace('\'', "''")
+            ));
+        }
+        script.push_str(" Start-Service -Name wuauserv,bits;");
+    }
+    if !machine_cache.is_empty() {
+        script.push_str(&package_cache_script(&machine_cache));
+    }
+    script.push_str(&msi_sweep());
+    crate::elevate::run_elevated_wait(&script)?;
+
+    let after = pile_sizes();
+    let freed = ResidueFreed {
+        nvidia: before.nvidia.saturating_sub(after.nvidia),
+        update: before.update.saturating_sub(after.update),
+        package_cache: before.package_cache.saturating_sub(after.package_cache),
+        msi: before.msi.saturating_sub(after.msi),
+        dev: before.dev.saturating_sub(after.dev),
+        skipped: skipped
+            + after.nvidia
+            + after.update
+            + after.package_cache
+            + after.msi
+            + after.dev,
+    };
+    log::line(format!(
+        "clean everything: {} B freed, {} B kept, {} old driver packages",
+        freed.nvidia + freed.update + freed.package_cache + freed.msi + freed.dev,
+        freed.skipped,
+        packages.len()
+    ));
+    Ok(freed)
+}
+
+/// What the residue rows show before anything is clicked.
+pub fn residue_scan() -> Residue {
+    let sizes = pile_sizes();
+    log::line(format!(
+        "clean residue scan: {} B nvidia, {} B windows update, {} B package cache, {} B msi orphans, {} B dev caches",
+        sizes.nvidia, sizes.update, sizes.package_cache, sizes.msi, sizes.dev
+    ));
+    sizes
+}
+
+/// Clears one of the piles, or all of them under one prompt. None of them touches the temp folder,
+/// the Recycle Bin or a shader cache.
 pub fn residue_run(kind: &str) -> Result<ResidueFreed, String> {
     match kind {
         "nvidia" => clear_nvidia(),
@@ -572,13 +698,13 @@ pub fn residue_run(kind: &str) -> Result<ResidueFreed, String> {
         "installer" => clear_package_cache(),
         "msi" => clear_msi_orphans(),
         "dev" => clear_dev(),
+        "all" => clear_all(),
         other => Err({
             // i18n-ok: a programming mistake, not a sentence for the window.
             format!("unknown residue: {other}")
         }),
     }
 }
-
 
 /// Empties a folder's contents and keeps the folder itself: NVIDIA and Windows both expect their
 /// cache folder to be there, and both rebuild what is missing. Returns what stayed behind.
@@ -786,27 +912,30 @@ mod tests {
         }
     }
 
-    /// The orphan script has to name the store it reads and leave anything written this week alone —
-    /// and it still may not touch a shader cache.
+    /// The orphan sweep names the store it reads, leaves anything written this week alone, and still
+    /// may not touch a shader cache.
     #[test]
-    fn the_msi_script_stays_inside_the_installer_folder() {
-        let report = std::path::Path::new("C:\\Temp\\oczi-msi-probe.txt");
-        let script = msi_script(report);
+    fn the_msi_sweep_stays_inside_the_installer_folder() {
+        let script = msi_script();
         assert!(script.contains("Installer"));
-        assert!(script.contains(".msi"));
+        assert!(script.contains(".msi") && script.contains(".msp"));
         assert!(script.contains("AddDays(-7)"), "a fresh setup is not an orphan");
-        assert!(script.contains("oczi-msi-probe.txt"));
-        assert!(!script.contains("DXCache"));
+        assert!(script.contains("PSPath"), "a registry key's Name has no drive in it");
+        assert!(!script.contains("DXCache") && !script.contains("GLCache"));
+        // A script whose braces do not balance never parses, and a sweep that never runs reports
+        // nothing while looking like it worked.
+        assert_eq!(
+            script.matches('{').count(),
+            script.matches('}').count(),
+            "unbalanced braces"
+        );
     }
 
-    /// An empty or missing store reads as zero rather than as an error, and the report parser never
-    /// invents a number.
+    /// A name that is not one of the piles is refused rather than guessed at.
     #[test]
-    fn an_absent_report_is_zero() {
-        assert_eq!(
-            read_msi_report(std::path::Path::new("C:\\Temp\\no-such-report.txt")),
-            (0, 0)
-        );
+    fn only_the_known_piles_have_names() {
+        assert!(residue_run("nvidia cache").is_err());
+        assert!(residue_run("").is_err());
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
-import { Bridge, type ResidueKind } from "../core/bridge";
+import { Bridge, type ResidueAction, type ResidueKind } from "../core/bridge";
 import {
   State,
   HEADERLESS_VIEWS,
@@ -1851,7 +1851,7 @@ async function residueScan() {
   State.notify();
 }
 
-async function residueRun(kind: ResidueKind) {
+async function residueRun(kind: ResidueAction) {
   const d = State.debloat;
   if (!d || d.residueBusy) return;
   d.residueBusy = kind;
@@ -1909,7 +1909,6 @@ const RESIDUE_ROWS: {
     size: "msi",
     note: "clean.msiSize",
     run: "clean.msiRun",
-    blind: true,
   },
   {
     kind: "dev",
@@ -1934,12 +1933,7 @@ function residueBlock(d: DebloatState): HTMLElement {
     return block;
   }
   for (const row of RESIDUE_ROWS) {
-    // The orphaned packages have no number to show: the registry that decides which one is an
-    // orphan belongs to an administrator, so the row says so instead of claiming zero.
-    const text =
-      row.kind === "msi" && sizes.msi === 0
-        ? t(row.note)
-        : t(row.note, bytes(sizes[row.size]));
+    const text = t(row.note, bytes(sizes[row.size]));
     block.append(
       h(
         "div",
@@ -1966,12 +1960,20 @@ function residueBlock(d: DebloatState): HTMLElement {
     );
   }
   const actions = h("div", { class: "tweaks-actions" });
+  actions.append(
+    h("button", {
+      class: "primary",
+      text: d.residueBusy === "all" ? t("clean.residueBusy") : t("clean.residueAll"),
+      disabled: d.residueBusy !== null,
+      onclick: () => void residueRun("all"),
+    }),
+  );
   for (const row of RESIDUE_ROWS) {
     // A blind row is always offered: what this process cannot read is not proof there is nothing
     // to clear, and the prompt is the only way to find out.
     actions.append(
       h("button", {
-        class: row.kind === "nvidia" ? "primary" : "ghost",
+        class: "ghost",
         text: d.residueBusy === row.kind ? t("clean.residueBusy") : t(row.run),
         disabled: d.residueBusy !== null || (!row.blind && sizes[row.size] === 0),
         onclick: () => void residueRun(row.kind),

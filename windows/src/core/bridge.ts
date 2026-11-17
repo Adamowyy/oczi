@@ -132,6 +132,9 @@ export interface CleanFreed {
 /** The leftover piles the Debloat window offers one row and one button each. */
 export type ResidueKind = "nvidia" | "update" | "installer" | "msi" | "dev";
 
+/** Every pile at once, under one administrator prompt. */
+export type ResidueAction = ResidueKind | "all";
+
 /** What the leftovers weigh, measured on their own. */
 export interface ResidueSizes {
   nvidia: number;
@@ -259,8 +262,9 @@ export const Bridge = {
   /** How much a driver update and a Windows update left behind — apart from the two piles above. */
   cleanResidueScan: () => callOrThrow<ResidueSizes>("clean_residue_scan"),
 
-  /** Clears one of the leftover piles; `update`, `installer` and `msi` ask for an administrator. */
-  cleanResidueRun: (kind: ResidueKind) =>
+  /** Clears one pile, or all of them; `update`, `installer`, `msi` and `all` ask for an
+   *  administrator. */
+  cleanResidueRun: (kind: ResidueAction) =>
     callOrThrow<ResidueFreed>("clean_residue_run", { kind }),
 
   /** Shows one of the two PC windows: `health` or `debloat`. */

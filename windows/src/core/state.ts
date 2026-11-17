@@ -1,7 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
-import type { PricesOffer, ResidueKind } from "./bridge";
+import type { PricesOffer, ResidueAction } from "./bridge";
 import type { EyeShape } from "../bot/engine";
 import type { Lang } from "./i18n";
 
@@ -257,7 +257,7 @@ export interface DebloatState {
    *  measured apart from the two piles so the button that empties those cannot take them by
    *  surprise. */
   residue: ResidueSizes | null;
-  residueBusy: ResidueKind | "scan" | null;
+  residueBusy: ResidueAction | "scan" | null;
   residueNote: { text: string } | null;
   residueFreed: ResidueFreed | null;
 }
