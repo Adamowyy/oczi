@@ -153,28 +153,40 @@ pub fn run() -> Freed {
     freed
 }
 
-/// Leftovers a driver install and a Windows update leave behind, measured apart from the two piles
-/// above: seven gigabytes of shader cache is not something a button called "empty both" may take
-/// with it.
+/// Leftovers a driver install, a Windows update, an installer and a dev toolchain leave behind,
+/// measured apart from the two piles above: shader cache is not something a button called "empty
+/// both" may take with it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Residue {
-    /// NVIDIA's shader caches and its downloaded driver packages, summed.
+    /// NVIDIA's downloaded driver packages and the older package in the driver store, summed.
     pub nvidia: u64,
     /// The payloads Windows Update has already installed, still sitting in `SoftwareDistribution`.
     pub update: u64,
+    /// `ProgramData\Package Cache` and `%LOCALAPPDATA%\Package Cache` — the installers kept for a
+    /// repair, which nothing rebuilds.
+    pub package_cache: u64,
+    /// Packages in `%SystemRoot%\Installer` that no registered product names any more. Only an
+    /// administrator can read the registry that decides it, so a plain process reads zero here.
+    pub msi: u64,
+    /// Cargo's downloaded crates, npm's and uv's caches — re-downloaded on the next build.
+    pub dev: u64,
 }
 
-/// What one of the two residue sweeps actually freed, measured the same way.
+/// What one of the residue sweeps actually freed, measured the same way.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResidueFreed {
     pub nvidia: u64,
     pub update: u64,
+    pub package_cache: u64,
+    pub msi: u64,
+    pub dev: u64,
     /// Bytes the sweep could not take — a file held open, or a folder only an administrator may
     /// empty and no prompt was answered.
     pub skipped: u64,
 }
+
 
 /// Where a driver update parks its leftovers: the folders a downloaded and an unpacked installer
 /// leave behind. The shader caches (`DXCache`, `GLCache`, `ComputeCache`) are deliberately not here
@@ -183,10 +195,14 @@ pub struct ResidueFreed {
 fn nvidia_dirs() -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = Vec::new();
     if let Some(program) = std::env::var_os("ProgramData") {
+        let program = PathBuf::from(program);
+        out.push(program.join("NVIDIA Corporation").join("Downloader"));
+        // Every driver update the NVIDIA App downloads and unpacks a fresh copy here.
         out.push(
-            PathBuf::from(program)
+            program
                 .join("NVIDIA Corporation")
-                .join("Downloader"),
+                .join("NVIDIA App")
+                .join("UpdateFramework"),
         );
     }
     // Where the installer unpacks a package it was handed by hand.
@@ -341,15 +357,228 @@ fn nvidia_residue() -> u64 {
     store + downloads
 }
 
-/// What the two residue rows show before anything is clicked.
+/// `Package Cache`: the installers an MSI-based setup keeps so it can be repaired or changed.
+/// Nothing ever cleans them up, and a removed program leaves its own copy behind.
+fn package_cache_dirs() -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    if let Some(program) = std::env::var_os("ProgramData") {
+        out.push(PathBuf::from(program).join("Package Cache"));
+    }
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        out.push(PathBuf::from(local).join("Package Cache"));
+    }
+    out.retain(|path| path.is_dir());
+    out
+}
+
+/// The caches a dev toolchain can rebuild without asking: cargo's downloaded crates (source and
+/// archive alike), npm's metadata, uv's wheels. Nothing is installed here, so nothing breaks.
+fn dev_dirs() -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        let local = PathBuf::from(local);
+        out.push(local.join("npm-cache"));
+        out.push(local.join("uv").join("cache"));
+    }
+    if let Some(roaming) = std::env::var_os("APPDATA") {
+        out.push(PathBuf::from(roaming).join("npm-cache"));
+    }
+    if let Some(home) = std::env::var_os("USERPROFILE") {
+        let registry = PathBuf::from(home).join(".cargo").join("registry");
+        out.push(registry.join("cache"));
+        out.push(registry.join("src"));
+    }
+    out.retain(|path| path.is_dir());
+    out
+}
+
+/// Where Windows keeps one copy of every package an installer has ever run.
+fn msi_store() -> PathBuf {
+    std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("C:\\Windows"))
+        .join("Installer")
+}
+
+/// The orphan report the administrator's script writes: what went and what it would not take.
+fn read_msi_report(path: &Path) -> (u64, u64) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return (0, 0);
+    };
+    let number = |key: &str| {
+        text.lines()
+            .find_map(|line| line.trim().strip_prefix(key))
+            .and_then(|rest| rest.trim().parse::<u64>().ok())
+            .unwrap_or(0)
+    };
+    (number("freed="), number("kept="))
+}
+
+/// The script that decides which packages are orphans and takes them. A package is an orphan only
+/// when no registered product in any context names it: the registry says which copy a product still
+/// needs for a repair, `WindowsInstaller.Installer` answers the same question through MSI, and the
+/// union of the two is what the sweep trusts. Anything written in the last week is left alone — a
+/// setup may be in the middle of installing.
+fn msi_script(result: &Path) -> String {
+    let report = result.display().to_string().replace('\'', "''");
+    let store = msi_store().display().to_string().replace('\'', "''");
+    format!(
+        "$ErrorActionPreference='SilentlyContinue';\
+         $refs=New-Object 'System.Collections.Generic.HashSet[string]';\
+         foreach($root in @('HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Installer\\UserData','HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Installer\\UserData','HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Installer\\UserData')){{\
+           foreach($sid in (Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue)){{\
+             foreach($prod in (Get-ChildItem -LiteralPath (Join-Path $sid.PSPath 'Products') -ErrorAction SilentlyContinue)){{\
+               $lp=(Get-ItemProperty -LiteralPath (Join-Path $prod.PSPath 'InstallProperties') -Name LocalPackage -ErrorAction SilentlyContinue).LocalPackage;\
+               if($lp){{[void]$refs.Add([IO.Path]::GetFileName($lp).ToLower())}};\
+               foreach($patch in (Get-ChildItem -LiteralPath (Join-Path $prod.PSPath 'Patches') -ErrorAction SilentlyContinue)){{\
+                 foreach($prop in (Get-ItemProperty -LiteralPath $patch.Name -ErrorAction SilentlyContinue).PSObject.Properties){{\
+                   $value=[string]$prop.Value;\
+                   if($value -match '\\.(msp|msi)$'){{[void]$refs.Add([IO.Path]::GetFileName($value).ToLower())}}\
+                 }}\
+               }}\
+             }}\
+           }}\
+         }};\
+         try{{$com=New-Object -ComObject WindowsInstaller.Installer;\
+           foreach($p in @($com.Products)){{\
+             $lp=$com.ProductInfo($p,'LocalPackage'); if($lp){{[void]$refs.Add([IO.Path]::GetFileName($lp).ToLower())}};\
+             foreach($pt in @($com.Patches($p))){{$pp=$com.PatchInfo($pt,'LocalPackage'); if($pp){{[void]$refs.Add([IO.Path]::GetFileName($pp).ToLower())}}}}\
+           }}}}catch{{}};\
+         $freed=0;$kept=0;\
+         foreach($f in (Get-ChildItem -LiteralPath '{store}' -File -Force -ErrorAction SilentlyContinue)){{\
+           if($f.Extension -notin '.msi','.msp'){{continue}};\
+           if($refs.Contains($f.Name.ToLower())){{continue}};\
+           if($f.LastWriteTime -gt (Get-Date).AddDays(-7)){{continue}};\
+           try{{Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop;$freed+=$f.Length}}catch{{$kept+=$f.Length}}\
+         }};\
+         \"freed=$freed`nkept=$kept\" | Set-Content -LiteralPath '{report}' -Encoding utf8"
+    )
+}
+
+/// The older driver packages, the installer's own folders, the two `Package Cache`s and the
+/// toolchain caches are all plain file work; only the driver store needs an administrator.
+fn clear_package_cache() -> Result<ResidueFreed, String> {
+    let dirs = package_cache_dirs();
+    let before: u64 = dirs.iter().map(|dir| size_of(dir)).sum();
+    let machine: Vec<&PathBuf> = dirs
+        .iter()
+        .filter(|dir| {
+            std::env::var_os("ProgramData")
+                .map(|program| dir.starts_with(PathBuf::from(program)))
+                .unwrap_or(false)
+        })
+        .collect();
+    let mut skipped = 0u64;
+    for dir in dirs.iter().filter(|dir| !machine.contains(dir)) {
+        skipped += empty_contents(dir);
+    }
+    if !machine.is_empty() {
+        let mut script = String::from("$ErrorActionPreference='SilentlyContinue';");
+        for dir in &machine {
+            script.push_str(&format!(
+                " if (Test-Path -LiteralPath '{path}') {{ Get-ChildItem -LiteralPath '{path}' -Force | Remove-Item -Recurse -Force }};",
+                path = dir.display().to_string().replace('\'', "''")
+            ));
+        }
+        crate::elevate::run_elevated_wait(&script)?;
+    }
+    let after: u64 = dirs.iter().map(|dir| size_of(dir)).sum();
+    let freed = before.saturating_sub(after);
+    log::line(format!(
+        "clean package cache: {freed} B freed of {before} B in {} folders, {skipped} B kept",
+        dirs.len()
+    ));
+    Ok(ResidueFreed {
+        package_cache: freed,
+        skipped: skipped + after,
+        ..Default::default()
+    })
+}
+
+/// Which packages no product names any more — asked of an administrator, because only that reading
+/// sees the machine's own registry.
+fn clear_msi_orphans() -> Result<ResidueFreed, String> {
+    let store = msi_store();
+    if !store.is_dir() {
+        return Ok(ResidueFreed::default());
+    }
+    let report = std::env::temp_dir().join(format!("oczi-msi-{}.txt", std::process::id()));
+    let _ = std::fs::remove_file(&report);
+    let before = size_of(&store);
+    crate::elevate::run_elevated_wait(&msi_script(&report))?;
+    let (freed, kept) = read_msi_report(&report);
+    let _ = std::fs::remove_file(&report);
+    let after = size_of(&store);
+    // The report is the sweep's own accounting; the store is the second reading, and the smaller of
+    // the two is what the window may claim.
+    let freed = freed.min(before.saturating_sub(after));
+    log::line(format!(
+        "clean msi orphans: {freed} B freed of {before} B, {kept} B refused"
+    ));
+    Ok(ResidueFreed {
+        msi: freed,
+        skipped: kept + after,
+        ..Default::default()
+    })
+}
+
+/// The toolchain caches; nothing here needs a prompt.
+fn clear_dev() -> Result<ResidueFreed, String> {
+    let dirs = dev_dirs();
+    let before: u64 = dirs.iter().map(|dir| size_of(dir)).sum();
+    let mut skipped = 0u64;
+    for dir in &dirs {
+        skipped += empty_contents(dir);
+    }
+    let after: u64 = dirs.iter().map(|dir| size_of(dir)).sum();
+    let freed = before.saturating_sub(after);
+    log::line(format!(
+        "clean dev caches: {freed} B freed of {before} B in {} folders",
+        dirs.len()
+    ));
+    Ok(ResidueFreed {
+        dev: freed,
+        skipped: skipped + after,
+        ..Default::default()
+    })
+}
+
+/// What the residue rows show before anything is clicked.
 pub fn residue_scan() -> Residue {
     let nvidia = nvidia_residue();
     let update: u64 = update_dirs().iter().map(|dir| size_of(dir)).sum();
+    let package_cache: u64 = package_cache_dirs().iter().map(|dir| size_of(dir)).sum();
+    let dev: u64 = dev_dirs().iter().map(|dir| size_of(dir)).sum();
     log::line(format!(
-        "clean residue scan: {nvidia} B nvidia, {update} B windows update"
+        "clean residue scan: {nvidia} B nvidia, {update} B windows update, {package_cache} B package cache, {dev} B dev caches"
     ));
-    Residue { nvidia, update }
+    Residue {
+        nvidia,
+        update,
+        package_cache,
+        // Only an administrator can read which package a product still needs, so a plain scan says
+        // zero and the button is what finds out.
+        msi: 0,
+        dev,
+    }
 }
+
+/// Clears one of the piles. One name per button, and none of them touches the temp folder, the
+/// Recycle Bin or a shader cache.
+pub fn residue_run(kind: &str) -> Result<ResidueFreed, String> {
+    match kind {
+        "nvidia" => clear_nvidia(),
+        "update" => clear_update(),
+        "installer" => clear_package_cache(),
+        "msi" => clear_msi_orphans(),
+        "dev" => clear_dev(),
+        other => Err({
+            // i18n-ok: a programming mistake, not a sentence for the window.
+            format!("unknown residue: {other}")
+        }),
+    }
+}
+
 
 /// Empties a folder's contents and keeps the folder itself: NVIDIA and Windows both expect their
 /// cache folder to be there, and both rebuild what is missing. Returns what stayed behind.
@@ -426,6 +655,7 @@ fn clear_nvidia() -> Result<ResidueFreed, String> {
         nvidia: freed,
         update: 0,
         skipped: skipped + after,
+        ..Default::default()
     })
 }
 
@@ -464,20 +694,8 @@ fn clear_update() -> Result<ResidueFreed, String> {
         nvidia: 0,
         update: freed,
         skipped: after,
+        ..Default::default()
     })
-}
-
-/// Clears one of the two piles. Two names, two buttons, and neither touches the temp folder or the
-/// Recycle Bin.
-pub fn residue_run(kind: &str) -> Result<ResidueFreed, String> {
-    match kind {
-        "nvidia" => clear_nvidia(),
-        "update" => clear_update(),
-        other => Err({
-            // i18n-ok: a programming mistake, not a sentence for the window.
-            format!("unknown residue: {other}")
-        }),
-    }
 }
 
 #[cfg(test)]
@@ -547,6 +765,48 @@ mod tests {
                 Some("DXCache" | "GLCache" | "ComputeCache")
             )
         }));
+    }
+
+    /// Only caches: nothing a toolchain keeps as its own install may end up in the dev sweep.
+    #[test]
+    fn the_dev_sweep_names_caches_and_nothing_installed() {
+        for dir in dev_dirs() {
+            let name = dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            assert!(
+                matches!(name.as_str(), "cache" | "src" | "npm-cache"),
+                "not a cache: {}",
+                dir.display()
+            );
+            assert!(!dir.ends_with(".cargo"), "the toolchains themselves stay");
+            assert!(!dir.ends_with(".rustup"));
+        }
+    }
+
+    /// The orphan script has to name the store it reads and leave anything written this week alone —
+    /// and it still may not touch a shader cache.
+    #[test]
+    fn the_msi_script_stays_inside_the_installer_folder() {
+        let report = std::path::Path::new("C:\\Temp\\oczi-msi-probe.txt");
+        let script = msi_script(report);
+        assert!(script.contains("Installer"));
+        assert!(script.contains(".msi"));
+        assert!(script.contains("AddDays(-7)"), "a fresh setup is not an orphan");
+        assert!(script.contains("oczi-msi-probe.txt"));
+        assert!(!script.contains("DXCache"));
+    }
+
+    /// An empty or missing store reads as zero rather than as an error, and the report parser never
+    /// invents a number.
+    #[test]
+    fn an_absent_report_is_zero() {
+        assert_eq!(
+            read_msi_report(std::path::Path::new("C:\\Temp\\no-such-report.txt")),
+            (0, 0)
+        );
     }
 
     #[test]

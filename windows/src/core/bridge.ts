@@ -129,16 +129,28 @@ export interface CleanFreed {
   skipped: number;
 }
 
-/** What a driver update and a Windows update left behind, measured on their own. */
+/** The leftover piles the Debloat window offers one row and one button each. */
+export type ResidueKind = "nvidia" | "update" | "installer" | "msi" | "dev";
+
+/** What the leftovers weigh, measured on their own. */
 export interface ResidueSizes {
   nvidia: number;
   update: number;
+  /** `Package Cache` in both spellings: the installers kept for a repair. */
+  packageCache: number;
+  /** Orphaned packages in `Windows\Installer`; zero until an administrator's sweep reads them. */
+  msi: number;
+  /** Cargo's crates, npm's and uv's caches — rebuilt on the next build. */
+  dev: number;
 }
 
 /** What one residue sweep freed. */
 export interface ResidueFreed {
   nvidia: number;
   update: number;
+  packageCache: number;
+  msi: number;
+  dev: number;
   skipped: number;
 }
 
@@ -247,8 +259,8 @@ export const Bridge = {
   /** How much a driver update and a Windows update left behind — apart from the two piles above. */
   cleanResidueScan: () => callOrThrow<ResidueSizes>("clean_residue_scan"),
 
-  /** Clears one of the two residue piles; `update` asks for an administrator. */
-  cleanResidueRun: (kind: "nvidia" | "update") =>
+  /** Clears one of the leftover piles; `update`, `installer` and `msi` ask for an administrator. */
+  cleanResidueRun: (kind: ResidueKind) =>
     callOrThrow<ResidueFreed>("clean_residue_run", { kind }),
 
   /** Shows one of the two PC windows: `health` or `debloat`. */

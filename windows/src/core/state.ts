@@ -1,7 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
-import type { PricesOffer } from "./bridge";
+import type { PricesOffer, ResidueKind } from "./bridge";
 import type { EyeShape } from "../bot/engine";
 import type { Lang } from "./i18n";
 
@@ -253,10 +253,11 @@ export interface DebloatState {
   /** A line under the sizes: "measured again", so a fast scan still shows it ran. */
   cleanNote: { text: string } | null;
   cleanFreed: CleanFreed | null;
-  /** Leftovers after a driver install and a Windows update, measured apart from the two piles so
-   *  the button that empties those cannot take them by surprise. */
+  /** Leftovers after a driver install, a Windows update, an installer and a dev toolchain,
+   *  measured apart from the two piles so the button that empties those cannot take them by
+   *  surprise. */
   residue: ResidueSizes | null;
-  residueBusy: "nvidia" | "update" | "scan" | null;
+  residueBusy: ResidueKind | "scan" | null;
   residueNote: { text: string } | null;
   residueFreed: ResidueFreed | null;
 }
@@ -323,16 +324,22 @@ export interface CleanFreed {
   skipped: number;
 }
 
-/** What a driver update and a Windows update left behind, measured on their own. */
+/** What the leftovers weigh, measured on their own. */
 export interface ResidueSizes {
   nvidia: number;
   update: number;
+  packageCache: number;
+  msi: number;
+  dev: number;
 }
 
 /** What one residue sweep freed. */
 export interface ResidueFreed {
   nvidia: number;
   update: number;
+  packageCache: number;
+  msi: number;
+  dev: number;
   skipped: number;
 }
 

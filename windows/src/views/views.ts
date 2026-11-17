@@ -2,7 +2,7 @@
 
 import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
-import { Bridge } from "../core/bridge";
+import { Bridge, type ResidueKind } from "../core/bridge";
 import {
   State,
   HEADERLESS_VIEWS,
@@ -11,6 +11,7 @@ import {
   type GameBarState,
   type StartupEntry,
   type TweakState,
+  type ResidueSizes,
 } from "../core/state";
 import { washRGBA, type IslandViewName, type Wash } from "../core/layout";
 import { t, type TextKey } from "../core/i18n";
@@ -1850,7 +1851,7 @@ async function residueScan() {
   State.notify();
 }
 
-async function residueRun(kind: "nvidia" | "update") {
+async function residueRun(kind: ResidueKind) {
   const d = State.debloat;
   if (!d || d.residueBusy) return;
   d.residueBusy = kind;
@@ -1870,6 +1871,55 @@ async function residueRun(kind: "nvidia" | "update") {
   State.notify();
 }
 
+/** One row per leftover pile: what it is called, which field measures it, and the button that
+ *  empties it. A pile that only an administrator can read carries no number until that sweep runs. */
+const RESIDUE_ROWS: {
+  kind: ResidueKind;
+  label: TextKey;
+  size: keyof ResidueSizes;
+  note: TextKey;
+  run: TextKey;
+  blind?: boolean;
+}[] = [
+  {
+    kind: "nvidia",
+    label: "clean.nvidia",
+    size: "nvidia",
+    note: "clean.nvidiaSize",
+    run: "clean.nvidiaRun",
+  },
+  {
+    kind: "update",
+    label: "clean.update",
+    size: "update",
+    note: "clean.updateSize",
+    run: "clean.updateRun",
+    blind: true,
+  },
+  {
+    kind: "installer",
+    label: "clean.installer",
+    size: "packageCache",
+    note: "clean.installerSize",
+    run: "clean.installerRun",
+  },
+  {
+    kind: "msi",
+    label: "clean.msi",
+    size: "msi",
+    note: "clean.msiSize",
+    run: "clean.msiRun",
+    blind: true,
+  },
+  {
+    kind: "dev",
+    label: "clean.dev",
+    size: "dev",
+    note: "clean.devSize",
+    run: "clean.devRun",
+  },
+];
+
 function residueBlock(d: DebloatState): HTMLElement {
   const block = h(
     "div",
@@ -1883,69 +1933,60 @@ function residueBlock(d: DebloatState): HTMLElement {
     );
     return block;
   }
-  block.append(
-    h(
-      "div",
-      { class: "game-row" },
+  for (const row of RESIDUE_ROWS) {
+    // The orphaned packages have no number to show: the registry that decides which one is an
+    // orphan belongs to an administrator, so the row says so instead of claiming zero.
+    const text =
+      row.kind === "msi" && sizes.msi === 0
+        ? t(row.note)
+        : t(row.note, bytes(sizes[row.size]));
+    block.append(
       h(
-        "span",
-        { class: "game-name" },
-        h("strong", { text: t("clean.nvidia") }),
-        h("span", { class: "pkg", text: t("clean.nvidiaSize", bytes(sizes.nvidia)) }),
+        "div",
+        { class: "game-row" },
+        h(
+          "span",
+          { class: "game-name" },
+          h("strong", { text: t(row.label) }),
+          h("span", { class: "pkg", text }),
+        ),
       ),
-    ),
-    h(
-      "div",
-      { class: "game-row" },
-      h(
-        "span",
-        { class: "game-name" },
-        h("strong", { text: t("clean.update") }),
-        h("span", { class: "pkg", text: t("clean.updateSize", bytes(sizes.update)) }),
-      ),
-    ),
-  );
+    );
+  }
   if (d.residueNote) {
     block.append(h("div", { class: "game-note", text: d.residueNote.text }));
   }
   if (d.residueFreed) {
+    const freed = RESIDUE_ROWS.reduce((sum, row) => sum + d.residueFreed![row.size], 0);
     block.append(
       h("div", {
         class: "game-note",
-        text: t(
-          "clean.residueFreed",
-          bytes(d.residueFreed.nvidia + d.residueFreed.update),
-          bytes(d.residueFreed.skipped),
-        ),
+        text: t("clean.residueFreed", bytes(freed), bytes(d.residueFreed.skipped)),
       }),
     );
   }
-  block.append(
-    h(
-      "div",
-      { class: "tweaks-actions" },
+  const actions = h("div", { class: "tweaks-actions" });
+  for (const row of RESIDUE_ROWS) {
+    // A blind row is always offered: what this process cannot read is not proof there is nothing
+    // to clear, and the prompt is the only way to find out.
+    actions.append(
       h("button", {
-        class: "primary",
-        text: d.residueBusy === "nvidia" ? t("clean.residueBusy") : t("clean.nvidiaRun"),
-        disabled: d.residueBusy !== null || sizes.nvidia === 0,
-        onclick: () => void residueRun("nvidia"),
+        class: row.kind === "nvidia" ? "primary" : "ghost",
+        text: d.residueBusy === row.kind ? t("clean.residueBusy") : t(row.run),
+        disabled: d.residueBusy !== null || (!row.blind && sizes[row.size] === 0),
+        onclick: () => void residueRun(row.kind),
       }),
-      h("button", {
-        class: "ghost",
-        text: d.residueBusy === "update" ? t("clean.residueBusy") : t("clean.updateRun"),
-        // Always offered: Windows may keep its payload folder unreadable for this process, so a zero
-        // on the row is not proof the folder is empty — the prompt is the only way to find out.
-        disabled: d.residueBusy !== null,
-        onclick: () => void residueRun("update"),
-      }),
-      h("button", {
-        class: "ghost",
-        text: t("clean.rescan"),
-        disabled: d.residueBusy !== null,
-        onclick: () => void residueScan(),
-      }),
-    ),
+    );
+  }
+  actions.append(
+    h("button", {
+      class: "ghost",
+      text: t("clean.rescan"),
+      disabled: d.residueBusy !== null,
+      onclick: () => void residueScan(),
+    }),
   );
+  block.append(actions);
   return block;
 }
 
