@@ -12,7 +12,8 @@ All notable changes to **Oczi** are recorded here.
 - Przy „Wyczyść wszystko" okno mówi, że Windows zapyta raz o zgodę administratora i że potem czyści
   się samo. Niebieskie okno PowerShell już się nie pokazuje — skrypt chodzi ukryty.
 - Autostart pokazuje też zadania systemowe startujące przy logowaniu (Hermes, GHelper, AMD, Google
-  i podobne), których wcześniej brakowało względem Menedżera zadań. Przełącznik wyłącza samo zadanie.
+  i podobne), których wcześniej brakowało względem Menedżera zadań. Przełącznik wyłącza samo zadanie,
+  a zadania, których nie da się przełączyć bez administratora, nie są w ogóle pokazywane.
 - Autostart nie pokazuje już składników samego Windows (Security Health i reszta z folderu Windows) —
   nikt ich nie wyłączy przez pomyłkę. Przy znanych nazwach jest jedna linia, co to jest.
 

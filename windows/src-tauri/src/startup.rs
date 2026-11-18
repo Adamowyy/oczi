@@ -459,9 +459,13 @@ fn windows_owned(program: &str) -> bool {
 /// tab lists these next to the Run entries, and reading only the Run keys left them out: the tab
 /// looked complete while a third of what actually starts was missing.
 fn task_entries() -> Vec<Entry> {
-    let script = "$ErrorActionPreference='SilentlyContinue'; \
+    // Only the tasks this user owns: one that runs as a group or as SYSTEM answers "access denied"
+    // to `schtasks /Change`, and a switch that cannot move has no business being on the list.
+    let script = "$ErrorActionPreference='SilentlyContinue'; $me=[Security.Principal.WindowsIdentity]::GetCurrent(); \
         Get-ScheduledTask | Where-Object { \
           $_.TaskPath -notlike '\\Microsoft\\*' -and \
+          -not $_.Principal.GroupId -and \
+          ($_.Principal.UserId -in @($me.Name, $me.Name.Split('\\')[-1], $me.User.Value)) -and \
           ($_.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger' -or $_.CimClass.CimClassName -eq 'MSFT_TaskBootTrigger' }) \
         } | ForEach-Object { \"{0}`t{1}`t{2}\" -f $_.TaskName, $_.TaskPath, $_.State }";
     let Ok(out) = crate::debloat::powershell(script) else {
