@@ -1254,9 +1254,9 @@ async fn startup_list() -> Vec<startup::Entry> {
 
 /// Flips one entry the way Task Manager does, then re-reads the whole list.
 #[tauri::command]
-async fn startup_set(name: String, on: bool) -> Result<Vec<startup::Entry>, String> {
+async fn startup_set(id: String, name: String, on: bool) -> Result<Vec<startup::Entry>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        startup::set(&name, on)?;
+        startup::set(&id, &name, on)?;
         Ok(startup::list())
     })
     .await

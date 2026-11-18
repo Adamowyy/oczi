@@ -113,6 +113,8 @@ export interface StartupEntry {
   command: string;
   on: boolean;
   missing: boolean;
+  /** Full path of a scheduled task; empty for everything else. */
+  id?: string;
   /** An i18n key explaining what the entry is, when the name alone says nothing. */
   hint?: string;
 }
@@ -252,8 +254,8 @@ export const Bridge = {
   startupList: () => callOrThrow<StartupEntry[]>("startup_list"),
 
   /** Flips one entry the way Task Manager does, then re-reads the list. */
-  startupSet: (name: string, on: boolean) =>
-    callOrThrow<StartupEntry[]>("startup_set", { name, on }),
+  startupSet: (name: string, on: boolean, id = "") =>
+    callOrThrow<StartupEntry[]>("startup_set", { id, name, on }),
 
   /** How much is in the temp folder and the Recycle Bin right now. */
   cleanScan: () => callOrThrow<CleanSizes>("clean_scan"),

@@ -1692,7 +1692,7 @@ async function startupAction(entry: StartupEntry, on: boolean) {
   d.startupBusy = entry.name;
   State.notify();
   try {
-    d.startup = await Bridge.startupSet(entry.name, on);
+    d.startup = await Bridge.startupSet(entry.name, on, entry.id ?? "");
     void Bridge.log(`startup ${on ? "on" : "off"}: ${entry.name}`);
   } catch (e) {
     d.startup = d.startup?.map((x) => (x.name === entry.name ? { ...x, on: !on } : x)) ?? null;

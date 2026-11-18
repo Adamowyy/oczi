@@ -308,6 +308,8 @@ export interface StartupEntry {
   command: string;
   on: boolean;
   missing: boolean;
+  /** Full path of a scheduled task; empty for everything else. */
+  id?: string;
   /** An i18n key explaining what the entry is, when the name alone says nothing. */
   hint?: string;
 }

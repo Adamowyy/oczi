@@ -422,6 +422,9 @@ pub struct Entry {
     pub missing: bool,
     /// An i18n key saying what this is, for the few entries worth explaining. Empty otherwise.
     pub hint: String,
+    /// The full path of a scheduled task, e.g. `\GoogleUser\GoogleUpdater\Task`. `schtasks` needs
+    /// it: a bare name only finds tasks that sit in the root folder. Empty for everything else.
+    pub id: String,
 }
 
 /// What a person is looking at, in one line, for the entries that turn up on most machines and
@@ -471,12 +474,14 @@ fn task_entries() -> Vec<Entry> {
             if name.is_empty() {
                 return None;
             }
+            let path = parts.next().unwrap_or("\\").trim();
             // `Ready` and `Running` are on, `Disabled` is what Task Manager shows as off.
-            let state = parts.nth(1).unwrap_or_default().trim();
+            let state = parts.next().unwrap_or_default().trim();
             Some(Entry {
                 name: name.to_string(),
                 source: "task".to_string(),
                 hint: hint_for(name).to_string(),
+                id: format!("{path}{name}"),
                 command: String::new(),
                 on: !state.eq_ignore_ascii_case("Disabled"),
                 missing: false,
@@ -508,6 +513,7 @@ pub fn list() -> Vec<Entry> {
                 on: switch.get(&name.to_lowercase()).copied().unwrap_or(true),
                 missing: matches!(file_state(program.as_deref()), "file MISSING"),
                 hint: hint_for(&name).to_string(),
+                id: String::new(),
                 name,
                 source: label.to_string(),
                 command: command.trim().to_string(),
@@ -528,6 +534,7 @@ pub fn list() -> Vec<Entry> {
                 on: switch.get(&name.to_lowercase()).copied().unwrap_or(true),
                 missing: false,
                 hint: hint_for(&name).to_string(),
+                id: String::new(),
                 command: entry.path().to_string_lossy().to_string(),
                 name,
                 source: label.to_string(),
@@ -546,9 +553,14 @@ pub fn list() -> Vec<Entry> {
 }
 
 /// Turns one entry on or off the way Task Manager does, and reports whether anything was written.
-pub fn set(name: &str, on: bool) -> Result<(), String> {
+pub fn set(id: &str, name: &str, on: bool) -> Result<(), String> {
     // A scheduled task has its own switch inside the Task Scheduler: the approval byte the Run and
     // folder entries use means nothing for it, and writing one would only look like it worked.
+    // The path is what `schtasks` needs — a task in a subfolder is invisible by bare name, which is
+    // exactly how a switch used to snap back.
+    if !id.is_empty() {
+        return set_task(id, on);
+    }
     if is_task(name) {
         return set_task(name, on);
     }
