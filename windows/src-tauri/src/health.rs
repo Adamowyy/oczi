@@ -2054,12 +2054,14 @@ pub fn scan(deep: bool) -> Report {
     let from_log = event_findings(&events, at, crash.as_ref().map(|c| c.boot_at));
     checks.push(check(
         "events",
+        // A log entry from before yesterday is history: it stays in the list, but a dot that says
+        // "worth a look" next to a machine at 100 % is a warning nobody can act on.
         if from_log.iter().any(|f| f.severity == "crit") {
             "bad"
-        } else if from_log.is_empty() {
-            "ok"
-        } else {
+        } else if from_log.iter().any(|f| f.severity == "warn") {
             "warn"
+        } else {
+            "ok"
         },
     ));
     findings.extend(from_log);

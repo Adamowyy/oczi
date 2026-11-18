@@ -914,7 +914,8 @@ function buildPc(actions: ViewActions): ViewHost {
       score.title = t("pc.openReport");
       const ago = Math.max(0, localNowSeconds() - report.at);
       when.textContent = t("pc.lastScan", agoText(ago));
-      const problems = report.findings.filter((f) => f.severity !== "info").length;
+      // `past` findings are history: the card lists them, the tile counts only what is wrong now.
+      const problems = report.findings.filter((f) => f.severity === "crit" || f.severity === "warn").length;
       note.textContent = problems > 0 ? t("pc.problems", problems) : t("pc.allGood");
       note.classList.toggle("bad", problems > 0);
     },
@@ -1139,7 +1140,9 @@ function buildReport(actions: ViewActions): ViewHost {
             "div",
             { class: "panel-checks" },
             ...report.checks.map((c) => {
-              const behind = checkFindings(c.id, report.findings);
+              const behind = checkFindings(c.id, report.findings).filter(
+                (f) => f.severity === "crit" || f.severity === "warn",
+              );
               const label = t(("health.check." + c.id) as TextKey);
               return h(
                 "span",
