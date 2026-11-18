@@ -9,7 +9,7 @@ use windows::Win32::Foundation::{ERROR_MORE_DATA, ERROR_SUCCESS};
 use windows::Win32::System::Environment::ExpandEnvironmentStringsW;
 use windows::Win32::System::Registry::{
     RegCloseKey, RegEnumKeyExW, RegEnumValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
-    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_SET_VALUE, KEY_WOW64_64KEY,
+    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_READ, KEY_SET_VALUE, KEY_WOW64_64KEY,
     REG_BINARY, REG_DWORD, REG_EXPAND_SZ, REG_SAM_FLAGS, REG_SZ, REG_VALUE_TYPE,
 };
 
@@ -504,6 +504,60 @@ fn open_write(root: HKEY, sub: &str) -> Option<Key> {
         return None;
     }
     Some(Key(out))
+}
+
+/// Opens a key for reading and writing. Only the StartupApproved keys are ever written, and only
+/// to put one entry's switch back where the settings say it belongs.
+fn open_read_write(root: HKEY, sub: &str) -> Option<Key> {
+    let path = wide(sub);
+    let mut out = HKEY::default();
+    if unsafe {
+        RegOpenKeyExW(
+            root,
+            PCWSTR(path.as_ptr()),
+            None,
+            KEY_QUERY_VALUE | KEY_SET_VALUE,
+            &mut out,
+        )
+    } != ERROR_SUCCESS
+    {
+        return None;
+    }
+    Some(Key(out))
+}
+
+/// The command Windows has for our own entry, when there is one. A Run value that still points
+/// at an older copy of the exe starts nothing, and the plugin's "is it on" answer is only about
+/// the value existing — so the target has to be read to be sure.
+pub(crate) fn own_run_command(name: &str) -> Option<String> {
+    const RUN: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
+    let key = open_read_write(HKEY_CURRENT_USER, RUN)?;
+    let (_, data) = read(&key, name)?;
+    let text = String::from_utf16_lossy(
+        &data
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect::<Vec<u16>>(),
+    );
+    Some(text.trim_end_matches('\0').to_string())
+}
+
+/// Puts Task Manager's switch for one entry back on, and only when it is off. An upgrade runs the
+/// previous build's uninstaller, which can take the Run value with it, and the switch then stays
+/// where Windows left it: the settings toggle reads on while nothing starts.
+pub(crate) fn switch_on_if_off(name: &str) -> bool {
+    const APPROVED: &str =
+        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run";
+    let Some(key) = open_read_write(HKEY_CURRENT_USER, APPROVED) else {
+        return false;
+    };
+    let off = read(&key, name)
+        .map(|(_, data)| data.first() == Some(&3))
+        .unwrap_or(false);
+    if !off {
+        return false;
+    }
+    switch(name, true).is_ok()
 }
 
 /// Switches an autostart entry off the way Task Manager does: a 12-byte value under

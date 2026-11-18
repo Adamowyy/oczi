@@ -18,6 +18,8 @@ All notable changes to **Oczi** are recorded here.
   (ok. 47 MB) do końca sesji.
 - Liczby komputera i stan odtwarzacza odświeżają się rzadko, gdy wyspa jest złożona (30 s i 12 s),
   i wracają do 5 s i 2 s, gdy na nie patrzysz.
+- Uruchamianie przy starcie jest pilnowane przy każdym uruchomieniu: aktualizacja nie zostawia już
+  przełącznika zaznaczonego, ale bez wpisu w Windows.
 
 ## 0.5.10 — 2026-11-17
 

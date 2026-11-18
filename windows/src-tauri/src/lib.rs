@@ -1617,6 +1617,31 @@ pub fn run() {
             // The price card is emitted from a tool call, which has no window handle of its own.
             let _ = APP.set(handle.clone());
             tray::build(&handle, &loaded.language)?;
+            // Autostart is a promise the settings window made, and an upgrade can break it
+            // without touching the settings: the old build's uninstaller takes the Run value
+            // with it, and Task Manager's switch can be left at "off". Both are put back on
+            // every launch, so the toggle never reads on while Windows starts nothing.
+            if loaded.autostart {
+                let manager = handle.autolaunch();
+                let name = handle.package_info().name.clone();
+                let mut repair = !manager.is_enabled().unwrap_or(false);
+                if !repair {
+                    // The value can also survive pointing at a copy that is no longer there.
+                    let expected = std::env::current_exe().unwrap_or_default();
+                    let pointed = startup::own_run_command(&name).unwrap_or_default();
+                    repair = !pointed
+                        .to_lowercase()
+                        .contains(&expected.to_string_lossy().to_lowercase());
+                }
+                if repair {
+                    if manager.enable().is_ok() {
+                        log::line("autostart: entry restored".to_string());
+                    }
+                }
+                if startup::switch_on_if_off(&name) {
+                    log::line("autostart: Task Manager switch back on".to_string());
+                }
+            }
             // Only the island is built here: every other window is built the first time it is
             // opened, so a page nobody uses costs no renderer. See ensure_settings_window.
             if let Some(win) = island::window(&handle) {
