@@ -173,7 +173,7 @@ function gamesSection(): HTMLElement {
     h("div", { class: "hint", text: t("debloat.gamesHint") }),
   );
   if (!game) {
-    card.append(h("div", { class: "hint", text: "…" }));
+    card.append(h("div", { class: "hint", text: t("debloat.loading") }));
     return card;
   }
   card.append(barRow(game), captureRow(game));
@@ -265,7 +265,7 @@ function paint() {
 
   if (loading) {
     root.append(gamesSection());
-    root.append(h("section", {}, h("div", { class: "hint", text: "…" })));
+    root.append(h("section", {}, h("div", { class: "hint", text: t("debloat.loading") })));
     return;
   }
 
@@ -381,27 +381,32 @@ function paint() {
 async function load() {
   loading = true;
   paint();
-  try {
-    items = await Bridge.debloatList();
-    history = (await Bridge.debloatHistory()) ?? [];
-    // A package already gone cannot stay ticked: the list is what Windows reports right now.
-    ticked = new Set(items.filter((i) => i.tier === "safe").map((i) => i.name));
-    void Bridge.log(`debloat window: ${items.length} offerable packages`);
-  } catch (e) {
-    result = {
-      removed: [],
-      failed: [],
-      error: e instanceof Error ? e.message : String(e),
-    };
-  }
+  // Three readings, three separate calls, all at once: in sequence the window sat on its loading
+  // line for the length of three PowerShell round trips and looked stuck.
+  const packages = Bridge.debloatList()
+    .then((list) => {
+      items = list;
+      // A package already gone cannot stay ticked: the list is what Windows reports right now.
+      ticked = new Set(items.filter((i) => i.tier === "safe").map((i) => i.name));
+      void Bridge.log(`debloat window: ${items.length} offerable packages`);
+    })
+    .catch((e) => {
+      result = { removed: [], failed: [], error: e instanceof Error ? e.message : String(e) };
+    });
+  const historyReading = Bridge.debloatHistory().then((h) => {
+    history = h ?? [];
+  });
   // The gaming card is its own reading and its own failure: a registry or Appx answer that comes
   // back empty leaves the package list above untouched rather than blanking the window.
-  try {
-    game = await Bridge.gamebarStatus();
-  } catch (e) {
-    game = null;
-    gameNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
-  }
+  const gaming = Bridge.gamebarStatus()
+    .then((g) => {
+      game = g;
+    })
+    .catch((e) => {
+      game = null;
+      gameNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+    });
+  await Promise.all([packages, historyReading, gaming]);
   loading = false;
   paint();
 }

@@ -422,6 +422,38 @@ pub struct Entry {
     pub missing: bool,
 }
 
+/// Scheduled tasks Windows starts at logon or boot, minus Microsoft's own. Task Manager's Startup
+/// tab lists these next to the Run entries, and reading only the Run keys left them out: the tab
+/// looked complete while a third of what actually starts was missing.
+fn task_entries() -> Vec<Entry> {
+    let script = "$ErrorActionPreference='SilentlyContinue'; \
+        Get-ScheduledTask | Where-Object { \
+          $_.TaskPath -notlike '\\Microsoft\\*' -and \
+          ($_.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger' -or $_.CimClass.CimClassName -eq 'MSFT_TaskBootTrigger' }) \
+        } | ForEach-Object { \"{0}`t{1}`t{2}\" -f $_.TaskName, $_.TaskPath, $_.State }";
+    let Ok(out) = crate::debloat::powershell(script) else {
+        return Vec::new();
+    };
+    out.lines()
+        .filter_map(|line| {
+            let mut parts = line.split('\t');
+            let name = parts.next()?.trim();
+            if name.is_empty() {
+                return None;
+            }
+            // `Ready` and `Running` are on, `Disabled` is what Task Manager shows as off.
+            let state = parts.nth(1).unwrap_or_default().trim();
+            Some(Entry {
+                name: name.to_string(),
+                source: "task".to_string(),
+                command: String::new(),
+                on: !state.eq_ignore_ascii_case("Disabled"),
+                missing: false,
+            })
+        })
+        .collect()
+}
+
 /// Everything Windows would start at logon, switched or not, in one list the window can draw.
 pub fn list() -> Vec<Entry> {
     let switch = switches();
@@ -466,6 +498,7 @@ pub fn list() -> Vec<Entry> {
             });
         }
     }
+    out.extend(task_entries());
     // Named the same way the windows are read: user entries first, then the machine's.
     out.sort_by(|a, b| {
         let rank = |source: &str| if source.starts_with("user") { 0 } else { 1 };
@@ -478,7 +511,45 @@ pub fn list() -> Vec<Entry> {
 
 /// Turns one entry on or off the way Task Manager does, and reports whether anything was written.
 pub fn set(name: &str, on: bool) -> Result<(), String> {
+    // A scheduled task has its own switch inside the Task Scheduler: the approval byte the Run and
+    // folder entries use means nothing for it, and writing one would only look like it worked.
+    if is_task(name) {
+        return set_task(name, on);
+    }
     switch(name, on)
+}
+
+/// True when Windows has a scheduled task by that name.
+fn is_task(name: &str) -> bool {
+    let script = format!(
+        "if (Get-ScheduledTask -TaskName '{}' -ErrorAction SilentlyContinue) {{ 'yes' }}",
+        name.replace('\'', "''")
+    );
+    crate::debloat::powershell(&script)
+        .map(|out| out.trim() == "yes")
+        .unwrap_or(false)
+}
+
+fn set_task(name: &str, on: bool) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let verb = if on { "/ENABLE" } else { "/DISABLE" };
+    let output = std::process::Command::new("schtasks.exe")
+        .args(["/Change", "/TN", name, verb])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("schtasks: {e}"))?;
+    if output.status.success() {
+        crate::log::line(format!("startup task {}: {name}", if on { "on" } else { "off" }));
+        Ok(())
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if err.is_empty() {
+            format!("schtasks exit {:?}", output.status.code())
+        } else {
+            err
+        })
+    }
 }
 
 /// The two Startup folders, in one place because both this file's readers and its switch share them.

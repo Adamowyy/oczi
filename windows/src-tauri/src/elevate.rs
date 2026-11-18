@@ -52,7 +52,7 @@ fn launch(script: &str, wait: bool) -> Result<(), String> {
         .flat_map(|unit| unit.to_le_bytes())
         .collect();
     let command = format!(
-        "Start-Process -FilePath 'powershell.exe' -Verb RunAs {} -ArgumentList \
+        "Start-Process -FilePath 'powershell.exe' -Verb RunAs -WindowStyle Hidden {} -ArgumentList \
          '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand','{}'",
         if wait { "-Wait" } else { "" },
         base64(&utf16)

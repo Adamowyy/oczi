@@ -57,7 +57,7 @@ function findingRow(f: HealthFinding): HTMLElement {
       text: t("health.fixYes"),
       onclick: () => {
         ask.style.display = "none";
-        result.textContent = "…";
+        result.textContent = t("debloat.loading");
         void Bridge.healthFix(f.action, f.arg)
           .then((message) => {
             result.textContent = message || t("health.fixDone", f.subject);

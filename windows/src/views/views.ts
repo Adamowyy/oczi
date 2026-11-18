@@ -1261,78 +1261,50 @@ async function loadDebloat() {
     residueFreed: previous?.residueFreed ?? null,
   };
   State.notify();
-  try {
-    const items = await Bridge.debloatList();
-    const history = (await Bridge.debloatHistory()) ?? [];
-    // Each of these is its own reading and its own failure: a table that will not load must not
-    // take the package list down with it.
-    const game = await Bridge.gamebarStatus().catch(() => null);
-    const tweaks = await Bridge.tweaksList().catch(() => null);
-    const changes = (await Bridge.tweaksHistory()) ?? [];
-    const startup = await Bridge.startupList().catch(() => null);
-    const clean = await Bridge.cleanScan().catch(() => null);
-    // The residue rows are their own reading and their own failure: a folder Windows will not let
-    // this process measure must not take the two piles down with it.
-    const residue = await Bridge.cleanResidueScan().catch(() => null);
-    // A fresh reading is the truth about what is installed, so the ticks start from it: the safe
-    // packages pre-ticked, the careful ones never.
-    State.debloat = {
-      items,
-      history,
-      ticked: items.filter((i) => i.tier === "safe").map((i) => i.name),
-      loading: false,
-      busy: false,
-      pending: [],
-      result: State.debloat?.result ?? null,
-      tab: State.debloat?.tab ?? "packages",
-      game,
-      gameBusy: null,
-      gameNote: State.debloat?.gameNote ?? null,
-      tweaks,
-      tweakBusy: null,
-      tweakNote: State.debloat?.tweakNote ?? null,
-      changes,
-      startup,
-      startupBusy: null,
-      clean,
-      cleanBusy: false,
-      cleanNote: State.debloat?.cleanNote ?? null,
-      cleanFreed: State.debloat?.cleanFreed ?? null,
-      residue,
-      residueBusy: null,
-      residueNote: State.debloat?.residueNote ?? null,
-      residueFreed: State.debloat?.residueFreed ?? null,
-    };
-  } catch (e) {
-    State.debloat = {
-      items: [],
-      history: [],
-      ticked: [],
-      loading: false,
-      busy: false,
-      pending: [],
-      result: { removed: [], failed: [], error: e instanceof Error ? e.message : String(e) },
-      tab: State.debloat?.tab ?? "packages",
-      game: State.debloat?.game ?? null,
-      gameBusy: null,
-      gameNote: State.debloat?.gameNote ?? null,
-      tweaks: State.debloat?.tweaks ?? null,
-      tweakBusy: null,
-      tweakNote: State.debloat?.tweakNote ?? null,
-      changes: State.debloat?.changes ?? [],
-      startup: State.debloat?.startup ?? null,
-      startupBusy: null,
-      clean: State.debloat?.clean ?? null,
-      cleanBusy: false,
-      cleanNote: State.debloat?.cleanNote ?? null,
-      cleanFreed: State.debloat?.cleanFreed ?? null,
-      residue: State.debloat?.residue ?? null,
-      residueBusy: null,
-      residueNote: State.debloat?.residueNote ?? null,
-      residueFreed: State.debloat?.residueFreed ?? null,
-    };
-  }
-  State.notify();
+  // Every reading is its own call and its own failure, and they run together. In sequence they
+  // made the window look dead for the length of eight PowerShell round trips, and the package
+  // list — the only thing the first tab needs — waited behind all of them.
+  const patch = (part: Partial<DebloatState>) => {
+    if (!State.debloat) return;
+    State.debloat = { ...State.debloat, ...part };
+    State.notify();
+  };
+  const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+  // A fresh reading is the truth about what is installed, so the ticks start from it: the safe
+  // packages pre-ticked, the careful ones never.
+  void Bridge.debloatList()
+    .then((items) =>
+      patch({
+        items,
+        ticked: items.filter((i) => i.tier === "safe").map((i) => i.name),
+        loading: false,
+      }),
+    )
+    .catch((e) => patch({ loading: false, result: { removed: [], failed: [], error: why(e) } }));
+  void Bridge.debloatHistory()
+    .then((history) => patch({ history: history ?? [] }))
+    .catch(() => {});
+  void Bridge.gamebarStatus()
+    .then((game) => patch({ game }))
+    .catch(() => patch({ game: null }));
+  void Bridge.tweaksList()
+    .then((tweaks) => patch({ tweaks }))
+    .catch(() => patch({ tweaks: null }));
+  void Bridge.tweaksHistory()
+    .then((changes) => patch({ changes: changes ?? [] }))
+    .catch(() => {});
+  void Bridge.startupList()
+    .then((startup) => patch({ startup }))
+    .catch(() => {});
+  void Bridge.cleanScan()
+    .then((clean) => patch({ clean }))
+    .catch(() => {});
+  // The residue rows are their own reading and their own failure: a folder Windows will not let
+  // this process measure must not take the two piles down with it.
+  void Bridge.cleanResidueScan()
+    .then((residue) => patch({ residue }))
+    .catch(() => {});
 }
 
 /** One row, one button: each direction is a single command, so the switches and the package move
@@ -1410,7 +1382,7 @@ function gameBlock(d: DebloatState): HTMLElement {
     h("div", { class: "game-eyebrow", text: t("debloat.games") }),
   );
   if (!g) {
-    block.append(h("div", { class: "game-note", text: "…" }));
+    block.append(h("div", { class: "game-note", text: t("debloat.loading") }));
     return block;
   }
   block.append(gameBarRow(d, g));
@@ -1598,7 +1570,7 @@ function tweakRow(d: DebloatState, tweak: TweakState): HTMLElement {
 function tweaksBlock(d: DebloatState): HTMLElement {
   const block = h("div", { class: "tweak-group" });
   if (!d.tweaks) {
-    block.append(h("div", { class: "game-note", text: "…" }));
+    block.append(h("div", { class: "game-note", text: t("debloat.loading") }));
     return block;
   }
   const on = d.tweaks.filter((tweak) => tweak.on).length;
@@ -1729,7 +1701,7 @@ async function startupAction(entry: StartupEntry, on: boolean) {
 function startupBlock(d: DebloatState): HTMLElement {
   const block = h("div", { class: "tweak-group" });
   if (!d.startup) {
-    block.append(h("div", { class: "game-note", text: "…" }));
+    block.append(h("div", { class: "game-note", text: t("debloat.loading") }));
     return block;
   }
   const on = d.startup.filter((entry) => entry.on).length;
@@ -1928,7 +1900,7 @@ function residueBlock(d: DebloatState): HTMLElement {
   const sizes = d.residue;
   if (!sizes) {
     block.append(
-      h("div", { class: "game-note", text: d.residueBusy ? t("clean.scanning") : "…" }),
+      h("div", { class: "game-note", text: d.residueBusy ? t("clean.scanning") : t("debloat.loading") }),
     );
     return block;
   }
@@ -1958,6 +1930,11 @@ function residueBlock(d: DebloatState): HTMLElement {
         text: t("clean.residueFreed", bytes(freed), bytes(d.residueFreed.skipped)),
       }),
     );
+  }
+  if (d.residueBusy === "all") {
+    // The one window that will appear is the Windows permission prompt; saying so first is what
+    // keeps a silent, minutes-long sweep from looking like it did nothing or broke something.
+    block.append(h("div", { class: "game-note", text: t("clean.residueAdmin") }));
   }
   const actions = h("div", { class: "tweaks-actions" });
   actions.append(
@@ -2001,7 +1978,9 @@ function cleanBlock(d: DebloatState): HTMLElement {
   );
   const sizes = d.clean;
   if (!sizes) {
-    block.append(h("div", { class: "game-note", text: d.cleanBusy ? t("clean.scanning") : "…" }));
+    block.append(
+      h("div", { class: "game-note", text: d.cleanBusy ? t("clean.scanning") : t("debloat.loading") }),
+    );
     return block;
   }
   block.append(
@@ -2167,7 +2146,7 @@ function buildDebloat(actions: ViewActions): ViewHost {
       );
 
       if (!d || d.loading) {
-        scroll.append(tabs, h("div", { class: "panel-advice", text: "…" }));
+        scroll.append(tabs, h("div", { class: "panel-advice", text: t("debloat.loading") }));
         return;
       }
 

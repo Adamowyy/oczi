@@ -2,6 +2,18 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.13 — 2026-11-18
+
+**Karta PC otwiera się od razu, a czyszczenie mówi, co robi.**
+
+- Wszystkie odczyty karty PC (pakiety, gry, przełączniki, autostart, kosz, pozostałości) idą naraz
+  i każde pokazuje się, gdy tylko dotrze — zamiast czekać w kolejce, przez co okno wyglądało na martwe.
+- Zamiast „…" jest napisane, co się dzieje, więc pierwsze wejście w Debloat nie wygląda na zawieszone.
+- Przy „Wyczyść wszystko" okno mówi, że Windows zapyta raz o zgodę administratora i że potem czyści
+  się samo. Niebieskie okno PowerShell już się nie pokazuje — skrypt chodzi ukryty.
+- Autostart pokazuje też zadania systemowe startujące przy logowaniu (Hermes, GHelper, AMD, Google
+  i podobne), których wcześniej brakowało względem Menedżera zadań. Przełącznik wyłącza samo zadanie.
+
 ## 0.5.12 — 2026-11-18
 
 **Oczi aktualizuje się sama, a w spoczynku oddaje kartę graficzną.**
