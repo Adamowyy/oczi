@@ -1731,6 +1731,7 @@ function startupBlock(d: DebloatState): HTMLElement {
             class: "pkg",
             text: entry.missing ? t("startup.missing") : entry.command || entry.source,
           }),
+          entry.hint ? h("span", { class: "pkg", text: t(entry.hint as TextKey) }) : null,
         ),
         h("button", {
           class: entry.on ? "switch on" : "switch",

@@ -113,6 +113,8 @@ export interface StartupEntry {
   command: string;
   on: boolean;
   missing: boolean;
+  /** An i18n key explaining what the entry is, when the name alone says nothing. */
+  hint?: string;
 }
 
 /** What is sitting in the temp folder and the Recycle Bin. */

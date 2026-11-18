@@ -420,6 +420,36 @@ pub struct Entry {
     pub on: bool,
     /// The program is no longer on the disk, so this entry starts nothing.
     pub missing: bool,
+    /// An i18n key saying what this is, for the few entries worth explaining. Empty otherwise.
+    pub hint: String,
+}
+
+/// What a person is looking at, in one line, for the entries that turn up on most machines and
+/// whose names say nothing. The text lives in the i18n tables; this only picks the key.
+fn hint_for(name: &str) -> &'static str {
+    let lower = name.to_lowercase();
+    if lower.starts_with("startcn") || lower.starts_with("startdvr") || lower.contains("amd") {
+        "startup.hint.amd"
+    } else if lower.starts_with("cua-driver") || lower.starts_with("hermes") {
+        "startup.hint.hermes"
+    } else if lower.starts_with("googleupdate") {
+        "startup.hint.google"
+    } else if lower.starts_with("ghelper") || lower.contains("_fix") || lower.contains("asus") {
+        "startup.hint.asus"
+    } else if lower.starts_with("rtkaud") || lower.starts_with("realtek") {
+        "startup.hint.realtek"
+    } else {
+        ""
+    }
+}
+
+/// Windows' own components live in the Windows folder, and switching one off is how a machine
+/// ends up without its security tray or its audio. They are not offered at all.
+fn windows_owned(program: &str) -> bool {
+    let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
+    program
+        .to_lowercase()
+        .starts_with(&format!("{}\\", windir.to_lowercase()))
 }
 
 /// Scheduled tasks Windows starts at logon or boot, minus Microsoft's own. Task Manager's Startup
@@ -446,6 +476,7 @@ fn task_entries() -> Vec<Entry> {
             Some(Entry {
                 name: name.to_string(),
                 source: "task".to_string(),
+                hint: hint_for(name).to_string(),
                 command: String::new(),
                 on: !state.eq_ignore_ascii_case("Disabled"),
                 missing: false,
@@ -470,9 +501,13 @@ pub fn list() -> Vec<Entry> {
                 .and_then(|(kind, data)| text_of(kind, &data))
                 .unwrap_or_default();
             let program = program_of(&command);
+            if program.as_deref().map(windows_owned).unwrap_or(false) {
+                continue;
+            }
             out.push(Entry {
                 on: switch.get(&name.to_lowercase()).copied().unwrap_or(true),
                 missing: matches!(file_state(program.as_deref()), "file MISSING"),
+                hint: hint_for(&name).to_string(),
                 name,
                 source: label.to_string(),
                 command: command.trim().to_string(),
@@ -492,6 +527,7 @@ pub fn list() -> Vec<Entry> {
             out.push(Entry {
                 on: switch.get(&name.to_lowercase()).copied().unwrap_or(true),
                 missing: false,
+                hint: hint_for(&name).to_string(),
                 command: entry.path().to_string_lossy().to_string(),
                 name,
                 source: label.to_string(),
@@ -763,6 +799,28 @@ pub fn text() -> String {
         for line in folders {
             out.push_str(&line);
             out.push('\n');
+        }
+    }
+
+    // The window's own view, so the tab can be checked from a terminal: Windows' components are
+    // left out of it, and the hint key is what the row explains itself with.
+    out.push_str("\nAutostart tab (Windows' own components left out):\n");
+    let listed = list();
+    if listed.is_empty() {
+        out.push_str("- (nothing)\n");
+    } else {
+        for entry in listed {
+            out.push_str(&format!(
+                "- {} ({}){}{}\n",
+                entry.name,
+                entry.source,
+                if entry.on { "" } else { ", off" },
+                if entry.hint.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — {}", entry.hint)
+                }
+            ));
         }
     }
 

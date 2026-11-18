@@ -315,6 +315,11 @@ const EN = {
   "startup.missing": "the program is gone — starts nothing",
   "startup.on": "Starts at logon",
   "startup.off": "Does not start",
+  "startup.hint.amd": "AMD Radeon: its own panel tasks. The card keeps working without them, the Adrenalin extras stop.",
+  "startup.hint.hermes": "Hermes: the driver behind computer control. Turning it off breaks that, nothing else.",
+  "startup.hint.google": "Google Update: keeps Chrome and the other Google programs current. Worth leaving on.",
+  "startup.hint.asus": "ASUS and GHelper: fans and the laptop profile. Without them the default profile runs.",
+  "startup.hint.realtek": "Realtek: sound. Turning it off can lose the audio device after a restart.",
   "debloat.loading": "Reading what is installed…",
   // Cleanup: two piles, measured before and after.
   "clean.title": "Two piles worth emptying",
@@ -853,6 +858,11 @@ const PL: Record<TextKey, string> = {
   "startup.missing": "programu nie ma — nic nie uruchomi",
   "startup.on": "Startuje przy logowaniu",
   "startup.off": "Nie startuje",
+  "startup.hint.amd": "AMD Radeon: własne zadania panelu. Karta działa bez nich, kończą się dodatki Adrenalina.",
+  "startup.hint.hermes": "Hermes: sterownik do sterowania komputerem. Wyłączenie psuje tylko to.",
+  "startup.hint.google": "Google Update: pilnuje aktualizacji Chrome i innych programów Google. Lepiej zostawić.",
+  "startup.hint.asus": "ASUS i GHelper: wentylatory i profil laptopa. Bez nich działa profil domyślny.",
+  "startup.hint.realtek": "Realtek: dźwięk. Wyłączenie potrafi zgubić kartę dźwiękową po restarcie.",
   "debloat.loading": "Czytam, co jest zainstalowane…",
   // Sprzątanie: dwie góry, mierzone przed i po.
   "clean.title": "Dwie góry do wywiezienia",

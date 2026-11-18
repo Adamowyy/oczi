@@ -13,6 +13,8 @@ All notable changes to **Oczi** are recorded here.
   się samo. Niebieskie okno PowerShell już się nie pokazuje — skrypt chodzi ukryty.
 - Autostart pokazuje też zadania systemowe startujące przy logowaniu (Hermes, GHelper, AMD, Google
   i podobne), których wcześniej brakowało względem Menedżera zadań. Przełącznik wyłącza samo zadanie.
+- Autostart nie pokazuje już składników samego Windows (Security Health i reszta z folderu Windows) —
+  nikt ich nie wyłączy przez pomyłkę. Przy znanych nazwach jest jedna linia, co to jest.
 
 ## 0.5.12 — 2026-11-18
 
