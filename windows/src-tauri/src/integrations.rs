@@ -75,8 +75,47 @@ pub fn start(app: AppHandle) {
     spawn(app.clone(), "integration_calcom", 8, 300, poll_calcom);
     spawn(app.clone(), "integration_notion", 9, 300, poll_notion);
     // The machine itself: no key, nothing to reach, so it is the one poller that
-    // is always able to run. Five seconds keeps the numbers live and costs nothing.
-    spawn(app, "integration_pc", 4, 5, poll_pc);
+    // is always able to run — but it is also the only one that walks every process for
+    // the numbers it ranks, so it gets its own loop rather than this cadence.
+    spawn_pc(app);
+}
+
+/// Five seconds is what the PC card wants while it is on screen. A folded island nobody is
+/// looking at is served a sample every half minute instead: the numbers are the same, and
+/// the process walk in between never happens.
+const PC_EVERY_SECS: u64 = 5;
+const PC_ASLEEP_SECS: u64 = 30;
+
+/// True while the island is folded away with nothing near it (`set_asleep` on the page).
+fn island_asleep(app: &AppHandle) -> bool {
+    app.try_state::<crate::Shared>()
+        .map(|shared| shared.gate.asleep.load(Ordering::Relaxed))
+        .unwrap_or(false)
+}
+
+fn spawn_pc(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        let mut ticker = tokio::time::interval(Duration::from_secs(PC_EVERY_SECS));
+        let mut waited: u64 = 0;
+        loop {
+            ticker.tick().await;
+            // A paused app, or the pill switched off, makes no sample at all — and the
+            // count starts over so the first one after a wake is immediate.
+            if PAUSED.load(Ordering::Relaxed) || !enabled(&app, "integration_pc") {
+                waited = 0;
+                continue;
+            }
+            if island_asleep(&app) {
+                waited += PC_EVERY_SECS;
+                if waited < PC_ASLEEP_SECS {
+                    continue;
+                }
+            }
+            waited = 0;
+            poll_pc(app.clone()).await;
+        }
+    });
 }
 
 /// True when the user has this integration switched on in settings.

@@ -504,7 +504,7 @@ const EN = {
   // that has something worth saying; see src/core/whats-new.ts.
   "news.title": "What's new in {}",
   "news.updateTitle": "A new version is available",
-  "news.updateLine": "Version {} is out — download it from {}",
+  "news.updateLine": "Version {} is out — Oczi downloads it and installs it after closing (or take it from {})",
   "news.dismiss": "Got it",
   // Reminder card, raised by Rust when one of the model's reminders comes due.
   "rem.title": "Reminder",
@@ -1037,7 +1037,7 @@ const PL: Record<TextKey, string> = {
 
   "news.title": "Co nowego w {}",
   "news.updateTitle": "Dostępna jest nowa wersja",
-  "news.updateLine": "Wersja {} już jest — pobierz ją z {}",
+  "news.updateLine": "Wersja {} już jest — Oczi pobierze ją i zainstaluje po zamknięciu (albo weź ją z {})",
   "news.dismiss": "Wiem, dzięki",
   // Karta przypomnienia, pokazuje ją Rust, gdy przypomnienie modelu staje się aktualne.
   "rem.title": "Przypomnienie",

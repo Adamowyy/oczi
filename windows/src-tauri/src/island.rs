@@ -100,6 +100,10 @@ pub struct PollGate {
     /// upload flow (the plus tab). Outside it, DragEnter answers NONE so the
     /// drag passes through to whatever window is underneath.
     pub accept_drops: AtomicBool,
+    /// The island is folded away with nothing near it (`syncAsleep` on the page). Pollers
+    /// that only feed a card on screen read this to drop to their slow rate — it says
+    /// nothing about whether a chord or a click still works, those never wait.
+    pub asleep: AtomicBool,
     /// Mirrors the window flag so we only call into Win32 when it changes.
     ignoring: AtomicBool,
 }
@@ -112,6 +116,7 @@ impl PollGate {
             collapsed: AtomicBool::new(true),
             rect: Mutex::new(IslandRect::default()),
             accept_drops: AtomicBool::new(false),
+            asleep: AtomicBool::new(false),
             ignoring: AtomicBool::new(false),
         }
     }

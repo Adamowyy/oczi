@@ -289,6 +289,10 @@ export const Bridge = {
   /** Shrink the window down to the invisible wake strip (hidden) or back to full. */
   setCollapsed: (collapsed: boolean) => call<void>("set_collapsed", { collapsed }),
 
+  /** Folded and nothing near it. Rust slows the pollers that only feed a card on screen
+   *  (`integration_pc`, the media session); this never affects a click or a chord. */
+  setAsleep: (asleep: boolean) => call<void>("set_asleep", { asleep }),
+
   /** Whether a fullscreen app owns the island's display right now — asked at boot, since
    *  the poll only pushes a change. */
   islandFullscreen: () => call<boolean>("island_fullscreen"),

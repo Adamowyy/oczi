@@ -5,7 +5,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use windows::Foundation::TimeSpan;
 use windows::Media::Control::{
     GlobalSystemMediaTransportControlsSession,
@@ -19,6 +19,10 @@ use crate::log;
 /// How often the player is read. It answers instantly, so this only has to be
 /// quick enough to catch a track change; nothing here touches the network.
 const EVERY: Duration = Duration::from_secs(2);
+/// The same question with nothing playing and the island folded away: no card is on screen
+/// to show a change, so the WinRT session is asked much less often. A transport button from
+/// the card still lands at once — the thread sleeps on the channel, not on the clock.
+const EVERY_ASLEEP: Duration = Duration::from_secs(12);
 
 /// Transport buttons, from the card, land here and are applied by the media
 /// thread, the command itself must never block the window's own thread.
@@ -32,6 +36,13 @@ pub fn control(action: &str) {
             let _ = tx.send(action.to_string());
         }
     }
+}
+
+/// True while the island is folded away with nothing near it (`set_asleep` on the page).
+fn island_asleep(app: &AppHandle) -> bool {
+    app.try_state::<crate::Shared>()
+        .map(|shared| shared.gate.asleep.load(std::sync::atomic::Ordering::Relaxed))
+        .unwrap_or(false)
 }
 
 /// Starts the sampler. Its own thread: WinRT needs an apartment on the thread
@@ -50,11 +61,15 @@ pub fn start(app: AppHandle) {
         let mut manager: Option<GlobalSystemMediaTransportControlsSessionManager> = None;
         let mut last: Option<String> = None;
         let mut last_title = String::new();
+        // Whether the last look found a player running: with nothing playing there is no
+        // track to change, so a folded island can be asked far less often.
+        let mut playing = false;
 
         loop {
             // Sleeping *on the channel*: a transport button wakes the thread
             // immediately instead of waiting out the interval.
-            let action = match rx.recv_timeout(EVERY) {
+            let wait = if playing || !island_asleep(&app) { EVERY } else { EVERY_ASLEEP };
+            let action = match rx.recv_timeout(wait) {
                 Ok(action) => Some(action),
                 Err(RecvTimeoutError::Timeout) => None,
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -80,7 +95,7 @@ pub fn start(app: AppHandle) {
             }
 
             let data = sample(player);
-            let playing = data.get("playing").and_then(Value::as_bool).unwrap_or(false);
+            playing = data.get("playing").and_then(Value::as_bool).unwrap_or(false);
             // The position is left out of the key on purpose: it moves every poll,
             // and the card runs its own clock between updates rather than having the
             // whole player redrawn twice a second.

@@ -37,6 +37,11 @@ const REMINDER_GRACE_MS = 3000;
 const RESTING_FPS = 15;
 /** Frames a second for an open card nobody is touching; 15 was visibly jerky there. */
 const OPEN_FPS = 30;
+/** A minute of the same still picture and the frame loop parks itself. A folded island
+ *  nobody is touching has nothing to draw, and a canvas that keeps redrawing at 15 fps
+ *  holds the graphics card out of its idle state for as long as Oczi runs. Every wake path
+ *  (a state change, the cursor arriving, a chord, a card) calls `ensureRunning`. */
+const PARK_AFTER_MS = 60_000;
 
 /** The three views the drop sequence owns; leaving them stops the engine. */
 const UPLOAD_VIEWS: ReadonlySet<IslandViewName> = new Set(["upload", "uploading", "choose"]);
@@ -121,6 +126,17 @@ export class Island {
   private hovered = false;
   /** The timer that holds a resting island at RESTING_FPS. */
   private restTimer: number | null = null;
+  /** When the island last had something to draw. A minute of nothing parks the loop. */
+  private stillSince: number | null = null;
+  /** The loop stopped itself after a minute of stillness. A parked island draws nothing
+   *  until something it shows actually changes — see the state subscription. */
+  private parked = false;
+  /** What the last painted frame was showing, so a state change can tell whether it is
+   *  worth waking a parked island for. */
+  private paintKey = "";
+  /** The last `asleep` value Rust was told about, so it is one call per change and not one
+   *  per frame. Rust uses it to slow the pollers that only feed a card on screen. */
+  private asleepReported: boolean | null = null;
   /** How many frames have thrown, and when the last one was written to the log. */
   private frameErrors = 0;
   private lastFrameError = 0;
@@ -149,6 +165,13 @@ export class Island {
     };
     State.subscribe(() => {
       this.dirty = true;
+      // A running loop paints this on its next frame, and a parked one must not be woken by
+      // every integration sample — machine numbers arrive every five seconds, and a wake per
+      // sample means the loop never rests. A parked island wakes only when something it shows
+      // actually changed; anything structural (a mode change, a card, a chord) calls
+      // `ensureRunning` itself and never waits for this.
+      if (this.running) return;
+      if (this.parked && this.paintSignature() === this.paintKey) return;
       this.ensureRunning();
     });
   }
@@ -1094,7 +1117,13 @@ export class Island {
       }
     }
 
-    this.ensureRunning();
+    // A cursor out in the desktop changes nothing inside this window, and waking the loop
+    // for it would undo the parking above eight times a second: only arriving at the
+    // island, leaving it, or a cursor something on screen follows is a frame's worth of
+    // news. Everything else about it is `State.mouse`, which costs no frame.
+    if (this.hovered || wasHovered || this.botHovering || UploadSeq.isActive) {
+      this.ensureRunning();
+    }
   }
 
   private isBotHit(x: number, y: number): boolean {
@@ -1154,8 +1183,29 @@ export class Island {
 
   // ── Frame loop ──────────────────────────────────────────────────────────────
 
+  /** What the island is showing, as a string that only changes when a frame would look
+   *  different. Integration samples are deliberately absent: their numbers live inside the
+   *  cards, and a folded island shows none of them. */
+  private paintSignature(): string {
+    const tasks = State.tasks
+      .map((t) => `${t.state}:${t.pillBadge ?? ""}:${t.steps.length}`)
+      .join(",");
+    return [
+      State.mode,
+      State.view,
+      State.chatHistory.length,
+      tasks,
+      State.isPinned ? "pin" : "",
+      State.stateOverride ?? "",
+      State.droppedFile?.name ?? "",
+    ].join("|");
+  }
+
   ensureRunning() {
     if (this.running) return;
+    // A real wake: the minute of stillness starts over, and the next frame is worth drawing.
+    this.parked = false;
+    this.stillSince = null;
     this.running = true;
     this.lastFrame = performance.now();
     requestAnimationFrame(this.frame);
@@ -1181,6 +1231,7 @@ export class Island {
     if (this.dirty) {
       this.dirty = false;
       this.syncDom();
+      this.paintKey = this.paintSignature();
     }
 
     this.updateBotTargets();
@@ -1240,15 +1291,36 @@ export class Island {
 
     // Nothing on screen but a living character: everything else drops to RESTING_FPS.
     // The wait is scheduled, not frames skipped, so the browser can actually sleep.
+    //
+    // The chat is the one card where the extra frames are felt — reading, scrolling and
+    // the caret — and only while it is actually open: the folded island *is* the prompt
+    // view, so testing the view alone ran the loop flat out on a bar nobody was looking at.
     const still =
       !settling &&
       !this.hovered &&
       !greetingActive &&
       !this.uploadActive &&
       !UploadSeq.isActive &&
-      // The chat is the one card where the extra frames are felt: reading,
-      // scrolling and the caret.
-      State.view !== "prompt";
+      !(State.mode === "expanded" && State.view === "prompt");
+
+    // A minute of the same still picture: the loop parks and the character becomes a
+    // painting. Nothing is lost but frames nobody saw — every wake path starts the loop
+    // again — and the graphics card is finally allowed to idle.
+    if (still && State.mode !== "expanded") {
+      if (this.stillSince == null) this.stillSince = nowMs;
+      if (nowMs - this.stillSince >= PARK_AFTER_MS) {
+        this.running = false;
+        this.parked = true;
+        Sound.idle();
+        void Bridge.log(
+          `ui  parked after ${Math.round((nowMs - this.stillSince) / 1000)}s still`,
+        );
+        return -1;
+      }
+    } else {
+      this.stillSince = null;
+    }
+
 
     // 0 means full speed. An open card gets its own rate rather than the bar's:
     // the bar is a 184 px drawing nobody is looking at, a card is the thing on
@@ -1317,6 +1389,12 @@ export class Island {
       this.reportWake();
     }
     document.documentElement.classList.toggle("asleep", !awake);
+    // Rust asks the same question for a different reason: a poller that only feeds a card
+    // on screen may go quiet while the island is folded away. One call per change.
+    if (this.asleepReported !== !awake) {
+      this.asleepReported = !awake;
+      void Bridge.setAsleep(!awake);
+    }
   }
 
   /** One line per wake, twice, so a flash that only shows up on somebody else's

@@ -205,6 +205,14 @@ fn island_fullscreen(app: AppHandle) -> bool {
     island::detect_fullscreen(&app)
 }
 
+/// The island folded itself away with nothing near it (`syncAsleep` on the page). Pollers
+/// whose only job is to feed a card on screen read this and drop to their slow rate; a
+/// click or a chord never waits for it. Sent on every change, never on a timer.
+#[tauri::command]
+fn set_asleep(shared: State<Shared>, asleep: bool) {
+    shared.gate.asleep.store(asleep, Ordering::Relaxed);
+}
+
 /// The front end pushes the island shape; Rust decides click-through from it.
 #[tauri::command]
 fn set_island_rect(shared: State<Shared>, x: f64, y: f64, width: f64, height: f64) {
@@ -365,6 +373,23 @@ fn dismiss_snip(app: &AppHandle) {
         let _ = overlay.hide();
     }
     island::show(app);
+    // The overlay is prewarmed for the next capture, but not forever: a hidden window
+    // still holds a whole renderer of its own, and one snip in the morning must not cost
+    // that all day. Two quiet minutes and it goes; the next capture builds it again off
+    // the main thread, before the screen is grabbed, exactly as the first one did.
+    let late = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(120));
+        let Some(overlay) = late.get_webview_window("snip") else {
+            return;
+        };
+        // Shown again in the meantime: somebody is capturing, leave it alone.
+        if overlay.is_visible().unwrap_or(false) {
+            return;
+        }
+        log::line("snip  overlay released after two quiet minutes".to_string());
+        let _ = overlay.destroy();
+    });
 }
 
 /// Where the overlay sits and how big its CSS pixels are. The frame is physical;
@@ -1507,6 +1532,7 @@ pub fn run() {
             save_settings,
             set_intervals,
             set_collapsed,
+            set_asleep,
             island_fullscreen,
             set_island_rect,
             set_accept_drops,
@@ -1644,6 +1670,9 @@ pub fn run() {
             // Routines are the same promise with the doing attached: the same clock, the
             // same file under %APPDATA%\Oczi, nothing left on the machine.
             routines::start(handle.clone());
+            // Then the one that is not a poller: a newer release, downloaded and checked
+            // now, is applied by a windowless watcher once Oczi exits.
+            update::start(handle.clone());
             Ok(())
         })
         .build(tauri::generate_context!())
