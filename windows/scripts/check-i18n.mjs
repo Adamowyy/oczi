@@ -100,7 +100,9 @@ const ROOT = join(HERE, "..");
 // Files whose Polish is model-facing text, log lines or event data rather than UI copy: what the
 // model reads back from a tool is Polish by design (the island translates what it shows), and the
 // health scan's verdict is described in Polish for exactly that reason.
-const RUST_SKIP = new Set(["text_tools.rs", "reminders.rs", "routines.rs", "youtube.rs", "prices.rs", "health.rs", "debloat.rs"]);
+const RUST_SKIP = new Set(["text_tools.rs", "reminders.rs", "routines.rs", "youtube.rs", "prices.rs", "health.rs", "debloat.rs", "crash.rs"]);
+// `crash.rs` joins them: its Polish is what the model and the log read while a dump is being
+// opened, and the crash card itself is translated on the island.
 
 function scan(files) {
   for (const file of files) {
