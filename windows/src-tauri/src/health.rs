@@ -2443,7 +2443,9 @@ mod tests {
         assert_eq!(min, 20);
         assert_eq!(max, 240);
         assert_eq!(median, 24);
-        assert!((avg - 44.0).abs() < 1.0, "avg was {avg}");
+        // (20+21+…+28 + 240) / 10 = 45.6: the one bad packet is a tenth of the average, which is
+        // the whole reason the median is what the card shows.
+        assert!((avg - 45.6).abs() < 0.1, "avg was {avg}");
         assert_eq!(spikes.len(), 1);
         assert_eq!(spikes[0].1, 240);
         assert_eq!(spikes[0].2, "cs2.exe");
