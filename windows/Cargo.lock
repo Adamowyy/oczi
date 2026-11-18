@@ -2423,13 +2423,14 @@ dependencies = [
 
 [[package]]
 name = "oczi"
-version = "0.5.10"
+version = "0.5.12"
 dependencies = [
  "keyring",
  "png 0.17.16",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",

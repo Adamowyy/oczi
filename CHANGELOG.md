@@ -2,6 +2,23 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.12 — 2026-11-18
+
+**Oczi aktualizuje się sama, a w spoczynku oddaje kartę graficzną.**
+
+- Nowa wersja pobiera się w tle, jest sprawdzana sumą sha256 z GitHuba i instaluje się po cichu
+  po zamknięciu Oczi — bez instalatora do klikania i bez UAC, bo instaluje się per-user.
+  Karta „nowa wersja" mówi teraz, że Oczi zrobi to sama.
+- Tag wydania (`windows-v0.5.10`) jest wreszcie czytany jako wersja. Wcześniej sprawdzanie
+  aktualizacji nie widziało żadnego nowego wydania.
+- Zwinięta wyspa po minucie bezruchu zatrzymuje rysowanie: postać zamiera, a karta graficzna
+  schodzi do zera. Wraca natychmiast na kursor, akord lub kartę.
+- Naprawione: zwinięty pasek rysował pełną prędkością (60 fps) zamiast 15, bo jego widok to `prompt`.
+- Okno zrzutu ekranu zwalniane dwie minuty po zrzucie — wcześniej trzymało własny renderer
+  (ok. 47 MB) do końca sesji.
+- Liczby komputera i stan odtwarzacza odświeżają się rzadko, gdy wyspa jest złożona (30 s i 12 s),
+  i wracają do 5 s i 2 s, gdy na nie patrzysz.
+
 ## 0.5.10 — 2026-11-17
 
 **Debloat sprząta także to, co po instalatorach i buildach zostaje na dysku.**
