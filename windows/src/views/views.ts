@@ -1686,12 +1686,16 @@ async function resetAllTweaks() {
 async function startupAction(entry: StartupEntry, on: boolean) {
   const d = State.debloat;
   if (!d || d.startupBusy) return;
+  // The switch moves with the click and the answer follows: `schtasks` and the approval byte both
+  // take a moment, and a switch that lags behind the finger reads as a window that did not hear it.
+  d.startup = d.startup?.map((x) => (x.name === entry.name ? { ...x, on } : x)) ?? null;
   d.startupBusy = entry.name;
   State.notify();
   try {
     d.startup = await Bridge.startupSet(entry.name, on);
     void Bridge.log(`startup ${on ? "on" : "off"}: ${entry.name}`);
   } catch (e) {
+    d.startup = d.startup?.map((x) => (x.name === entry.name ? { ...x, on: !on } : x)) ?? null;
     d.tweakNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
   }
   d.startupBusy = null;
@@ -1731,7 +1735,7 @@ function startupBlock(d: DebloatState): HTMLElement {
             class: "pkg",
             text: entry.missing ? t("startup.missing") : entry.command || entry.source,
           }),
-          entry.hint ? h("span", { class: "pkg", text: t(entry.hint as TextKey) }) : null,
+          entry.hint ? h("span", { class: "hint", text: t(entry.hint as TextKey) }) : null,
         ),
         h("button", {
           class: entry.on ? "switch on" : "switch",

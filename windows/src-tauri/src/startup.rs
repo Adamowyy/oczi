@@ -555,14 +555,16 @@ pub fn set(name: &str, on: bool) -> Result<(), String> {
     switch(name, on)
 }
 
-/// True when Windows has a scheduled task by that name.
+/// True when Windows has a scheduled task by that name. `schtasks` answers in a fraction of the
+/// time a PowerShell `Get-ScheduledTask` round trip takes, and a switch is a click, not a job.
 fn is_task(name: &str) -> bool {
-    let script = format!(
-        "if (Get-ScheduledTask -TaskName '{}' -ErrorAction SilentlyContinue) {{ 'yes' }}",
-        name.replace('\'', "''")
-    );
-    crate::debloat::powershell(&script)
-        .map(|out| out.trim() == "yes")
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    std::process::Command::new("schtasks.exe")
+        .args(["/Query", "/TN", name])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map(|out| out.status.success())
         .unwrap_or(false)
 }
 

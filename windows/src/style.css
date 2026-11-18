@@ -2839,6 +2839,12 @@ html.asleep *::after {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.game-row .game-name .hint {
+  font: 400 10.5px var(--mono);
+  color: var(--dim-2);
+  white-space: normal;
+  overflow: visible;
+}
 
 .game-row button {
   flex: 0 0 auto;
