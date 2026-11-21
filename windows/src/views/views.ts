@@ -417,8 +417,47 @@ function buildNote(): ViewHost {
   };
 }
 
-// ── Reminder ──────────────────────────────────────────────────────────────────
+// ── The update downloading ────────────────────────────────────────────────────
+// One line and a bar while the installer comes down, because a download nobody can see is a
+// download interrupted by starting the app again. `done` turns the same card into "gotowe".
 
+function buildUpdate(): ViewHost {
+  const title = h("div", { class: "title" });
+  const pct = h("span", { class: "update-pct" });
+  const fill = h("i", { class: "update-fill" });
+  const track = h("div", { class: "update-track" }, fill);
+  const el = h(
+    "div",
+    { class: "view" },
+    card(
+      null,
+      h(
+        "div",
+        { class: "stack", style: "padding:0 18px 0 98px" },
+        h("div", { class: "update-head" }, title, pct),
+        track,
+      ),
+    ),
+  );
+  return {
+    el,
+    sync() {
+      const u = State.update;
+      title.textContent = u
+        ? u.done
+          ? t("update.ready")
+          : t("update.downloading", u.version)
+        : "";
+      const share = u && u.total > 0 ? Math.min(1, u.received / u.total) : 0;
+      pct.textContent = !u ? "" : u.done ? "" : u.total > 0 ? `${Math.round(share * 100)}%` : "";
+      // An unknown total still moves: the bar fills once and the card says the version.
+      fill.style.width = !u ? "0%" : u.total > 0 ? `${share * 100}%` : "100%";
+      el.classList.toggle("unknown", !u || u.total === 0);
+    },
+  };
+}
+
+// ── Reminder ──────────────────────────────────────────────────────────────────
 function answer(actions: ViewActions) {
   if (State.reminder) void Bridge.reminderDone(State.reminder.id);
   const next = State.queuedReminders.shift() ?? null;
@@ -2841,6 +2880,7 @@ export function buildViews(
   map.set("empty", buildEmpty(actions));
   map.set("confused", buildConfused());
   map.set("note", buildNote());
+  map.set("update", buildUpdate());
   map.set("reminder", buildReminder(actions));
   map.set("routine", buildRoutine(actions, false));
   map.set("routineFull", buildRoutine(actions, true));

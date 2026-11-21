@@ -43,6 +43,10 @@ const TELEMETRY_POLICY: &str = "SOFTWARE\\Policies\\Microsoft\\Windows\\DataColl
 /// first looked like it worked on this machine and did nothing on a fresh 24H2 one.
 const CLASSIC_MENU_CLSID: &str =
     "Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32";
+/// The second override the November 2026 update reads: the redesigned menu checks its own class,
+/// so the old CLSID alone stopped being enough on 24H2/25H2/26H2 after KB5132061.
+const CLASSIC_MENU_CLSID_2: &str =
+    "Software\\Classes\\CLSID\\{51668040-5e31-4023-bbe3-149163bd80f1}\\InprocServer32";
 const CLASSIC_MENU_BLOCKED: &str =
     "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Blocked";
 /// The new context menu's shell extension, the one blocked to get the old one back.
@@ -82,8 +86,9 @@ const TWEAKS: &[Tweak] = &[
     Tweak {
         id: "explorer.classicmenu",
         group: "explorer",
-        // The machine half is the one 24H2 reads, so the row carries it and the window offers the
-        // one administrator prompt; the user half is written by the same click without one.
+        // The November 2026 update's menu only listens to its own class, so both overrides are
+        // written by this one switch; the machine block is the third, older mechanism and it costs
+        // nothing to keep writing.
         machine: true,
         path: CLASSIC_MENU_BLOCKED,
         name: NEW_MENU_CLSID,
@@ -254,10 +259,12 @@ fn is_classic_menu(tweak: &Tweak) -> bool {
     tweak.id == "explorer.classicmenu"
 }
 
-/// Either half counts as "the old menu is on": builds up to 23H2 read the user's CLSID override,
-/// 24H2 and later read the machine-side block.
+/// Either override counts as "the old menu is on", and so does the machine block: which of them the
+/// running build reads depends on how recent the November 2026 update made it.
 fn classic_menu_on() -> bool {
-    classic_menu_blocked() || registry::value_exists(HKEY_CURRENT_USER, CLASSIC_MENU_CLSID, "", false)
+    classic_menu_blocked()
+        || registry::value_exists(HKEY_CURRENT_USER, CLASSIC_MENU_CLSID, "", false)
+        || registry::value_exists(HKEY_CURRENT_USER, CLASSIC_MENU_CLSID_2, "", false)
 }
 
 fn classic_menu_blocked() -> bool {
@@ -272,8 +279,8 @@ fn classic_menu_blocked() -> bool {
 /// Both mechanisms in one click; the machine half only lands when the process is elevated, which is
 /// why the window offers the prompt for this row.
 fn write_classic_menu(on: bool) -> bool {
+    let user = write_user_clsid(on);
     if on {
-        let user = registry::write_empty_string(HKEY_CURRENT_USER, CLASSIC_MENU_CLSID, "", false);
         let machine = registry::write_empty_string(
             HKEY_LOCAL_MACHINE,
             CLASSIC_MENU_BLOCKED,
@@ -282,7 +289,6 @@ fn write_classic_menu(on: bool) -> bool {
         );
         user || machine
     } else {
-        let user = clear_user_clsid();
         let machine = registry::delete_value(
             HKEY_LOCAL_MACHINE,
             CLASSIC_MENU_BLOCKED,
@@ -293,11 +299,29 @@ fn write_classic_menu(on: bool) -> bool {
     }
 }
 
-fn clear_user_clsid() -> bool {
-    let gone = registry::delete_value(HKEY_CURRENT_USER, CLASSIC_MENU_CLSID, "", false);
-    registry::delete_key(HKEY_CURRENT_USER, CLASSIC_MENU_CLSID, false);
-    if let Some(cut) = CLASSIC_MENU_CLSID.rfind('\\') {
-        registry::delete_key(HKEY_CURRENT_USER, &CLASSIC_MENU_CLSID[..cut], false);
+/// The user's own overrides, the half that needs no administrator: both classes, because the
+/// November 2026 update's menu only listens to its own.
+fn write_user_clsid(on: bool) -> bool {
+    let first = if on {
+        registry::write_empty_string(HKEY_CURRENT_USER, CLASSIC_MENU_CLSID, "", false)
+    } else {
+        clear_clsid(CLASSIC_MENU_CLSID)
+    };
+    let second = if on {
+        registry::write_empty_string(HKEY_CURRENT_USER, CLASSIC_MENU_CLSID_2, "", false)
+    } else {
+        clear_clsid(CLASSIC_MENU_CLSID_2)
+    };
+    first || second
+}
+
+/// Removes the value, the `InprocServer32` key it sits in and the CLSID above it: an empty key
+/// still resolves, and a CLSID left behind is a menu nobody can tell is half-off.
+fn clear_clsid(path: &str) -> bool {
+    let gone = registry::delete_value(HKEY_CURRENT_USER, path, "", false);
+    registry::delete_key(HKEY_CURRENT_USER, path, false);
+    if let Some(cut) = path.rfind('\\') {
+        registry::delete_key(HKEY_CURRENT_USER, &path[..cut], false);
     }
     gone
 }
@@ -497,18 +521,38 @@ pub fn set_elevated(id: &str, on: bool) -> Result<Vec<TweakState>, String> {
         });
     }
     let was = current(tweak);
+    // The classic menu's user half needs no administrator at all, and it is the half that works on
+    // this machine: written here, from the app, where the same call has been proven. The prompt is
+    // only for the machine block, and the script never touches the user's hive.
+    if is_classic_menu(tweak) {
+        let user = write_user_clsid(on);
+        log::line(format!(
+            "tweak {}: user override {} ({user})",
+            tweak.id,
+            if on { "on" } else { "off" }
+        ));
+    }
     elevate::run_elevated(&elevated_script(tweak, on))?;
     // The elevated process runs on its own; wait for the registry to show it rather than claiming
     // it before Windows has written it.
+    let landed = |tweak: &Tweak| {
+        if is_classic_menu(tweak) {
+            // For the classic menu the machine block is the half that needs the prompt, so it is the
+            // one that decides whether the click worked; the user half is already written above.
+            classic_menu_blocked() == on
+        } else {
+            is_on(tweak) == on
+        }
+    };
     let mut waited = 0u64;
     while waited < 30_000 {
         std::thread::sleep(Duration::from_millis(500));
         waited += 500;
-        if is_on(tweak) == on {
+        if landed(tweak) {
             break;
         }
     }
-    if is_on(tweak) == on {
+    if landed(tweak) {
         record(tweak.id, was, on);
         log::line(format!("tweak {}: {} with an administrator", tweak.id, on));
         return Ok(list());
@@ -555,19 +599,9 @@ fn elevated_script(tweak: &Tweak, on: bool) -> String {
             )
         }
     };
-    if !is_classic_menu(tweak) {
-        return base;
-    }
-    let user = format!("Registry::HKEY_CURRENT_USER\\{CLASSIC_MENU_CLSID}");
-    if on {
-        format!(
-            "{base}; New-Item -Path '{user}' -Force | Out-Null; \
-             Set-ItemProperty -Path '{user}' -Name '' -Value '' -Type String"
-        )
-    } else {
-        let clsid = "Registry::HKEY_CURRENT_USER\\Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}";
-        format!("{base}; Remove-Item -Path '{clsid}' -Recurse -Force -ErrorAction SilentlyContinue")
-    }
+    // The user's half is written by the app itself (`write_user_clsid`), never by this script: an
+    // empty value name is what PowerShell refuses, and that refusal is what broke the switch once.
+    base
 }
 
 // ── The history ───────────────────────────────────────────────────────────────
@@ -746,8 +780,9 @@ mod tests {
         let script = elevated_script(row, true);
         assert!(script.contains("{e2bf9676-5f8f-435c-97eb-11607a5bedf7}"));
         assert!(script.contains("HKEY_LOCAL_MACHINE"));
-        assert!(script.contains("HKEY_CURRENT_USER"));
-        assert!(script.contains("86ca1aa0-34aa-4e8b-a509-50c905bae2a2"));
+        // The user's half is the app's own write — an empty value name is what PowerShell refused,
+        // which is how the switch once left the machine with neither mechanism.
+        assert!(!script.contains("HKEY_CURRENT_USER"));
     }
 
     #[test]

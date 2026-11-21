@@ -19,6 +19,7 @@ export type IslandViewName =
   | "routine"
   | "routineFull"
   | "whatsnew"
+  | "update"
   | "settings"
   | "greeting"
   | "prices"
@@ -101,6 +102,9 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   routineFull: { height: 176, botX: 60, botY: 88, botDiameter: 50, agentMode: "none" },
   // Taller than a note: the card carries a handful of lines plus its button.
   whatsnew: { height: 296, botX: 60, botY: null, botDiameter: 50, agentMode: "none" },
+  // The installer coming down: one line and a bar, at the height of the slim report strip. Header
+  // hidden like the other notices, so `botY` is explicit.
+  update: { height: 104, botX: 60, botY: 52, botDiameter: 44, agentMode: "none" },
   settings: { height: 160, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
   // Prices: a search field, the cover, four numbers and two buttons. Taller than the greeting

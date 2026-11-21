@@ -515,6 +515,8 @@ const EN = {
   "news.title": "What's new in {}",
   "news.updateTitle": "A new version is available",
   "news.updateLine": "Version {} is out — Oczi downloads it and installs it after closing (or take it from {})",
+  "update.downloading": "Downloading Oczi {}…",
+  "update.ready": "Update ready — it installs once Oczi closes.",
   "news.dismiss": "Got it",
   // Reminder card, raised by Rust when one of the model's reminders comes due.
   "rem.title": "Reminder",
@@ -1058,6 +1060,8 @@ const PL: Record<TextKey, string> = {
   "news.title": "Co nowego w {}",
   "news.updateTitle": "Dostępna jest nowa wersja",
   "news.updateLine": "Wersja {} już jest — Oczi pobierze ją i zainstaluje po zamknięciu (albo weź ją z {})",
+  "update.downloading": "Pobieram Oczi {}…",
+  "update.ready": "Aktualizacja gotowa — zainstaluje się po zamknięciu Oczi.",
   "news.dismiss": "Wiem, dzięki",
   // Karta przypomnienia, pokazuje ją Rust, gdy przypomnienie modelu staje się aktualne.
   "rem.title": "Przypomnienie",

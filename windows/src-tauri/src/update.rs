@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 
 /// The repository releases are published from. Kept here rather than derived
 /// from `CARGO_PKG_REPOSITORY` so a fork can point it elsewhere in one place.
@@ -180,10 +181,31 @@ fn hex(bytes: &[u8]) -> String {
     sum.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// What the island draws while the installer comes down. One line and a bar, because a download
+/// the user cannot see is a download he interrupts by starting the app again.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Progress {
+    pub version: String,
+    pub received: u64,
+    /// Zero when the response carries no length; the card then shows a mover instead of a filling bar.
+    pub total: u64,
+    /// The file is written and checked: it installs after the app closes.
+    pub done: bool,
+}
+
+fn emit_progress(app: &AppHandle, progress: Progress) {
+    let _ = app.emit_to(crate::island::WINDOW_LABEL, "update-progress", progress);
+}
+
 /// Downloads the installer into the update folder, refusing anything whose checksum or size
 /// is not the one the release published. The file only takes its real name once it has been
 /// checked, so a half-finished download can never be mistaken for a ready update.
-async fn download(version: &str, asset: &Asset) -> Option<Ready> {
+async fn download(
+    version: &str,
+    asset: &Asset,
+    on_progress: impl Fn(u64, u64),
+) -> Option<Ready> {
     let dir = update_dir()?;
     std::fs::create_dir_all(&dir).ok()?;
     let client = reqwest::Client::builder()
@@ -191,17 +213,40 @@ async fn download(version: &str, asset: &Asset) -> Option<Ready> {
         .user_agent(USER_AGENT)
         .build()
         .ok()?;
-    let bytes = client
+    let mut response = client
         .get(&asset.url)
         .send()
         .await
         .and_then(|r| r.error_for_status())
         .map_err(|e| crate::log::line(format!("update download: {e}")))
-        .ok()?
-        .bytes()
-        .await
-        .map_err(|e| crate::log::line(format!("update download: {e}")))
         .ok()?;
+    let total = if asset.size > 0 {
+        asset.size
+    } else {
+        response.content_length().unwrap_or(0)
+    };
+
+    // Chunk by chunk, so the bar moves: one `bytes()` call is a download that looks like a freeze
+    // on a 2.5 MB installer over a slow line.
+    let mut bytes: Vec<u8> = Vec::with_capacity(total as usize);
+    let mut sent = 0u64;
+    loop {
+        let chunk = match response.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(e) => {
+                crate::log::line(format!("update download: {e}"));
+                return None;
+            }
+        };
+        bytes.extend_from_slice(&chunk);
+        let received = bytes.len() as u64;
+        if received - sent >= 96 * 1024 {
+            sent = received;
+            on_progress(received, total);
+        }
+    }
+    on_progress(bytes.len() as u64, total);
 
     if asset.size > 0 && bytes.len() as u64 != asset.size {
         crate::log::line(format!(
@@ -324,9 +369,16 @@ pub fn pending() -> Option<Ready> {
 /// downloads the installer when it is newer than this build, and arms the swap. A machine
 /// that is offline, and a dev build, log nothing and do nothing else.
 pub fn start(app: tauri::AppHandle) {
-    if installed_exe().is_none() {
-        // A build run from `target\release` is somebody's own copy: replacing it with a
-        // release would be a surprise, so self-update stays off outside the installed app.
+    // A dev copy never replaces itself, so the download card could not be seen without installing a
+    // build whose version is already the newest one. `OCZI_UPDATE_FROM` pretends this is an older
+    // version, which is the only way to watch the bar on a build run from `target`.
+    let forced = std::env::var("OCZI_UPDATE_FROM")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+    if installed_exe().is_none() && forced.is_none() {
+        // A build run from the target folder is somebody's own copy: replacing it with a release
+        // would be a surprise, so self-update stays off outside the installed app.
         return;
     }
     tauri::async_runtime::spawn(async move {
@@ -337,7 +389,8 @@ pub fn start(app: tauri::AppHandle) {
                 crate::log::line(format!("update: {} waits for the next exit", ready.version));
             }
         }
-        let current = env!("CARGO_PKG_VERSION");
+        let current = forced.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+        let current = current.as_str();
         let Some(body) = release_json().await else {
             return;
         };
@@ -353,20 +406,48 @@ pub fn start(app: tauri::AppHandle) {
             return;
         };
         crate::log::line(format!("update: {version} found, downloading"));
-        let Some(ready) = download(&version, &asset).await else {
+        let reporter = app.clone();
+        let reported = version.clone();
+        let Some(ready) = download(&version, &asset, move |received, total| {
+            emit_progress(
+                &reporter,
+                Progress {
+                    version: reported.clone(),
+                    received,
+                    total,
+                    done: false,
+                },
+            );
+        })
+        .await
+        else {
+            // A failed or refused download leaves the bar mid-way, so the card is taken away.
+            emit_progress(
+                &app,
+                Progress {
+                    version: version.clone(),
+                    received: 0,
+                    total: 0,
+                    done: true,
+                },
+            );
             return;
         };
         crate::log::line(format!(
             "update: {} downloaded ({} B) — installs after exit",
             ready.version, asset.size
         ));
-        // So the card can say the app already has it, instead of offering the download.
-        let _ = tauri::Emitter::emit_to(
+        emit_progress(
             &app,
-            crate::island::WINDOW_LABEL,
-            "update-ready",
-            ready.clone(),
+            Progress {
+                version: ready.version.clone(),
+                received: asset.size,
+                total: asset.size,
+                done: true,
+            },
         );
+        // So the card can say the app already has it, instead of offering the download.
+        let _ = app.emit_to(crate::island::WINDOW_LABEL, "update-ready", ready.clone());
         if arm(&ready) {
             crate::log::line("update: swap armed".to_string());
         }

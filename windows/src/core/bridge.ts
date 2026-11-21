@@ -457,7 +457,17 @@ export type BridgeEvent =
   | { name: "health"; payload: HealthReport }
   | { name: "screen-changed"; payload: null }
   /** A fullscreen app took (or gave back) the island's own display. */
-  | { name: "fullscreen"; payload: { on: boolean } };
+  | { name: "fullscreen"; payload: { on: boolean } }
+  /** The installer coming down: `received` of `total` bytes, and `done` once it is checked. */
+  | { name: "update-progress"; payload: UpdateProgress };
+
+/** What the island shows while an update downloads. `total` 0 means the size is unknown. */
+export interface UpdateProgress {
+  version: string;
+  received: number;
+  total: number;
+  done: boolean;
+}
 
 export interface DragDropPayload {
   type: "enter" | "over" | "drop" | "leave";

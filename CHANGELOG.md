@@ -2,6 +2,18 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.16 — 2026-11-21
+
+**Menu pod prawym przyciskiem wraca do stanu, w którym działa, a aktualizacja ma pasek.**
+
+- Przełącznik zapisuje oba wpisy w profilu, których potrzebują różne buildy Windows 11 — także ten
+  drugi, który czyta nowe menu po aktualizacji z listopada 2026 — a wpis w profilu zapisuje sama
+  aplikacja, bez pytania o uprawnienia. Zgoda administratora dotyczy tylko blokady systemowej.
+- Poprzednia wersja zlecała wpis w profilu PowerShellowi, który odmawiał zapisu pustej nazwy
+  wartości — i przełącznik zostawiał komputer bez żadnego z mechanizmów.
+- Gdy pobiera się nowa wersja, na wyspie jest karta z paskiem i procentem; po sprawdzeniu pliku
+  mówi, że aktualizacja zainstaluje się po zamknięciu Oczi.
+
 ## 0.5.15 — 2026-11-21
 
 **Klasyczne menu działa też na Windows 11 24H2 i nowszych.**

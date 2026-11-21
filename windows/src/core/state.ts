@@ -1,7 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
-import type { PricesOffer, ResidueAction } from "./bridge";
+import type { PricesOffer, ResidueAction, UpdateProgress } from "./bridge";
 import type { EyeShape } from "../bot/engine";
 import type { Lang } from "./i18n";
 
@@ -357,6 +357,7 @@ export const ROUTINE_VIEWS: ReadonlySet<IslandViewName> = new Set(["routine", "r
 export const HEADERLESS_VIEWS: ReadonlySet<IslandViewName> = new Set([
   "routine",
   "routineFull",
+  "update",
   "report",
   "debloat",
   "watch",
@@ -505,6 +506,8 @@ class AppState {
   /** The one-off card about this version: what changed, and any release newer
    *  than the one running. Set once at boot, shown once, then cleared. */
   newsMessage: { title: string; body: string } | null = null;
+  /** The update downloading right now: one slot, because only one installer is ever coming. */
+  update: UpdateProgress | null = null;
   /** A reminder that has come due and is on the card right now. Set from Rust's
    *  event, cleared when it is answered or the card folds away. */
   reminder: DueReminder | null = null;

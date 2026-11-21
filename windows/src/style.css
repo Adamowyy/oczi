@@ -2805,6 +2805,46 @@ html.asleep *::after {
 /* Two halves of one panel: the package list, and the settings that are not a package. A plain
    segmented strip, because a tab bar in a 300 pt strip reads as a website. */
 
+/* The update card: one line, one bar. The bar is the whole point — an invisible download reads as
+   a frozen app, and the user starts Oczi again and the download starts over. */
+.update-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.update-head .title {
+  flex: 1 1 auto;
+}
+
+.update-pct {
+  font: 500 11px var(--font);
+  color: var(--dim-2);
+}
+
+.update-track {
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.update-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #6366f1, #38bdf8);
+  transition: width 0.25s ease-out;
+}
+
+/* No length in the response: the bar says "working" rather than pretending a percentage. */
+.view.unknown .update-fill {
+  width: 100% !important;
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .deb-tabs {
   display: flex;
   gap: 4px;

@@ -1,7 +1,7 @@
 // Entry point: boot the bridge, wire the island, start the greeting.
 
 import "./style.css";
-import { Bridge, IS_TAURI, onEvent, type PricesOffer, type ReminderEvent, type RoutineEvent } from "./core/bridge";
+import { Bridge, IS_TAURI, onEvent, type PricesOffer, type ReminderEvent, type RoutineEvent, type UpdateProgress } from "./core/bridge";
 import { Sound } from "./core/sound";
 import { State, routineView, type HealthReport, type Settings } from "./core/state";
 import { currentLang, setLang, storedLang, t } from "./core/i18n";
@@ -120,6 +120,22 @@ async function main() {
   // A click anywhere else in Windows. The island cannot hear it — it is click-through
   // whenever the mouse is away — so Rust watches the mouse button and tells us.
   await onEvent<null>("click-outside", () => island.clickOutside());
+
+  // The installer is coming down. The card is the only sign of it: a download nobody can see is a
+  // download interrupted by starting the app again, and the next launch starts over.
+  await onEvent<UpdateProgress>("update-progress", (p) => {
+    // `received == 0` with `done` is Rust saying the download failed or was refused: no card.
+    State.update = p.done && p.received === 0 ? null : p;
+    State.notify();
+    if (!State.update) {
+      if (State.view === "update") island.collapse();
+      return;
+    }
+    island.alert("update");
+    // The installer is checked and waiting: the bar stays a moment, then the card goes by itself.
+    if (p.done) island.autoFoldIn("update", 6);
+    void Bridge.log(`update: ${p.version} ${p.received}/${p.total}${p.done ? " ready" : ""}`);
+  });
 
   // The selection overlay answered — with a region, or with nothing (Esc).
   await onEvent<{ width: number; height: number; bytes: number }>("snip-done", (info) =>
