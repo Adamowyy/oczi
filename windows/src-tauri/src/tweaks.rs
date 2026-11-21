@@ -37,11 +37,16 @@ const SEARCH: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Search";
 const BING_POLICY: &str = "Software\\Policies\\Microsoft\\Windows\\Explorer";
 const COPILOT_POLICY: &str = "Software\\Policies\\Microsoft\\Windows\\WindowsCopilot";
 const TELEMETRY_POLICY: &str = "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection";
-/// The classic right-click menu. Windows 11 resolves its own context menu through this COM class,
-/// and an empty override of it in the user's hive is what switches the old one back on — the way
-/// this machine is set up. Nothing under `Explorer\Advanced` does the same job.
-const CLASSIC_MENU: &str =
+/// The classic right-click menu is two mechanisms, because Microsoft closed the first one:
+/// the user's own CLSID override is what Windows 11 up to 23H2 reads, and blocking the new menu's
+/// shell extension in the machine hive is what 24H2 and later read. A switch that only set the
+/// first looked like it worked on this machine and did nothing on a fresh 24H2 one.
+const CLASSIC_MENU_CLSID: &str =
     "Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32";
+const CLASSIC_MENU_BLOCKED: &str =
+    "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Blocked";
+/// The new context menu's shell extension, the one blocked to get the old one back.
+const NEW_MENU_CLSID: &str = "{e2bf9676-5f8f-435c-97eb-11607a5bedf7}";
 
 /// What kind of value a row is. Copy because the table is a const and every reader takes it by
 /// value: a two-word enum, cheaper to duplicate than to borrow.
@@ -77,10 +82,11 @@ const TWEAKS: &[Tweak] = &[
     Tweak {
         id: "explorer.classicmenu",
         group: "explorer",
-        machine: false,
-        path: CLASSIC_MENU,
-        // The key's own default value, which is why the name is empty.
-        name: "",
+        // The machine half is the one 24H2 reads, so the row carries it and the window offers the
+        // one administrator prompt; the user half is written by the same click without one.
+        machine: true,
+        path: CLASSIC_MENU_BLOCKED,
+        name: NEW_MENU_CLSID,
         kind: Kind::Marker,
         restart: true,
     },
@@ -244,8 +250,63 @@ fn root_of(tweak: &Tweak) -> windows::Win32::System::Registry::HKEY {
     }
 }
 
+fn is_classic_menu(tweak: &Tweak) -> bool {
+    tweak.id == "explorer.classicmenu"
+}
+
+/// Either half counts as "the old menu is on": builds up to 23H2 read the user's CLSID override,
+/// 24H2 and later read the machine-side block.
+fn classic_menu_on() -> bool {
+    classic_menu_blocked() || registry::value_exists(HKEY_CURRENT_USER, CLASSIC_MENU_CLSID, "", false)
+}
+
+fn classic_menu_blocked() -> bool {
+    registry::value_exists(
+        HKEY_LOCAL_MACHINE,
+        CLASSIC_MENU_BLOCKED,
+        NEW_MENU_CLSID,
+        true,
+    )
+}
+
+/// Both mechanisms in one click; the machine half only lands when the process is elevated, which is
+/// why the window offers the prompt for this row.
+fn write_classic_menu(on: bool) -> bool {
+    if on {
+        let user = registry::write_empty_string(HKEY_CURRENT_USER, CLASSIC_MENU_CLSID, "", false);
+        let machine = registry::write_empty_string(
+            HKEY_LOCAL_MACHINE,
+            CLASSIC_MENU_BLOCKED,
+            NEW_MENU_CLSID,
+            true,
+        );
+        user || machine
+    } else {
+        let user = clear_user_clsid();
+        let machine = registry::delete_value(
+            HKEY_LOCAL_MACHINE,
+            CLASSIC_MENU_BLOCKED,
+            NEW_MENU_CLSID,
+            true,
+        );
+        user || machine
+    }
+}
+
+fn clear_user_clsid() -> bool {
+    let gone = registry::delete_value(HKEY_CURRENT_USER, CLASSIC_MENU_CLSID, "", false);
+    registry::delete_key(HKEY_CURRENT_USER, CLASSIC_MENU_CLSID, false);
+    if let Some(cut) = CLASSIC_MENU_CLSID.rfind('\\') {
+        registry::delete_key(HKEY_CURRENT_USER, &CLASSIC_MENU_CLSID[..cut], false);
+    }
+    gone
+}
+
 /// The raw value, for history and undo: a DWORD as it is, a marker as 1 or nothing.
 fn current(tweak: &Tweak) -> Option<i64> {
+    if is_classic_menu(tweak) {
+        return classic_menu_on().then_some(1);
+    }
     match tweak.kind {
         Kind::Dword { .. } => {
             registry::read_dword(root_of(tweak), tweak.path, tweak.name, tweak.machine)
@@ -265,6 +326,9 @@ fn current(tweak: &Tweak) -> Option<i64> {
 /// Whether the switch is on. An absent value is Windows' default, which for every row here is the
 /// state the tweak exists to change.
 fn is_on(tweak: &Tweak) -> bool {
+    if is_classic_menu(tweak) {
+        return classic_menu_on();
+    }
     match tweak.kind {
         Kind::Dword { on, .. } => current(tweak) == Some(on as i64),
         Kind::Marker => current(tweak).is_some(),
@@ -275,6 +339,9 @@ fn is_on(tweak: &Tweak) -> bool {
 }
 
 fn write(tweak: &Tweak, on: bool) -> bool {
+    if is_classic_menu(tweak) {
+        return write_classic_menu(on);
+    }
     match tweak.kind {
         Kind::Dword { on: on_value, off } => {
             let value = if on { on_value } else { off };
@@ -284,7 +351,7 @@ fn write(tweak: &Tweak, on: bool) -> bool {
             if on {
                 registry::write_empty_string(root_of(tweak), tweak.path, tweak.name, tweak.machine)
             } else {
-                clear_marker(tweak)
+                registry::delete_value(root_of(tweak), tweak.path, tweak.name, tweak.machine)
             }
         }
         // A switch on a choice row writes its first entry, which is what the window shows as the
@@ -299,26 +366,23 @@ fn write(tweak: &Tweak, on: bool) -> bool {
     }
 }
 
-/// Puts a marker back off. A CLSID override is the key itself, not just its empty value: leaving
-/// the key behind keeps Windows resolving it, so the leaf goes and then the key above it.
-fn clear_marker(tweak: &Tweak) -> bool {
-    let root = root_of(tweak);
-    let gone = registry::delete_value(root, tweak.path, tweak.name, tweak.machine);
-    registry::delete_key(root, tweak.path, tweak.machine);
-    if let Some(cut) = tweak.path.rfind('\\') {
-        registry::delete_key(root, &tweak.path[..cut], tweak.machine);
+/// Puts a marker back off: the empty value goes, and for the classic menu the key it lives in too.
+fn reset_row(tweak: &Tweak) {
+    if matches!(tweak.kind, Kind::Marker) {
+        write(tweak, false);
+        return;
     }
-    gone
+    registry::delete_value(root_of(tweak), tweak.path, tweak.name, tweak.machine);
 }
 
 /// Every row, as Windows has it now.
 pub fn list() -> Vec<TweakState> {
     TWEAKS
         .iter()
-        // A row this account can never change is not shown: some of these keys are locked down by
-        // group policy, and a switch that fails on every press reads as a broken app rather than as
-        // a setting this machine does not allow.
-        .filter(|tweak| registry::can_write(root_of(tweak), tweak.path, tweak.machine))
+        // A machine row is always offered: it is written through the one administrator prompt, which
+        // a plain account cannot answer with an ordinary key handle. A user row this account can
+        // never change is left out — a switch that fails on every press reads as a broken app.
+        .filter(|tweak| tweak.machine || registry::can_write(root_of(tweak), tweak.path, tweak.machine))
         .map(|tweak| TweakState {
             id: tweak.id.to_string(),
             group: tweak.group.to_string(),
@@ -353,6 +417,11 @@ pub fn set(id: &str, on: bool) -> Result<Vec<TweakState>, String> {
     let mut states = list();
     if let Some(state) = states.iter_mut().find(|state| state.id == tweak.id) {
         state.needs_admin = tweak.machine && landed != on;
+        // The classic menu's user half lands without a prompt and does nothing from 24H2 on, so a
+        // half-written row would read as working: the machine half is what has to be there.
+        if is_classic_menu(tweak) && on && !classic_menu_blocked() {
+            state.needs_admin = true;
+        }
         if state.needs_admin {
             log::line(format!("tweak {}: needs an administrator", tweak.id));
         }
@@ -412,14 +481,7 @@ pub fn set_value(id: &str, value: u32) -> Result<Vec<TweakState>, String> {
 pub fn reset(id: &str) -> Result<Vec<TweakState>, String> {
     let tweak = find(id)?;
     let was = current(tweak);
-    match tweak.kind {
-        Kind::Marker => {
-            clear_marker(tweak);
-        }
-        _ => {
-            registry::delete_value(root_of(tweak), tweak.path, tweak.name, tweak.machine);
-        }
-    }
+    reset_row(tweak);
     record(tweak.id, was, false);
     log::line(format!("tweak {}: reset (was {:?})", tweak.id, was));
     Ok(list())
@@ -457,10 +519,11 @@ pub fn set_elevated(id: &str, on: bool) -> Result<Vec<TweakState>, String> {
     })
 }
 
-/// The script the administrator runs: one value, and nothing else.
+/// The script the administrator runs: one value, and nothing else — except the classic menu, whose
+/// second half lives in the user's own hive and is written by the same prompt.
 fn elevated_script(tweak: &Tweak, on: bool) -> String {
     let path = format!("Registry::HKEY_LOCAL_MACHINE\\{}", tweak.path);
-    match tweak.kind {
+    let base = match tweak.kind {
         Kind::Dword { on: on_value, off } => {
             let value = if on { on_value } else { off };
             format!(
@@ -473,10 +536,14 @@ fn elevated_script(tweak: &Tweak, on: bool) -> String {
             if on {
                 format!(
                     "$ErrorActionPreference='Stop'; New-Item -Path '{path}' -Force | Out-Null; \
-                     Set-ItemProperty -Path '{path}' -Name '' -Value '' -Type String"
+                     Set-ItemProperty -Path '{path}' -Name '{}' -Value '' -Type String",
+                    tweak.name
                 )
             } else {
-                format!("$ErrorActionPreference='Stop'; Remove-ItemProperty -Path '{path}' -Name '' -ErrorAction SilentlyContinue")
+                format!(
+                    "$ErrorActionPreference='Stop'; Remove-ItemProperty -Path '{path}' -Name '{}' -ErrorAction SilentlyContinue",
+                    tweak.name
+                )
             }
         }
         Kind::Choice { values } => {
@@ -487,6 +554,19 @@ fn elevated_script(tweak: &Tweak, on: bool) -> String {
                 tweak.name
             )
         }
+    };
+    if !is_classic_menu(tweak) {
+        return base;
+    }
+    let user = format!("Registry::HKEY_CURRENT_USER\\{CLASSIC_MENU_CLSID}");
+    if on {
+        format!(
+            "{base}; New-Item -Path '{user}' -Force | Out-Null; \
+             Set-ItemProperty -Path '{user}' -Name '' -Value '' -Type String"
+        )
+    } else {
+        let clsid = "Registry::HKEY_CURRENT_USER\\Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}";
+        format!("{base}; Remove-Item -Path '{clsid}' -Recurse -Force -ErrorAction SilentlyContinue")
     }
 }
 
@@ -557,7 +637,7 @@ pub fn undo(id: &str) -> Result<Vec<TweakState>, String> {
         (Kind::Marker, Some(_)) => {
             registry::write_empty_string(root_of(tweak), tweak.path, tweak.name, tweak.machine)
         }
-        (Kind::Marker, None) => clear_marker(tweak),
+        (Kind::Marker, None) => write(tweak, false),
         (Kind::Dword { .. } | Kind::Choice { .. }, Some(value)) => registry::write_dword(
             root_of(tweak),
             tweak.path,
@@ -655,15 +735,19 @@ mod tests {
     }
 
     #[test]
-    fn the_classic_menu_is_a_marker_on_the_clsid_override() {
-        // Presence of that empty value *is* the setting, so the row must be a marker and its name
-        // must be empty — a named value there would write something Windows never reads.
+    fn the_classic_menu_is_a_marker_on_both_mechanisms() {
+        // The machine block is what 24H2 reads, so the row carries it and asks for the prompt; the
+        // user override is written by the same switch and the same script.
         let row = find("explorer.classicmenu").expect("the classic menu row");
         assert!(matches!(row.kind, Kind::Marker));
-        assert_eq!(row.name, "");
-        assert!(row.path.ends_with("\\InprocServer32"));
-        assert!(row.path.starts_with("Software\\Classes\\CLSID\\{86ca1aa0"));
-        assert!(!row.machine, "the user's own hive needs no administrator");
+        assert_eq!(row.name, NEW_MENU_CLSID);
+        assert_eq!(row.path, CLASSIC_MENU_BLOCKED);
+        assert!(row.machine, "the block lives in the machine hive");
+        let script = elevated_script(row, true);
+        assert!(script.contains("{e2bf9676-5f8f-435c-97eb-11607a5bedf7}"));
+        assert!(script.contains("HKEY_LOCAL_MACHINE"));
+        assert!(script.contains("HKEY_CURRENT_USER"));
+        assert!(script.contains("86ca1aa0-34aa-4e8b-a509-50c905bae2a2"));
     }
 
     #[test]

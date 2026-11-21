@@ -2,6 +2,16 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.15 — 2026-11-21
+
+**Klasyczne menu działa też na Windows 11 24H2 i nowszych.**
+
+- Przełącznik ustawia oba mechanizmy naraz: wpis w swoim profilu, który czytają starsze buildy, i
+  blokadę nowego menu w rejestrze systemowym, którą czytają 24H2 i nowsze. Ta druga część wymaga
+  jednej zgody administratora, a okno pokazuje przycisk, gdy jej brakuje.
+- Przycisk nie udaje sukcesu, gdy zapisała się tylko połowa ustawienia — dopóki blokada systemowa
+  nie jest zapisana, wiersz mówi, że potrzebne są uprawnienia.
+
 ## 0.5.14 — 2026-11-21
 
 **Klasyczne menu, odświeżanie w Debloat i okno, które daje się rozciągnąć.**
