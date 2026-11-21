@@ -28,6 +28,11 @@ const BOT_OVERHANG = 40;
 /** Same margin as the Rust hit test (src-tauri/src/island.rs). */
 const HIT_MARGIN = 14;
 
+/** The floor a corner drag may leave: below this an expanded card has nothing to draw on. Rust
+ *  clamps the same pair in `island::set_panel`. */
+const RESIZE_MIN_W = 320;
+const RESIZE_MIN_H = 96;
+
 /** How long a reminder card ignores a click that hides the island. Long enough for
  *  a click already on its way when the card appeared, short enough to not feel
  *  stuck. */
@@ -86,6 +91,11 @@ export class Island {
   private miniGrid!: HTMLElement;
   private countdown!: HTMLElement;
   private wakeStrip!: HTMLElement;
+  /** The corner grip: a drag here stretches the island. The size it leaves is temporary — a fold
+   *  clears it — so it is a field and not a setting. */
+  private gripEl!: HTMLElement;
+  private resize: { w: number; h: number } | null = null;
+  private gripShown = false;
 
   private header!: ViewHost;
   private views!: Map<IslandViewName, ViewHost>;
@@ -274,6 +284,9 @@ export class Island {
       this.uploadCanvas.el,
       this.contentEl,
     );
+    this.gripEl = h("div", { id: "resize-grip" });
+    // The grip belongs to an open card: nothing on the bar or while retracted.
+    this.gripEl.style.display = "none";
     this.islandEl = h(
       "div",
       { id: "island" },
@@ -282,6 +295,7 @@ export class Island {
       this.botCanvas,
       this.miniGrid,
       this.countdown,
+      this.gripEl,
     );
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -292,6 +306,7 @@ export class Island {
 
     this.root.append(this.wakeStrip, this.islandEl);
     this.bindDrag();
+    this.bindResize();
     this.applyGeometry();
   }
 
@@ -408,6 +423,12 @@ export class Island {
       // was on, so Rust must stop offering the copy cursor.
       this.uploadPin = false;
       void Bridge.setAcceptDrops(false);
+      // A stretched island is temporary by design: the fold hands the panel back, so the next
+      // opening is the size every view was drawn for.
+      if (this.resize) {
+        this.resize = null;
+        void Bridge.resizeIsland(0, 0);
+      }
     }
     this.updateWindowCollapsed();
     this.animateGeometry(modeOrder(mode) < modeOrder(prev));
@@ -930,6 +951,15 @@ export class Island {
   // ── Geometry ────────────────────────────────────────────────────────────────
 
   private targetSize(): { w: number; h: number; r: number } {
+    // A dragged size wins over the view's own, and it is not clamped by the window's current
+    // size: the window is being resized towards the same number, one call behind.
+    if (State.mode === "expanded" && this.resize) {
+      const maxW = Math.max(EXPANDED_W, window.screen.availWidth - 24);
+      const maxH = Math.max(RESIZE_MIN_H + 40, window.screen.availHeight - 80);
+      const w = clamp(this.resize.w, RESIZE_MIN_W, maxW);
+      const h = clamp(this.resize.h, RESIZE_MIN_H, maxH);
+      return { w, h, r: EXPANDED_CORNER };
+    }
     const { w, h } = islandSize(State.mode, State.view, State.chatHistory.length);
     const r = State.mode === "expanded" ? EXPANDED_CORNER : ROUNDED_CORNER;
     return { w, h, r };
@@ -983,19 +1013,29 @@ export class Island {
       this.islandEl.classList.toggle("settling", settling);
     }
 
-    const rect = { x: (PANEL_W - settled.w) / 2, y: 0, w: settled.w, h: settled.h };
+    // The window is the panel, so the page is as wide as it is: after a corner drag that is no
+    // longer PANEL_W, and centring by the old constant would push the island off to one side.
+    const panelW = window.innerWidth || PANEL_W;
+    const rect = { x: (panelW - settled.w) / 2, y: 0, w: settled.w, h: settled.h };
     const p = this.pushedRect;
     if (Math.abs(p.x - rect.x) > 0.5 || Math.abs(p.w - rect.w) > 0.5 || Math.abs(p.h - rect.h) > 0.5) {
       this.pushedRect = rect;
       void Bridge.setIslandRect(rect.x, rect.y, rect.w, rect.h);
     }
+
+    // The grip belongs to an open card only: on the bar it would sit on the island's own corner.
+    const gripping = State.mode === "expanded";
+    if (gripping !== this.gripShown) {
+      this.gripShown = gripping;
+      this.gripEl.style.display = gripping ? "" : "none";
+    }
   }
 
-  /** Island rect in window coordinates (origin top-left of the 720×320 window). */
+  /** Island rect in window coordinates (origin top-left of the panel). */
   private islandRect(): { x: number; y: number; w: number; h: number } {
     const w = this.width.value;
     const hh = this.height.value;
-    return { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
+    return { x: ((window.innerWidth || PANEL_W) - w) / 2, y: 0, w, h: hh };
   }
 
   // ── Window collapse (hidden → tiny wake strip, zero polling) ────────────────
@@ -1494,6 +1534,63 @@ export class Island {
       el.addEventListener("pointerup", up);
       el.addEventListener("pointercancel", up);
     }
+  }
+
+  /** The bottom-right corner: hold it and the island takes the size the pointer asks for, width and
+   *  height at once. Nothing is written down — `setMode` hands the panel back when the island folds. */
+  private bindResize() {
+    let dragging = false;
+    let startW = 0;
+    let startH = 0;
+    let fromX = 0;
+    let fromY = 0;
+
+    const down = (e: PointerEvent) => {
+      if (e.button !== 0 || State.mode !== "expanded") return;
+      // The island's own move-drag listens on the same element: a press on the grip is a resize.
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = true;
+      startW = this.width.value;
+      startH = this.height.value;
+      fromX = e.screenX;
+      fromY = e.screenY;
+      try {
+        this.gripEl.setPointerCapture(e.pointerId);
+      } catch {
+        /* no capture: the drag still works while the cursor stays over us */
+      }
+    };
+
+    const move = (e: PointerEvent) => {
+      if (!dragging) return;
+      // The island is centred in its window, so growing the width moves its right edge half as far
+      // as the width itself — twice the pointer's travel keeps the corner under the cursor.
+      const wantedW = startW + (e.screenX - fromX) * 2;
+      const wantedH = startH + (e.screenY - fromY);
+      const maxW = Math.max(EXPANDED_W, window.screen.availWidth - 24);
+      const maxH = Math.max(RESIZE_MIN_H + 40, window.screen.availHeight - 80);
+      const w = Math.round(clamp(wantedW, RESIZE_MIN_W, maxW));
+      const h = Math.round(clamp(wantedH, RESIZE_MIN_H, maxH));
+      if (this.resize && this.resize.w === w && this.resize.h === h) return;
+      this.resize = { w, h };
+      this.animateGeometry(false);
+      // The window *is* the panel: without resizing it too, everything past 720×320 is clipped.
+      void Bridge.resizeIsland(w, h);
+    };
+
+    const up = () => {
+      if (!dragging) return;
+      dragging = false;
+      if (this.resize) {
+        void Bridge.log(`ui  island resized to ${this.resize.w}x${this.resize.h}`);
+      }
+    };
+
+    this.gripEl.addEventListener("pointerdown", down);
+    this.gripEl.addEventListener("pointermove", move);
+    this.gripEl.addEventListener("pointerup", up);
+    this.gripEl.addEventListener("pointercancel", up);
   }
 
   private updateBotTargets() {

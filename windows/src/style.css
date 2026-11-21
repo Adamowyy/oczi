@@ -207,6 +207,27 @@ body {
   overflow: hidden;
 }
 
+/* The corner grip: the one handle that resizes the island. Two hairlines in the bottom-right
+   corner, quiet until the pointer is on them — the card stays the picture, not the frame. */
+#resize-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  z-index: 40;
+  cursor: nwse-resize;
+  opacity: 0.3;
+  transition: opacity 0.14s ease;
+  background:
+    linear-gradient(135deg, transparent 44%, rgba(255, 255, 255, 0.75) 44%, rgba(255, 255, 255, 0.75) 50%, transparent 50%),
+    linear-gradient(135deg, transparent 62%, rgba(255, 255, 255, 0.75) 62%, rgba(255, 255, 255, 0.75) 68%, transparent 68%);
+}
+
+#resize-grip:hover {
+  opacity: 0.9;
+}
+
 /* The ordinary views step aside while the sequence owns the body. */
 #views.hidden-by-upload {
   opacity: 0;
@@ -1074,6 +1095,29 @@ input[type="range"]::-webkit-slider-thumb {
   height: 7px;
   border-radius: 50%;
   background: linear-gradient(135deg, #ff6b5b, #f7b32b, #2dd4a7, #38bdf8, #a78bfa);
+}
+
+/* The × on the attachment chip: small and quiet until the pointer is on it, because the chip is
+   usually just a label. */
+.chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-2);
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.chip-x:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.16);
 }
 
 .chat-log {
@@ -2971,6 +3015,30 @@ html.asleep *::after {
   margin-left: auto;
   font: 400 10.5px var(--font);
   color: var(--dim-2);
+}
+
+/* A tiny refresh on a tab whose list can go stale: a program uninstalled outside Oczi leaves its
+   autostart row on screen until this is pressed. */
+.deb-refresh {
+  font: 400 11px var(--font);
+  line-height: 1;
+  color: var(--dim-2);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  padding: 2px 4px;
+  margin-left: 2px;
+  cursor: pointer;
+}
+
+.deb-refresh:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.deb-refresh:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .game-eyebrow.group {

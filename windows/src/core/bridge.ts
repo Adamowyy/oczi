@@ -336,6 +336,11 @@ export const Bridge = {
   /** `pinMode` keeps the crop on screen instead of handing it to the chat. */
   beginSnip: (pinMode?: boolean) =>
     callOrThrow<void>("begin_snip", { pinMode: pinMode ?? false }),
+  /** Drops a screenshot that was taken but not sent: the chip's × — the file goes with it. */
+  snipDrop: () => call<boolean>("drop_snip"),
+  /** The corner drag: a temporary window size, and `0, 0` back to the panel. */
+  resizeIsland: (width: number, height: number) =>
+    call<void>("resize_island", { width, height }),
   /** Copies a dropped file into the inbox. */
   ingestFile: (path: string) => callOrThrow<DroppedFile>("ingest_file", { path }),
   /** Only ever tells you whether a key exists, never its value. */

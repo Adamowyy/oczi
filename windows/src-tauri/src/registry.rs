@@ -8,9 +8,10 @@
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::ERROR_SUCCESS;
 use windows::Win32::System::Registry::{
-    RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
-    HKEY, KEY_CREATE_SUB_KEY, KEY_READ, KEY_SET_VALUE, KEY_WOW64_64KEY, REG_CREATE_KEY_DISPOSITION,
-    REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SAM_FLAGS, REG_SZ,
+    RegCloseKey, RegCreateKeyExW, RegDeleteKeyExW, RegDeleteValueW, RegOpenKeyExW,
+    RegQueryValueExW, RegSetValueExW, HKEY, KEY_CREATE_SUB_KEY, KEY_READ, KEY_SET_VALUE,
+    KEY_WOW64_64KEY, REG_CREATE_KEY_DISPOSITION, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SAM_FLAGS,
+    REG_SZ,
 };
 
 /// A key that closes itself, so an early return anywhere cannot leak it.
@@ -128,22 +129,28 @@ pub(crate) fn write_dword(root: HKEY, path: &str, name: &str, machine: bool, val
 
 /// Whether this account can actually change something here. Two cases, and they are not the same
 /// question: a key that already exists needs write access to *it*, while a key that does not exist
-/// yet needs the right to add a subkey to its parent. A row the app cannot change must not be
-/// offered — a switch that always fails is worse than a switch that is not there.
+/// yet needs the right to add a subkey somewhere above it — the classic-menu override lives three
+/// levels below `Software\Classes`, and asking only the immediate parent hid the row on a machine
+/// that had never set it. A row the app cannot change must not be offered.
 pub(crate) fn can_write(root: HKEY, path: &str, machine: bool) -> bool {
     if open(root, path, machine, KEY_READ).is_some() {
         return open(root, path, machine, KEY_SET_VALUE).is_some();
     }
-    let Some(cut) = path.rfind('\\') else {
-        return false;
-    };
-    open(
-        root,
-        &path[..cut],
-        machine,
-        REG_SAM_FLAGS(KEY_CREATE_SUB_KEY.0),
-    )
-    .is_some()
+    let mut above = path;
+    while let Some(cut) = above.rfind('\\') {
+        above = &above[..cut];
+        if open(
+            root,
+            above,
+            machine,
+            REG_SAM_FLAGS(KEY_CREATE_SUB_KEY.0),
+        )
+        .is_some()
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Writes an empty string value — a marker Windows reads as "this is set", used by the classic
@@ -214,6 +221,15 @@ pub(crate) fn delete_value(root: HKEY, path: &str, name: &str, machine: bool) ->
 
 // The four calls above are wrapped here on purpose: a `REG_SZ` that is one NUL is "set" to Windows,
 // and that is the whole of the classic-context-menu setting.
+
+/// Removes a key that has no subkeys left. A CLSID override is the key itself, not a value in it,
+/// so putting the new context menu back means taking the key away — an empty key still resolves.
+pub(crate) fn delete_key(root: HKEY, path: &str, machine: bool) -> bool {
+    let wide_path = wide(path);
+    let status = unsafe { RegDeleteKeyExW(root, PCWSTR(wide_path.as_ptr()), view(machine), Some(0)) };
+    // ERROR_FILE_NOT_FOUND (2) and ERROR_PATH_NOT_FOUND (3) both mean it is already gone.
+    status == ERROR_SUCCESS || status.0 == 2 || status.0 == 3
+}
 
 #[cfg(test)]
 mod tests {

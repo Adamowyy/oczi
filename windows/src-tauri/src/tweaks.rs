@@ -37,6 +37,11 @@ const SEARCH: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Search";
 const BING_POLICY: &str = "Software\\Policies\\Microsoft\\Windows\\Explorer";
 const COPILOT_POLICY: &str = "Software\\Policies\\Microsoft\\Windows\\WindowsCopilot";
 const TELEMETRY_POLICY: &str = "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection";
+/// The classic right-click menu. Windows 11 resolves its own context menu through this COM class,
+/// and an empty override of it in the user's hive is what switches the old one back on — the way
+/// this machine is set up. Nothing under `Explorer\Advanced` does the same job.
+const CLASSIC_MENU: &str =
+    "Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32";
 
 /// What kind of value a row is. Copy because the table is a const and every reader takes it by
 /// value: a two-word enum, cheaper to duplicate than to borrow.
@@ -44,10 +49,8 @@ const TELEMETRY_POLICY: &str = "SOFTWARE\\Policies\\Microsoft\\Windows\\DataColl
 enum Kind {
     /// A DWORD switch, with the number each state wants.
     Dword { on: u32, off: u32 },
-    /// An empty string that exists or does not. No row uses it any more — the classic context menu
-    /// stopped being read in 24H2 — but the shape stays for the next setting that is a presence
-    /// rather than a number.
-    #[allow(dead_code)]
+    /// An empty string that exists or does not — the classic context menu, whose whole setting is
+    /// a CLSID override with nothing in it.
     Marker,
     /// Three or more states, in the order the window draws them. The taskbar search is the one:
     /// hidden, an icon, or the box. A switch cannot say that.
@@ -71,6 +74,16 @@ struct Tweak {
 /// The catalogue, in the order the window draws it. Only what is in here is ever offered.
 const TWEAKS: &[Tweak] = &[
     // ── Explorer ─────────────────────────────────────────────────────────────
+    Tweak {
+        id: "explorer.classicmenu",
+        group: "explorer",
+        machine: false,
+        path: CLASSIC_MENU,
+        // The key's own default value, which is why the name is empty.
+        name: "",
+        kind: Kind::Marker,
+        restart: true,
+    },
     Tweak {
         id: "explorer.recent",
         group: "explorer",
@@ -271,7 +284,7 @@ fn write(tweak: &Tweak, on: bool) -> bool {
             if on {
                 registry::write_empty_string(root_of(tweak), tweak.path, tweak.name, tweak.machine)
             } else {
-                registry::delete_value(root_of(tweak), tweak.path, tweak.name, tweak.machine)
+                clear_marker(tweak)
             }
         }
         // A switch on a choice row writes its first entry, which is what the window shows as the
@@ -284,6 +297,18 @@ fn write(tweak: &Tweak, on: bool) -> bool {
             if on { values[0] } else { values[1] },
         ),
     }
+}
+
+/// Puts a marker back off. A CLSID override is the key itself, not just its empty value: leaving
+/// the key behind keeps Windows resolving it, so the leaf goes and then the key above it.
+fn clear_marker(tweak: &Tweak) -> bool {
+    let root = root_of(tweak);
+    let gone = registry::delete_value(root, tweak.path, tweak.name, tweak.machine);
+    registry::delete_key(root, tweak.path, tweak.machine);
+    if let Some(cut) = tweak.path.rfind('\\') {
+        registry::delete_key(root, &tweak.path[..cut], tweak.machine);
+    }
+    gone
 }
 
 /// Every row, as Windows has it now.
@@ -387,7 +412,14 @@ pub fn set_value(id: &str, value: u32) -> Result<Vec<TweakState>, String> {
 pub fn reset(id: &str) -> Result<Vec<TweakState>, String> {
     let tweak = find(id)?;
     let was = current(tweak);
-    registry::delete_value(root_of(tweak), tweak.path, tweak.name, tweak.machine);
+    match tweak.kind {
+        Kind::Marker => {
+            clear_marker(tweak);
+        }
+        _ => {
+            registry::delete_value(root_of(tweak), tweak.path, tweak.name, tweak.machine);
+        }
+    }
     record(tweak.id, was, false);
     log::line(format!("tweak {}: reset (was {:?})", tweak.id, was));
     Ok(list())
@@ -525,9 +557,7 @@ pub fn undo(id: &str) -> Result<Vec<TweakState>, String> {
         (Kind::Marker, Some(_)) => {
             registry::write_empty_string(root_of(tweak), tweak.path, tweak.name, tweak.machine)
         }
-        (Kind::Marker, None) => {
-            registry::delete_value(root_of(tweak), tweak.path, tweak.name, tweak.machine)
-        }
+        (Kind::Marker, None) => clear_marker(tweak),
         (Kind::Dword { .. } | Kind::Choice { .. }, Some(value)) => registry::write_dword(
             root_of(tweak),
             tweak.path,
@@ -622,6 +652,18 @@ mod tests {
         assert!(find("privacy.something.else").is_err());
         assert!(find("").is_err());
         assert!(find("privacy.bing").is_ok());
+    }
+
+    #[test]
+    fn the_classic_menu_is_a_marker_on_the_clsid_override() {
+        // Presence of that empty value *is* the setting, so the row must be a marker and its name
+        // must be empty — a named value there would write something Windows never reads.
+        let row = find("explorer.classicmenu").expect("the classic menu row");
+        assert!(matches!(row.kind, Kind::Marker));
+        assert_eq!(row.name, "");
+        assert!(row.path.ends_with("\\InprocServer32"));
+        assert!(row.path.starts_with("Software\\Classes\\CLSID\\{86ca1aa0"));
+        assert!(!row.machine, "the user's own hive needs no administrator");
     }
 
     #[test]

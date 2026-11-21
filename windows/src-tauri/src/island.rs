@@ -1,7 +1,7 @@
 // Island window: the black, borderless, always-on-top shape at the top centre of
 // the display. Placement, window sizes, click-through and the cursor poll.
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -29,10 +29,17 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
-/// Logical size of the panel. The window is always this size: click-through keeps
-/// the island out of the way while it stays large.
+/// Logical size of the panel. The window is always this size unless the user dragged the island's
+/// bottom-right corner; click-through keeps the island out of the way while it stays large.
 pub const PANEL_W: f64 = 720.0;
 pub const PANEL_H: f64 = 320.0;
+/// The temporary size a drag leaves behind. Zero means "the panel's own size" — nothing is stored,
+/// so a fold puts it back and a restart never remembers it.
+static PANEL_DRAG_W: AtomicU32 = AtomicU32::new(0);
+static PANEL_DRAG_H: AtomicU32 = AtomicU32::new(0);
+/// The smallest window a drag may leave: the island's own floor for an expanded card.
+const PANEL_MIN_W: f64 = 320.0;
+const PANEL_MIN_H: f64 = 96.0;
 
 pub const WINDOW_LABEL: &str = "island";
 
@@ -809,6 +816,39 @@ mod monitor_tests {
     }
 }
 
+/// The panel's current logical size: the drag's size while one is set, `PANEL_W` × `PANEL_H`
+/// otherwise.
+fn panel_size() -> (f64, f64) {
+    let w = PANEL_DRAG_W.load(Ordering::Relaxed);
+    let h = PANEL_DRAG_H.load(Ordering::Relaxed);
+    if w == 0 || h == 0 {
+        (PANEL_W, PANEL_H)
+    } else {
+        (w as f64, h as f64)
+    }
+}
+
+/// Sizes the window for a corner drag, or puts it back to the panel with `None`. Temporary by
+/// design: the front end calls this again with `None` the moment the island folds, and nothing is
+/// written to the settings — a restart never remembers a stretched island.
+pub fn set_panel(app: &AppHandle, pref: &str, anchor: f64, size: Option<(f64, f64)>) {
+    match size {
+        Some((w, h)) => {
+            let w = w.clamp(PANEL_MIN_W, 3840.0);
+            let h = h.clamp(PANEL_MIN_H, 2160.0);
+            PANEL_DRAG_W.store(w.round() as u32, Ordering::Relaxed);
+            PANEL_DRAG_H.store(h.round() as u32, Ordering::Relaxed);
+            crate::log::line(format!("island panel {w:.0}x{h:.0} (from a drag)"));
+        }
+        None => {
+            PANEL_DRAG_W.store(0, Ordering::Relaxed);
+            PANEL_DRAG_H.store(0, Ordering::Relaxed);
+            crate::log::line("island panel back to 720x320".to_string());
+        }
+    }
+    apply_geometry(app, pref, anchor);
+}
+
 /// Slides the island along the top of its screen. Only the position moves: the size
 /// and the always-on-top flag belong to `apply_geometry`, and re-asserting them on
 /// every mouse move makes the drag stutter.
@@ -818,7 +858,7 @@ pub fn set_anchor(app: &AppHandle, pref: &str, anchor: f64) {
     let scale = m.scale_factor();
     let mp = *m.position();
     let ms = *m.size();
-    let pw = (PANEL_W * scale).round().max(1.0) as u32;
+    let pw = (panel_size().0 * scale).round().max(1.0) as u32;
     let _ = win.set_position(PhysicalPosition::new(anchored_x(mp, ms.width, pw, anchor), mp.y));
 }
 
@@ -830,8 +870,12 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, anchor: f64) {
     let mp = *m.position();
     let ms = *m.size();
 
-    let pw = (PANEL_W * scale).round().max(1.0) as u32;
-    let ph = (PANEL_H * scale).round().max(1.0) as u32;
+    // A drag may ask for more room than the display has; the display wins, in logical units.
+    let (want_w, want_h) = panel_size();
+    let room_w = ms.width as f64 / scale;
+    let room_h = ms.height as f64 / scale;
+    let pw = (want_w.min(room_w) * scale).round().max(1.0) as u32;
+    let ph = (want_h.min(room_h) * scale).round().max(1.0) as u32;
     let x = anchored_x(mp, ms.width, pw, anchor);
     let y = mp.y;
 

@@ -193,11 +193,35 @@ export function typingDots(): HTMLElement {
   );
 }
 
-/** The coloured chip showing what the question is about (a dropped file). */
-function contextChip(label: string): HTMLElement {
+/** The coloured chip showing what the question is about (a dropped file or a screenshot), with a
+ *  × that puts it away again — a picture taken by mistake must not ride along with the question. */
+function contextChip(label: string, onRemove: () => void): HTMLElement {
   const chip = h("div", { class: "chip" }, h("i", { class: "chip-dot" }), h("span", { text: label }));
+  const remove = h(
+    "button",
+    { class: "chip-x", title: t("chat.attachmentRemove"), "aria-label": t("chat.attachmentRemove") },
+    svg(ICONS.xmark, 8),
+  );
+  remove.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onRemove();
+  });
+  chip.append(remove);
   requestAnimationFrame(() => chip.classList.add("settled"));
   return chip;
+}
+
+/** Drops the attachment waiting for the next question: the picture's file goes with it, a dropped
+ *  file is only forgotten — that one is the user's own document. */
+function dropAttachment() {
+  if (State.snip) {
+    State.snip = null;
+    void Bridge.snipDrop();
+  }
+  State.droppedFile = null;
+  Sound.play("blip");
+  State.notify();
 }
 
 export function buildPrompt(actions: ViewActions, onHeightChange: () => void): ViewHost {
@@ -330,7 +354,7 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
       if (chipRow.dataset.label !== label) {
         chipRow.dataset.label = label;
         clear(chipRow);
-        if (label) chipRow.append(contextChip(label));
+        if (label) chipRow.append(contextChip(label, dropAttachment));
       }
 
       const thinking = State.stateOverride === "thinking";

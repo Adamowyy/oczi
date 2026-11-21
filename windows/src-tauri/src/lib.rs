@@ -255,6 +255,19 @@ fn reposition(app: AppHandle, shared: State<Shared>) {
     island::apply_geometry(&app, &pref, anchor);
 }
 
+/// A corner drag on the island: the window takes the size the page asked for, and `0,0` puts it
+/// back to the panel. Nothing is stored — the fold sends the reset, so a stretched island is never
+/// remembered.
+#[tauri::command]
+fn resize_island(app: AppHandle, shared: State<Shared>, width: f64, height: f64) {
+    let (pref, anchor) = {
+        let s = shared.settings.lock().unwrap();
+        (s.screen.clone(), s.island_anchor)
+    };
+    let size = (width > 0.0 && height > 0.0).then_some((width, height));
+    island::set_panel(&app, &pref, anchor, size);
+}
+
 /// Dragging the island: it slides, and the place it was left in is written down so
 /// it comes back there after a restart.
 #[tauri::command]
@@ -364,6 +377,17 @@ async fn chat_send(
         screenshot,
     )
     .await
+}
+
+/// A picture waiting for the next question, dropped by the chip on the chat. The file goes with
+/// the slot, so nothing is left behind for a later question to pick up.
+#[tauri::command]
+fn drop_snip(snip: State<'_, Snip>) -> bool {
+    let dropped = snip.drop_pending();
+    if dropped {
+        log::line("snip  picture dropped before it was sent".to_string());
+    }
+    dropped
 }
 
 /// Puts the overlay away and brings the island back. Every exit from the snip flow
@@ -1538,6 +1562,7 @@ pub fn run() {
             set_accept_drops,
             focus_window,
             reposition,
+            resize_island,
             open_url,
             quit_app,
             log_line,
@@ -1546,6 +1571,7 @@ pub fn run() {
             begin_snip,
             finish_snip,
             cancel_snip,
+            drop_snip,
             pin_close,
             pin_drag_start,
             pin_ask,

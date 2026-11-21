@@ -169,18 +169,41 @@ fn gg_prices(json: &Value, app_id: u64) -> Option<Offer> {
     })
 }
 
+/// The key as it is really meant: a paste can carry a newline, a non-breaking space or a
+/// zero-width character along, and gg.deals answers `Invalid key.` for a key it cannot match.
+/// The key is a token, so nothing in it is whitespace by design.
+fn clean_key(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| !c.is_whitespace() && !c.is_control() && !matches!(c, '\u{feff}' | '\u{200b}'))
+        .collect()
+}
+
+/// The sentence the API itself answered with. It is the whole diagnosis: a 400 there reads
+/// "Invalid key.", which tells the user more than the status number ever will.
+fn api_message(body: &str) -> Option<String> {
+    let json: Value = serde_json::from_str(body).ok()?;
+    json.get("data")?
+        .get("message")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
 /// One game's prices by the title the user typed.
 pub async fn lookup(title: &str) -> Result<Offer, String> {
     let title = title.trim();
     if title.is_empty() {
         return Err("Pusta nazwa gry — podaj tytuł.".to_string());
     }
-    let Some(key) = crate::secrets::get(GG_KEY) else {
+    let Some(stored) = crate::secrets::get(GG_KEY) else {
         return Err(
             "Brak klucza gg.deals. Dodaj go w Ustawieniach → Integracje (Ceny): klucz generujesz na gg.deals w swoim koncie, w sekcji API."
                 .to_string(),
         );
     };
+    let key = clean_key(&stored);
+    if key.is_empty() {
+        return Err("Klucz gg.deals jest pusty — wklej go w Ustawieniach → Integracje (Ceny).".to_string());
+    }
     let http = client()?;
 
     let search_url = format!("{STEAM_SEARCH}?term={}&l=polish&cc=PL", urlencode(title));
@@ -209,8 +232,16 @@ pub async fn lookup(title: &str) -> Result<Offer, String> {
         .map_err(|e| format!("gg.deals: {e}"))?;
     let code = prices.status();
     if !code.is_success() {
+        // The body carries the reason ("Invalid key.", "Missing required parameters: key"): logging
+        // only the status left a wrong key looking like a broken app.
+        let body = prices.text().await.unwrap_or_default();
+        let reason = api_message(&body).unwrap_or_else(|| format!("HTTP {code}"));
+        log::line(format!("prices: gg.deals {code} — {reason}"));
         return Err(match code.as_u16() {
             401 | 403 => "Klucz gg.deals nie został przyjęty — sprawdź go w Ustawieniach.".to_string(),
+            400 => format!(
+                "gg.deals odrzucił zapytanie: {reason}. Klucz wygenerujesz na gg.deals w swoim koncie (sekcja API), na koncie zweryfikowanym."
+            ),
             429 => "gg.deals: zbyt wiele zapytań, spróbuj za chwilę.".to_string(),
             _ => format!("gg.deals → HTTP {code}"),
         });
@@ -338,6 +369,23 @@ mod tests {
         println!("{offer:#?}");
         assert_eq!(offer.app_id, 107410);
         assert!(offer.best.is_some(), "no price on the card");
+    }
+
+    #[test]
+    fn a_pasted_key_loses_what_a_paste_brings() {
+        // The three characters that turn a correct key into gg.deals' "Invalid key.".
+        assert_eq!(clean_key(" abc123 \u{0d}\u{0a}"), "abc123");
+        assert_eq!(clean_key("abc\u{00a0}123"), "abc123");
+        assert_eq!(clean_key("\u{feff}abc\u{200b}"), "abc");
+        assert_eq!(clean_key("   "), "");
+    }
+
+    #[test]
+    fn the_api_own_reason_is_read_out_of_the_body() {
+        // A live answer for a key gg.deals does not accept, copied as it came.
+        let body = r#"{"success":false,"data":{"name":"Bad Request","message":"Invalid key.","code":400,"status":400}}"#;
+        assert_eq!(api_message(body).as_deref(), Some("Invalid key."));
+        assert_eq!(api_message("<html>nope</html>"), None);
     }
 
     #[test]

@@ -1450,6 +1450,7 @@ async function gameAction(
 
 /** The label key for a tweak id. A record rather than a switch so a missing id is a type error. */
 const TWEAK_LABELS: Record<string, TextKey> = {
+  "explorer.classicmenu": "tweaks.explorerMenu",
   "explorer.recent": "tweaks.explorerRecent",
   "explorer.frequent": "tweaks.explorerFrequent",
   "explorer.ads": "tweaks.explorerAds",
@@ -1583,6 +1584,13 @@ function tweaksBlock(d: DebloatState): HTMLElement {
       { class: "tweaks-head" },
       h("span", { class: "game-eyebrow", text: t("tweaks.title") }),
       h("span", { class: "count", text: t("tweaks.count", on, d.tweaks.length) }),
+      h("button", {
+        class: "deb-refresh",
+        text: "↻",
+        title: t("debloat.refresh"),
+        disabled: d.tweakBusy !== null,
+        onclick: () => void refreshTweaks(),
+      }),
     ),
   );
   for (const group of TWEAK_GROUPS) {
@@ -1646,6 +1654,25 @@ function tweaksBlock(d: DebloatState): HTMLElement {
   return block;
 }
 
+/** Re-reads the switches only. A value another program or Windows itself changed shows up here —
+ *  the panel is otherwise read once, when it opens. */
+async function refreshTweaks() {
+  const d = State.debloat;
+  if (!d || d.tweakBusy) return;
+  d.tweakBusy = "refresh";
+  d.tweakNote = null;
+  State.notify();
+  try {
+    d.tweaks = await Bridge.tweaksList();
+    d.changes = (await Bridge.tweaksHistory()) ?? [];
+    void Bridge.log("tweaks: refreshed");
+  } catch (e) {
+    d.tweakNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+  }
+  d.tweakBusy = null;
+  State.notify();
+}
+
 async function restartExplorer() {
   const d = State.debloat;
   if (!d || d.tweakBusy) return;
@@ -1705,6 +1732,23 @@ async function startupAction(entry: StartupEntry, on: boolean) {
   State.notify();
 }
 
+/** Reads the autostart list again — the moment a program is uninstalled outside Oczi, the row it
+ *  left behind is what the user wants to see gone without closing the panel. */
+async function refreshStartup() {
+  const d = State.debloat;
+  if (!d || d.startupBusy) return;
+  d.startupBusy = "refresh";
+  State.notify();
+  try {
+    d.startup = await Bridge.startupList();
+    void Bridge.log("startup: refreshed");
+  } catch (e) {
+    d.tweakNote = { text: t("game.failed", e instanceof Error ? e.message : String(e)), bad: true };
+  }
+  d.startupBusy = null;
+  State.notify();
+}
+
 function startupBlock(d: DebloatState): HTMLElement {
   const block = h("div", { class: "tweak-group" });
   if (!d.startup) {
@@ -1718,6 +1762,13 @@ function startupBlock(d: DebloatState): HTMLElement {
       { class: "tweaks-head" },
       h("span", { class: "game-eyebrow", text: t("startup.title") }),
       h("span", { class: "count", text: t("startup.count", on, d.startup.length) }),
+      h("button", {
+        class: "deb-refresh",
+        text: "↻",
+        title: t("debloat.refresh"),
+        disabled: d.startupBusy !== null,
+        onclick: () => void refreshStartup(),
+      }),
     ),
   );
   if (d.startup.length === 0) {

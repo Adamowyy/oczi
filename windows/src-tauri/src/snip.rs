@@ -58,6 +58,23 @@ impl Snip {
         self.pending.lock().ok().and_then(|mut p| p.take())
     }
 
+    /// The user changed their mind about the picture waiting for the next question. The slot is
+    /// always cleared; the file goes too, unless it is a pin's own crop — the pin window still
+    /// draws that one from disk. Answers whether a picture was waiting at all.
+    pub fn drop_pending(&self) -> bool {
+        let Some(path) = self.pending.lock().ok().and_then(|mut p| p.take()) else {
+            return false;
+        };
+        let ours = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case("snip.png"));
+        if ours {
+            let _ = std::fs::remove_file(&path);
+        }
+        true
+    }
+
     /// Hands a picture that was written somewhere else to the chat, as the one image the next
     /// question carries. A pin asks about its own crop without going back through the overlay,
     /// so this is the way its picture reaches the same slot the eye's does.

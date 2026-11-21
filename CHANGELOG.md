@@ -2,6 +2,19 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.14 — 2026-11-21
+
+**Klasyczne menu, odświeżanie w Debloat i okno, które daje się rozciągnąć.**
+
+- W Dodatkach jest przełącznik klasycznego menu pod prawym przyciskiem, ustawiony tak jak na Twoim
+  komputerze; po zmianie restart Eksploratora jest jednym kliknięciem obok.
+- Zrzut ekranu i upuszczony plik mają w czacie × — obraz znika razem z plikiem, zanim poleci z pytaniem.
+- Autostart i Dodatki mają małe odświeżanie, więc program usunięty poza Oczim znika z listy bez
+  zamykania okna.
+- Okno daje się rozciągnąć za prawy dolny róg; rozmiar jest tymczasowy i wraca do normy po schowaniu.
+- gg.deals: klucz z wklejonym znakiem niedrukowalnym jest czyszczony, a odmowa API pokazuje swoje
+  zdanie („Invalid key.") zamiast samego HTTP 400.
+
 ## 0.5.13 — 2026-11-18
 
 **Karta PC otwiera się od razu, a czyszczenie mówi, co robi.**
