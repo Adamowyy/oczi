@@ -9,7 +9,7 @@
 // * A short burst of load samples (CPU, memory, the process eating the most CPU) taken *inside*
 //   the scan. Long enough to see a spike, short enough that pressing the button feels like a
 //   button; a deeper pass runs for a minute when the user asks for one.
-// * The event log (System + Application, 72 h, level ≤ 3): crashes, hangs, bugchecks, unexpected
+// * The event log (System + Application, 24 h, level ≤ 3): crashes, hangs, bugchecks, unexpected
 //   restarts, WHEA hardware errors, display-driver resets, services that failed or fell over,
 //   firmware throttling, disk I/O errors. This is what a freeze that happened at noon leaves
 //   behind, and it is why a one-off scan can still say something about the whole day.
@@ -61,7 +61,9 @@ const DEEP_STEPS: u32 = 240;
 /// How far back the event query looks, in milliseconds — the form the XPath filter wants. A normal
 /// scan covers three days; the deep one covers a week, which is what catches a fault that came,
 /// went, and was replaced by a quiet day.
-const EVENT_WINDOW_MS: i64 = 72 * 3_600 * 1_000;
+// One day: a crash from three days ago is history, and the ones still grey on the card pushed the
+// findings a person can act on further down.
+const EVENT_WINDOW_MS: i64 = 24 * 3_600 * 1_000;
 const EVENT_WINDOW_DEEP_MS: i64 = 7 * 24 * 3_600 * 1_000;
 /// How long something that went wrong still counts as wrong *now*. The event window above is how far
 /// a scan looks; this is how far the score reaches. A freeze understood yesterday is a fact to keep
@@ -949,7 +951,83 @@ pub fn cancel() {
 /// Samples the machine once a second for `minutes`, and writes down every moment the sampler itself
 /// was late — which is what a freeze looks like from the inside. Nothing runs afterwards: the loop
 /// ends, the numbers are frozen in the result, and the app keeps no thread.
+/// A whole report at once, so the card's layout can be looked at without sitting through a watch:
+/// `OCZI_WATCH_SIM=1`. A real shape — ten stops, one name across them, a lossy line.
+pub fn simulated_watch() -> Watch {
+    let started = crate::reminders::now_local();
+    let names = ["Discord", "DiscordSystemHelper", "EpicGamesLauncher", "explorer"];
+    let mut stalls = Vec::new();
+    for i in 0..10u32 {
+        let at = started - 900 + i as i64 * 90;
+        let name = names[i as usize % names.len()];
+        stalls.push(Stall {
+            at,
+            at_text: crate::reminders::format_local(at),
+            ms: if i == 3 { 1016 } else { 640 + i * 12 },
+            top: name.to_string(),
+            top_pct: if name == "Discord" { 5.0 } else { 2.0 },
+            dpc: 1.5,
+            cpu: 12.0 + i as f64,
+            tops: vec![
+                NameShare { name: name.to_string(), pct: 4.0 },
+                NameShare { name: "DiscordSystemHelper".to_string(), pct: 2.0 },
+            ],
+        });
+    }
+    let event = |i: i64, seconds: u32| NetEvent {
+        at: started - 800 + i * 120,
+        at_text: crate::reminders::format_local(started - 800 + i * 120),
+        seconds,
+        ms: if seconds == 0 { 120 + i as u32 * 10 } else { 0 },
+        top: "Discord".to_string(),
+    };
+    Watch {
+        minutes: 15,
+        started,
+        started_text: crate::reminders::format_local(started),
+        samples: 900,
+        cores: 16,
+        stalls,
+        cpu_avg: 14.2,
+        cpu_peak: 63.0,
+        mem_peak: 61.0,
+        busiest: "Discord".to_string(),
+        busiest_pct: 6.0,
+        dpc_peak: 2.0,
+        interrupt_peak: 0.4,
+        cancelled: false,
+        culprits: vec![
+            Culprit { name: "Discord".to_string(), count: 10, pct: 6.0 },
+            Culprit { name: "DiscordSystemHelper".to_string(), count: 4, pct: 2.0 },
+        ],
+        driver_stalls: 0,
+        blind_stalls: 1,
+        gap_minutes: 2,
+        suspects: Vec::new(),
+        net: NetWatch {
+            target: "1.1.1.1".to_string(),
+            gateway: "192.168.100.1".to_string(),
+            sent: 500,
+            lost: 100,
+            min_ms: 4,
+            avg_ms: 18.0,
+            max_ms: 149,
+            median_ms: 9,
+            spikes: vec![event(1, 0), event(2, 0)],
+            drops: vec![event(4, 3), event(5, 4), event(6, 2)],
+            gateway_sent: 500,
+            gateway_lost: 1,
+            gateway_max_ms: 2,
+        },
+    }
+}
+
 pub fn watch(minutes: u32) -> Watch {
+    if std::env::var("OCZI_WATCH_SIM").is_ok() {
+        let out = simulated_watch();
+        log::line("health watch sim: report returned at once".to_string());
+        return out;
+    }
     let minutes = minutes.clamp(1, 60);
     let started = crate::reminders::now_local();
     let mut out = Watch {

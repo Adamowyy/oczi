@@ -2561,6 +2561,8 @@ html.asleep *::after {
    list longer than that has to move rather than grow. */
 .panel-view {
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2581,7 +2583,9 @@ html.asleep *::after {
 /* No scrolling inside the island: a scrollbar in a 320 pt strip reads as a website. The content
    is capped instead — the loudest few findings and a counter for the rest. */
 .panel-body {
-  flex: 1 1 auto;
+  /* A zero basis, not the content's own height: with `auto` a report taller than the card held the
+     card open and the far end fell outside the window, where no scrollbar could reach it. */
+  flex: 1 1 0%;
   min-height: 0;
   /* A report of twelve stops is longer than any card, and on a small laptop the fifth line was the
      last one that could be seen with no way down. Here it scrolls instead of being cut. */
@@ -2591,6 +2595,13 @@ html.asleep *::after {
   flex-direction: column;
   gap: 4px;
   scrollbar-width: thin;
+}
+
+/* Rows keep their own height. As flex items they shrank to share the card instead — twenty lines
+   squeezed into sixteen pixels each, the rest clipped below with nothing to scroll. */
+.panel-body > *,
+.panel-list > * {
+  flex: 0 0 auto;
 }
 
 /* The debloat list scrolls. Two columns were tried and clipped the tier word against the package

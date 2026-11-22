@@ -246,7 +246,10 @@ export class Island {
       // A finished watch is a report to read, not a card that folds away: it stays until "Jasne".
       watchFinished: () => {
         State.isPinned = true;
-        this.alert("watch");
+        // The same road the chord takes: a watch ends minutes after it was started, so the island is
+        // wherever it folded to by then — `alert` opened the report into a compact bar and the FSM's
+        // own countdown closed it again a moment later, which read as "the watch does nothing".
+        this.revealOrOpen("watch");
         this.holdOpen(0);
       },
       blip: () => Sound.play("blip"),

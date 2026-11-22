@@ -2536,16 +2536,26 @@ function buildWatch(actions: ViewActions): ViewHost {
         }
         if (watch.driverStalls) parts.push(t("watch.partDriver", watch.driverStalls));
         if (watch.blindStalls) parts.push(t("watch.partBlind", watch.blindStalls));
+        // The stops, who was on the processor through them, and the rhythm — one line. They were
+        // three lines that each repeated the count.
         if (parts.length) {
+          const rhythm =
+            watch.stalls.length >= 3 && watch.gapMinutes > 0 ? t("watch.cadenceShort", watch.gapMinutes) : "";
           body.append(
-            h("div", { class: "panel-advice", text: t("watch.summary", watch.stalls.length, parts.join(" · ")) }),
+            h("div", {
+              class: "panel-advice",
+              text: t("watch.summary", watch.stalls.length, parts.join(" · ")) + rhythm,
+            }),
           );
         }
 
         // The three longest stops, each with the program that held the machine: a column of bare
         // millisecond counts says nothing a person can act on, and the eye reads the same name five
         // times as noise. Whoever took the longest stop is the number worth printing.
-        const shownStalls = [...watch.stalls].sort((a, b) => b.ms - a.ms).slice(0, 3);
+        // The leading name is already in the summary; printing it again under every timestamp is
+        // the noise this report was made of.
+        const lead = watch.culprits?.[0]?.name ?? "";
+        const shownStalls = [...watch.stalls].sort((a, b) => b.ms - a.ms).slice(0, 2);
         shownStalls.forEach((stall) => {
           body.append(
             h(
@@ -2560,14 +2570,14 @@ function buildWatch(actions: ViewActions): ViewHost {
                 // of measuring DPC: audiodg at 4 % is not what holds a machine for three seconds.
                 stall.dpc >= 8
                   ? h("span", { class: "cause", text: t("watch.dpc", Math.round(stall.dpc)) })
-                  : stall.top
+                  : stall.top && stall.top !== lead
                     ? h("span", {
                         class: "cause",
                         text:
                           t("watch.culprit", stall.top, Math.round(stall.topPct)) +
                           // The second name is where an audio suite or an overlay appears: the
                           // game is always first, and the thing that actually stalled it second.
-                          (stall.tops?.length > 1 && stall.tops[1].pct >= 2
+                          (stall.tops?.length > 1 && stall.tops[1].pct >= 5 && stall.tops[1].name !== lead
                             ? t("watch.also", stall.tops[1].name, Math.round(stall.tops[1].pct))
                             : ""),
                       })
@@ -2581,16 +2591,6 @@ function buildWatch(actions: ViewActions): ViewHost {
             h("div", {
               class: "panel-advice",
               text: t("watch.more", watch.stalls.length - shownStalls.length),
-            }),
-          );
-        }
-        // The summary line: driver time first when it is high, because that is the answer to "why did
-        // everything stop" far more often than any program name.
-        if (watch.stalls.length >= 3 && watch.gapMinutes > 0) {
-          body.append(
-            h("div", {
-              class: "panel-advice",
-              text: t("watch.cadence", watch.gapMinutes),
             }),
           );
         }
@@ -2615,7 +2615,7 @@ function buildWatch(actions: ViewActions): ViewHost {
               text: t("watch.sameCulprit", watch.culprits[0].name),
             }),
           );
-        } else if (watch.busiest) {
+        } else if (watch.busiest && !(watch.culprits?.length ?? 0)) {
           body.append(
             h("div", {
               class: "panel-advice",
@@ -2671,11 +2671,14 @@ function buildWatch(actions: ViewActions): ViewHost {
               }),
             );
           }
+          // Two, not five: the moments matter as a shape, and the fifth repeat of one program's
+          // name is what made the report look like a log file.
+          const on = (name?: string) => (name && name !== lead ? t("watch.netOn", name) : "");
           const netEvents = [
-            ...net.drops.map((d) => t("watch.netDrop", d.atText, d.seconds) + (d.top ? t("watch.netOn", d.top) : "")),
-            ...net.spikes.map((s) => t("watch.netSpike", s.atText, s.ms) + (s.top ? t("watch.netOn", s.top) : "")),
+            ...net.drops.map((d) => t("watch.netDrop", d.atText, d.seconds) + on(d.top)),
+            ...net.spikes.map((s) => t("watch.netSpike", s.atText, s.ms) + on(s.top)),
           ];
-          for (const line of netEvents.slice(0, 5)) {
+          for (const line of netEvents.slice(0, 2)) {
             body.append(h("div", { class: "panel-advice", text: line }));
           }
           if (loss === 0 && net.spikes.length === 0) {
