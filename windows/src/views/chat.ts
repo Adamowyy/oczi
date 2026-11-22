@@ -16,6 +16,21 @@ let nextId = 1;
  *  long enough not to cut a slow one short. */
 const TURN_DEADLINE_MS = 120_000;
 
+/** What a failed turn says. The backend sends a code for the cases it knows instead of a sentence,
+ *  so the card can say it in its own language — the repo keeps its Polish out of Rust, and an
+ *  English apology in a Polish card reads like a crash. */
+const BACKEND_ERRORS: Record<string, TextKey> = {
+  "oczi:quota": "chat.errQuota",
+  "oczi:busy": "chat.errBusy",
+  "oczi:noanswer": "chat.errNoAnswer",
+};
+
+function errorText(err: unknown): string {
+  const raw = String(err).replace(/^Error:\s*/, "").trim();
+  const key = BACKEND_ERRORS[raw];
+  return key ? t(key) : raw;
+}
+
 /** Race a request against a deadline, so nothing that hangs can hold the chat. */
 function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -307,7 +322,7 @@ export function buildPrompt(actions: ViewActions, onHeightChange: () => void): V
       Sound.play("finish");
     } catch (err) {
       State.stateOverride = null;
-      State.noteMessage = String(err).replace(/^Error:\s*/, "");
+      State.noteMessage = errorText(err);
       State.view = "note";
       Sound.play("error");
     } finally {

@@ -934,7 +934,7 @@ pub(crate) async fn latency_probe() {
             // chat would really get — and `served by` shows when another model answered.
             let outcome = match tokio::time::timeout(
                 std::time::Duration::from_secs(ATTEMPT_TIMEOUT_SECS * 4),
-                call_with_retry(&key, &body, provider, "en"),
+                call_with_retry(&key, &body, provider),
             )
             .await
             {
@@ -1075,7 +1075,7 @@ pub async fn send(
             messages.len(),
             body.to_string().len()
         ));
-        let response = call_with_retry(&key, &body, provider, options.language).await?;
+        let response = call_with_retry(&key, &body, provider).await?;
 
         let message = response
             .pointer("/choices/0/message")
@@ -1216,7 +1216,7 @@ async fn answer_now(key: &str, options: Options<'_>, messages: &[Value]) -> Opti
     });
     providers::apply_reasoning(&mut body, provider, options.thinking);
     crate::log::line("chat  final answer attempt, no tools".to_string());
-    let response = call_with_retry(key, &body, provider, options.language).await.ok()?;
+    let response = call_with_retry(key, &body, provider).await.ok()?;
     let content = response
         .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
@@ -1254,43 +1254,27 @@ struct CallError {
     message: String,
 }
 
-/// The sentence after every model refused: a spent day, or a provider that is merely busy. It is
-/// said in the interface's language, because a card that apologises in English reads as a crash.
-fn no_model_left(provider: &Provider, spent: Option<u32>, language: &str) -> String {
+/// The sentence after every model refused: a spent day, or a provider that is merely busy. What
+/// travels to the card is a code, because the sentences live in the front end's dictionary — the
+/// repo keeps its Polish out of Rust — and the log keeps the specifics for the file.
+fn no_model_left(provider: &Provider, spent: Option<u32>) -> String {
     let other = providers::PROVIDERS
         .iter()
         .find(|other| other.id != provider.id)
         .map(|other| other.label)
         .unwrap_or("another provider");
-    if language.starts_with("pl") {
-        return match spent {
-            Some(limit) if limit > 0 => format!(
-                "{} wyczerpał dzisiejsze limity: darmowy plan daje {limit} zapytań dziennie na model \
-                 i wszystkie modele z listy są już zużyte. Reset o północy czasu pacyficznego. \
-                 Przełącz w Ustawieniach na {other} (ma własny klucz), żeby działać dalej.",
-                provider.label
-            ),
-            _ => format!(
-                "{} teraz nie odpowiada — wszystkie modele są zajęte albo na limicie. Spróbuj za \
-                 chwilę albo przełącz w Ustawieniach na {other} (ma własny klucz).",
-                provider.label
-            ),
-        };
-    }
-    match spent {
-        Some(0) | None => format!(
-            "{} is not answering right now — every model it offers is at capacity or rate-limited. \
-             Try again in a moment, or switch to {other} in the settings (its own API key).",
-            provider.label
-        ),
-        Some(limit) => format!(
-            "{} is out of requests for today: the free tier gives {limit} a day per model and every \
-             model in the table is spent. It resets at midnight Pacific Time. Switch to {other} in \
-             the settings (its own API key) to keep going now.",
-            provider.label
-        ),
-    }
+    let code = if spent.unwrap_or(0) > 0 {
+        "oczi:quota"
+    } else {
+        "oczi:busy"
+    };
+    crate::log::line(format!(
+        "chat  every {} model refused: {code} (spent {:?}, switch to {other})",
+        provider.label, spent
+    ));
+    code.to_string()
 }
+
 
 /// Models that answered "quota spent" or stalled a moment ago, with the moment. Process-wide
 /// because the reason does not change between two questions: the free tier's allowance returns at
@@ -1337,12 +1321,7 @@ fn starting_model(provider: &Provider, wanted: &str) -> String {
 /// Up to `MAX_ATTEMPTS` tries, and never two of them on the same model when the model itself is the
 /// problem: a 503/429 or a stall moves the walk on, and a model that just refused is skipped for
 /// the next half hour instead of being asked again on every round.
-async fn call_with_retry(
-    key: &str,
-    body: &Value,
-    provider: &Provider,
-    language: &str,
-) -> Result<Value, String> {
+async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result<Value, String> {
     let mut body = body.clone();
     let mut last = String::new();
     let attempts = MAX_ATTEMPTS.max(provider.models.len() as u32);
@@ -1400,7 +1379,7 @@ async fn call_with_retry(
                         }
                         // Nothing left to try: the sleep and the attempts after it buy nothing,
                         // so the sentence comes here, once, instead of six seconds of nothing.
-                        None => return Err(no_model_left(provider, spent, language)),
+                        None => return Err(no_model_left(provider, spent)),
                     }
                 }
             }
@@ -1418,7 +1397,7 @@ async fn call_with_retry(
                     }
                     // The last name in the table stalled too: another attempt is another forty-five
                     // seconds of nothing, so the sentence comes now.
-                    None => return Err(no_model_left(provider, spent, language)),
+                    None => return Err(no_model_left(provider, spent)),
                 }
             }
         }
@@ -1429,17 +1408,12 @@ async fn call_with_retry(
         }
         switched = false;
     }
-    crate::log::line(format!("chat  giving up after {attempts} attempts: {last}"));
-    if language.starts_with("pl") {
-        return Err(format!(
-            "{} nie odpowiedział w porę — wygląda na przeciążony. Spróbuj za chwilę.",
-            provider.label
-        ));
-    }
-    Err(format!(
-        "The model did not answer ({last}). {} may be overloaded — try again.",
+    crate::log::line(format!(
+        "chat  giving up after {attempts} attempts on {}: {last}",
         provider.label
-    ))
+    ));
+    // Same contract as `no_model_left`: the card reads a code, the log keeps the words.
+    Err("oczi:noanswer".to_string())
 }
 
 /// The HTTP client for one attempt. The connect has a deadline of its own, because a route that is

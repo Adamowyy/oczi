@@ -493,6 +493,10 @@ const EN = {
   "upload.file": "File",
   "chat.newTip": "New chat — clear this conversation",
   "chat.timeout": "The answer never arrived — try again.",
+  "chat.errQuota":
+    "The daily allowance is spent — every model in the list has used it up. It resets at midnight Pacific, and another provider in the settings (with its own API key) works right away.",
+  "chat.errBusy": "The provider is not answering — its models are busy or rate-limited. Try again in a moment.",
+  "chat.errNoAnswer": "The model did not answer in time — it looks overloaded. Try again in a moment.",
   "chat.new": "New chat",
   "upload.dropHere": "Drop files here",
   "upload.whatToDo": "What should I do with it?",
@@ -1054,6 +1058,10 @@ const PL: Record<TextKey, string> = {
   "upload.file": "Plik",
   "chat.newTip": "Nowy czat — wyczyść tę rozmowę",
   "chat.timeout": "Odpowiedź nie przyszła — spróbuj ponownie.",
+  "chat.errQuota":
+    "Dzienny limit jest wyczerpany — wszystkie modele z listy go zużyły. Reset o północy czasu pacyficznego, a inny dostawca w Ustawieniach (z własnym kluczem) działa od razu.",
+  "chat.errBusy": "Dostawca teraz nie odpowiada — modele są zajęte albo na limicie. Spróbuj za chwilę.",
+  "chat.errNoAnswer": "Model nie odpowiedział w porę — wygląda na przeciążony. Spróbuj za chwilę.",
   "chat.new": "Nowy czat",
   "upload.dropHere": "Upuść pliki tutaj",
   "upload.whatToDo": "Co chcesz z nim zrobić?",
