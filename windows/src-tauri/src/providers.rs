@@ -54,12 +54,8 @@ pub const GEMINI: Provider = Provider {
     label: "Gemini",
     endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
     key_name: "gemini-api-key",
-    models: &[
-        "gemini-3.6-flash",
-        "gemini-3.5-flash-lite",
-        "gemini-3.8-flash",
-    ],
-    default_model: "gemini-3.6-flash",
+    models: &["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"],
+    default_model: "gemini-3.5-flash-lite",
     reasoning: Reasoning::EffortLevel,
 };
 
@@ -200,8 +196,8 @@ mod tests {
     #[test]
     fn a_model_belongs_to_one_provider_only() {
         assert!(model_ok("deepseek", "deepseek-flash"));
-        assert!(!model_ok("deepseek", "gemini-3.6-flash"));
-        assert!(model_ok("gemini", "gemini-3.6-flash"));
+        assert!(!model_ok("deepseek", GEMINI.models[0]));
+        assert!(model_ok("gemini", GEMINI.models[0]));
         assert!(!model_ok("gemini", "deepseek-flash"));
     }
 
@@ -216,26 +212,19 @@ mod tests {
     #[test]
     fn the_next_model_walks_the_table_and_wraps() {
         let none: Vec<String> = Vec::new();
+        // Read from the table, so a model renamed in it does not leave a stale name in here.
+        let (first, second) = (GEMINI.models[0], GEMINI.models[1]);
         // A turn starts on the default, then the walk moves through the rest and stops.
-        assert_eq!(next_untried(&GEMINI, &none), Some("gemini-3.6-flash"));
-        let first = vec!["gemini-3.6-flash".to_string()];
-        assert_eq!(next_untried(&GEMINI, &first), Some("gemini-3.5-flash-lite"));
-        let two = vec![
-            "gemini-3.6-flash".to_string(),
-            "gemini-3.5-flash-lite".to_string(),
-        ];
-        assert_eq!(next_untried(&GEMINI, &two), Some("gemini-3.8-flash"));
+        assert_eq!(next_untried(&GEMINI, &none), Some(first));
+        let one = vec![first.to_string()];
+        assert_eq!(next_untried(&GEMINI, &one), Some(second));
         // Nothing left to try is a `None`, not a wrap back to a name that just refused: on a free
         // tier that wrap is what turns "its day is spent" into three more attempts and no answer.
-        let all = vec![
-            "gemini-3.6-flash".to_string(),
-            "gemini-3.5-flash-lite".to_string(),
-            "gemini-3.8-flash".to_string(),
-        ];
+        let all: Vec<String> = GEMINI.models.iter().map(|model| model.to_string()).collect();
         assert_eq!(next_untried(&GEMINI, &all), None);
         // A name the provider does not serve is not a model this call has used up.
         let nonsense = vec!["nonsense".to_string()];
-        assert_eq!(next_untried(&GEMINI, &nonsense), Some("gemini-3.6-flash"));
+        assert_eq!(next_untried(&GEMINI, &nonsense), Some(first));
         // DeepSeek has one model, so its walk ends at once.
         assert_eq!(next_untried(&DEEPSEEK, &["deepseek-flash".to_string()]), None);
         assert_eq!(DEEPSEEK.models, &["deepseek-flash"]);

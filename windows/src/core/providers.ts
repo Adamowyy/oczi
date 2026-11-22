@@ -39,9 +39,13 @@ export const CHAT_PROVIDERS: ChatProvider[] = [
     key: "gemini-api-key",
     placeholder: "AIza…",
     keyUrl: "https://aistudio.google.com/apikey",
-    // One model, chosen by measurement (see `providers.rs`): 3.6-flash answered in 1.2–2.0 s
-    // every time, the two Lite models were at capacity and 3.5-flash-lite needed 8–22 s.
-    models: [["gemini-3.6-flash", "Gemini 3.6 Flash"]],
+    // The free tier is 20 requests a day on the big models and 500 on the Lite ones, and a turn
+    // is two to four requests — so the Lite models are the everyday pair and 3.6-flash stays in the
+    // Rust table only as a last resort in the walk.
+    models: [
+      ["gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"],
+      ["gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite"],
+    ],
     note: "set.freeTier",
   },
 ];

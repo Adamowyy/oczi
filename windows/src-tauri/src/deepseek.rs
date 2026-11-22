@@ -1620,17 +1620,14 @@ mod tests {
     #[test]
     fn a_model_that_just_refused_is_skipped_on_the_next_call() {
         let provider = providers::get("gemini");
-        let spent = "gemini-3.8-flash";
-        assert!(!unavailable_recently(spent));
-        mark_unavailable(spent);
-        assert!(unavailable_recently(spent));
+        let (first, second) = (provider.models[0], provider.models[1]);
+        assert!(!unavailable_recently(second));
+        mark_unavailable(second);
+        assert!(unavailable_recently(second));
         // The walk starts past it instead of paying for the same refusal twice.
-        assert_eq!(starting_model(provider, spent), "gemini-3.6-flash");
+        assert_eq!(starting_model(provider, second), first);
         // A name that has not refused is used exactly as asked.
-        assert_eq!(
-            starting_model(provider, "gemini-3.5-flash-lite"),
-            "gemini-3.5-flash-lite"
-        );
+        assert_eq!(starting_model(provider, first), first);
     }
 
     #[test]
