@@ -18,6 +18,14 @@ All notable changes to **Oczi** are recorded here.
   otwierać Oczi.
 - Tekst w czacie daje się zaznaczyć myszką. Powitanie trwa sekundę i macha łapką, a domyślne skróty
   to **Alt+R** dla wyspy, **Ctrl+Shift+S** dla zrzutu i **Ctrl+Shift+P** dla przypięcia.
+- Raport obserwacji przewija się do końca. Wcześniej wiersze kurczyły się, żeby zmieścić się
+  w karcie, a reszta zostawała ucięta bez paska. Mniej w nim też powtórzeń: jeden proces nazwany
+  raz zamiast pod każdym zatrzymaniem, dwie ostatnie linie sieci zamiast pięciu, a rytm zacięć
+  w tej samej linii co ich liczba.
+- Zakończona obserwacja otwiera raport na pełnej karcie, a nie w zwiniętym pasku, który zaraz się
+  chował — wcześniej wyglądało to tak, jakby przycisk nic nie robił.
+- Health czyta dziennik zdarzeń z ostatniej doby zamiast trzech: szare wpisy sprzed dni przestały
+  spychać w dół to, co wydarzyło się dzisiaj.
 - DeepSeek ma jedną wersję modelu, Flash: większy nic nie wniósł do karty tej wielkości.
 - Gemini odpowiada szybciej. Model, który przed chwilą odmówił albo nie odpowiedział w porę, nie
   jest pytany ponownie w każdej rundzie, a przerwa między próbami nie dokłada się do zmiany modelu.
