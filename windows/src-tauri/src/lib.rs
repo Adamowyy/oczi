@@ -370,22 +370,40 @@ async fn chat_send(
         }
         _ => None,
     };
-    deepseek::send(
-        &chat,
-        Options {
-            model: &model,
-            thinking,
-            llm: &provider_id,
-            web: web_search,
-            provider: &search_provider,
-            terminal,
-            language: &language,
-        },
-        query,
-        context,
-        screenshot,
+    // The turn's own ceiling stays under the card's deadline, so what the user reads is the real
+    // reason and not the card's generic sentence.
+    let turn = tokio::time::timeout(
+        std::time::Duration::from_secs(deepseek::TURN_CEILING_SECS),
+        deepseek::send(
+            &chat,
+            Options {
+                model: &model,
+                thinking,
+                llm: &provider_id,
+                web: web_search,
+                provider: &search_provider,
+                terminal,
+                language: &language,
+            },
+            query,
+            context,
+            screenshot,
+        ),
     )
-    .await
+    .await;
+    match turn {
+        Ok(answer) => answer,
+        Err(_) => {
+            log::line(format!(
+                "chat  turn gave up after {}s",
+                deepseek::TURN_CEILING_SECS
+            ));
+            Err(format!(
+                "No answer in {}s — the connection to {} looks down. Try again.",
+                deepseek::TURN_CEILING_SECS, provider_id
+            ))
+        }
+    }
 }
 
 /// A picture waiting for the next question, dropped by the chip on the chat. The file goes with

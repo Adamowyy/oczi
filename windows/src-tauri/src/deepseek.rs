@@ -27,6 +27,10 @@ const MAX_ATTEMPTS: u32 = 3;
 /// sit empty for two minutes and then die on the card's own deadline; the budget is what keeps
 /// a turn inside it.
 const TURN_BUDGET_SECS: u64 = 40;
+/// The whole turn's ceiling, under the card's own 120 s deadline: a connection that hangs on
+/// every attempt would otherwise be the card's flat "the answer never came" instead of a sentence
+/// that names the connection. The rounds' budget plus one slow final call fit inside it.
+pub const TURN_CEILING_SECS: u64 = 95;
 /// A model that answered "quota spent" stays out of the walk for this long. The free tier's
 /// allowance comes back at midnight Pacific, not in the next round, and every retry of a spent
 /// model costs a second or two of waiting plus a call the day does not have.
