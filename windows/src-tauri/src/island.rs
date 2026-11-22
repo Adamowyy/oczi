@@ -731,13 +731,13 @@ mod anchor_tests {
 mod hotkey_tests {
     use super::{chord_is_usable, key_code, parse_hotkey};
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
+        MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
     };
 
     #[test]
     fn a_chord_needs_a_modifier_and_exactly_one_known_key() {
         let (mods, key) = parse_hotkey("Ctrl+Shift+S").expect("the default screenshot chord");
-        assert_eq!(mods, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT);
+        assert_eq!(mods, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT);
         assert_eq!(key, 'S' as u32);
         // Win is allowed, and the order the recorder writes is not required.
         assert!(parse_hotkey("Win+F5").is_some());
