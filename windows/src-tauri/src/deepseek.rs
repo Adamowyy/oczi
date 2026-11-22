@@ -934,7 +934,7 @@ pub(crate) async fn latency_probe() {
             // chat would really get — and `served by` shows when another model answered.
             let outcome = match tokio::time::timeout(
                 std::time::Duration::from_secs(ATTEMPT_TIMEOUT_SECS * 4),
-                call_with_retry(&key, &body, provider),
+                call_with_retry(&key, &body, provider, "en"),
             )
             .await
             {
@@ -1075,7 +1075,7 @@ pub async fn send(
             messages.len(),
             body.to_string().len()
         ));
-        let response = call_with_retry(&key, &body, provider).await?;
+        let response = call_with_retry(&key, &body, provider, options.language).await?;
 
         let message = response
             .pointer("/choices/0/message")
@@ -1216,7 +1216,7 @@ async fn answer_now(key: &str, options: Options<'_>, messages: &[Value]) -> Opti
     });
     providers::apply_reasoning(&mut body, provider, options.thinking);
     crate::log::line("chat  final answer attempt, no tools".to_string());
-    let response = call_with_retry(key, &body, provider).await.ok()?;
+    let response = call_with_retry(key, &body, provider, options.language).await.ok()?;
     let content = response
         .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
@@ -1247,16 +1247,36 @@ struct CallError {
     capacity: bool,
     /// The size of a daily allowance the 429 named, when it named one.
     spent: Option<u32>,
+    /// The request never got an HTTP answer: connect or read failed. Gemini's over-quota models do
+    /// this instead of a 429 as soon as the body carries tools — the connection is accepted and then
+    /// nothing comes back — so the walk treats it as the model's problem, not the network's.
+    transport: bool,
     message: String,
 }
 
-/// The sentence after every model refused: a spent day, or a provider that is merely busy.
-fn no_model_left(provider: &Provider, spent: Option<u32>) -> String {
+/// The sentence after every model refused: a spent day, or a provider that is merely busy. It is
+/// said in the interface's language, because a card that apologises in English reads as a crash.
+fn no_model_left(provider: &Provider, spent: Option<u32>, language: &str) -> String {
     let other = providers::PROVIDERS
         .iter()
         .find(|other| other.id != provider.id)
         .map(|other| other.label)
         .unwrap_or("another provider");
+    if language.starts_with("pl") {
+        return match spent {
+            Some(limit) if limit > 0 => format!(
+                "{} wyczerpał dzisiejsze limity: darmowy plan daje {limit} zapytań dziennie na model \
+                 i wszystkie modele z listy są już zużyte. Reset o północy czasu pacyficznego. \
+                 Przełącz w Ustawieniach na {other} (ma własny klucz), żeby działać dalej.",
+                provider.label
+            ),
+            _ => format!(
+                "{} teraz nie odpowiada — wszystkie modele są zajęte albo na limicie. Spróbuj za \
+                 chwilę albo przełącz w Ustawieniach na {other} (ma własny klucz).",
+                provider.label
+            ),
+        };
+    }
     match spent {
         Some(0) | None => format!(
             "{} is not answering right now — every model it offers is at capacity or rate-limited. \
@@ -1317,7 +1337,12 @@ fn starting_model(provider: &Provider, wanted: &str) -> String {
 /// Up to `MAX_ATTEMPTS` tries, and never two of them on the same model when the model itself is the
 /// problem: a 503/429 or a stall moves the walk on, and a model that just refused is skipped for
 /// the next half hour instead of being asked again on every round.
-async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result<Value, String> {
+async fn call_with_retry(
+    key: &str,
+    body: &Value,
+    provider: &Provider,
+    language: &str,
+) -> Result<Value, String> {
     let mut body = body.clone();
     let mut last = String::new();
     let attempts = MAX_ATTEMPTS.max(provider.models.len() as u32);
@@ -1358,19 +1383,24 @@ async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result
                 if let Some(limit) = err.spent {
                     spent = Some(limit);
                 }
-                if err.capacity {
+                if err.capacity || err.transport {
                     mark_unavailable(&current);
                     match providers::next_untried(provider, &tried) {
                         Some(next) => {
                             crate::log::line(format!(
-                                "chat  {current} has no capacity or is out of quota, trying {next}"
+                                "chat  {current} {}, trying {next}",
+                                if err.capacity {
+                                    "has no capacity or is out of quota"
+                                } else {
+                                    "gave no answer — an over-quota model does this with tools in the body"
+                                }
                             ));
                             body["model"] = json!(next);
                             switched = true;
                         }
                         // Nothing left to try: the sleep and the attempts after it buy nothing,
                         // so the sentence comes here, once, instead of six seconds of nothing.
-                        None => return Err(no_model_left(provider, spent)),
+                        None => return Err(no_model_left(provider, spent, language)),
                     }
                 }
             }
@@ -1380,10 +1410,15 @@ async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result
                 // The same name again means the same wait: a model that sits on an answer for
                 // 45 s is not made faster by asking twice, so the walk moves on instead.
                 mark_unavailable(&current);
-                if let Some(next) = providers::next_untried(provider, &tried) {
-                    crate::log::line(format!("chat  {current} stalled, trying {next}"));
-                    body["model"] = json!(next);
-                    switched = true;
+                match providers::next_untried(provider, &tried) {
+                    Some(next) => {
+                        crate::log::line(format!("chat  {current} stalled, trying {next}"));
+                        body["model"] = json!(next);
+                        switched = true;
+                    }
+                    // The last name in the table stalled too: another attempt is another forty-five
+                    // seconds of nothing, so the sentence comes now.
+                    None => return Err(no_model_left(provider, spent, language)),
                 }
             }
         }
@@ -1395,22 +1430,50 @@ async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result
         switched = false;
     }
     crate::log::line(format!("chat  giving up after {attempts} attempts: {last}"));
+    if language.starts_with("pl") {
+        return Err(format!(
+            "{} nie odpowiedział w porę — wygląda na przeciążony. Spróbuj za chwilę.",
+            provider.label
+        ));
+    }
     Err(format!(
         "The model did not answer ({last}). {} may be overloaded — try again.",
         provider.label
     ))
 }
 
-async fn call_once(key: &str, body: &Value, provider: &Provider) -> Result<Value, CallError> {
-    let client = reqwest::Client::builder()
+/// The HTTP client for one attempt. The connect has a deadline of its own, because a route that is
+/// advertised but dead swallows the whole attempt: this machine's IPv6 to Google answers nothing
+/// while its IPv4 answers in 30 ms, and a resolver that hands back AAAA first made every turn sit
+/// there for forty-five seconds. When the endpoint's name has an IPv4 address the client is pointed
+/// at it; a name with only IPv6 keeps the system resolver, so nothing here needs IPv6 to exist.
+async fn client_for(provider: &Provider) -> Result<reqwest::Client, CallError> {
+    let host = provider
+        .endpoint
+        .trim_start_matches("https://")
+        .split('/')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let mut builder = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(ATTEMPT_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| CallError {
-            retryable: true,
-            capacity: false,
-            spent: None,
-            message: e.to_string(),
-        })?;
+        .connect_timeout(std::time::Duration::from_secs(8));
+    if let Ok(addrs) = tokio::net::lookup_host((host.as_str(), 443u16)).await {
+        if let Some(v4) = addrs.into_iter().find(|addr| addr.is_ipv4()) {
+            builder = builder.resolve(&host, v4);
+        }
+    }
+    builder.build().map_err(|e| CallError {
+        retryable: true,
+        capacity: false,
+        spent: None,
+        transport: false,
+        message: e.to_string(),
+    })
+}
+
+async fn call_once(key: &str, body: &Value, provider: &Provider) -> Result<Value, CallError> {
+    let client = client_for(provider).await?;
 
     let (status, text) = post_once(&client, key, provider, body).await?;
     // Gemini answers 400 for a reasoning level a model will not take instead of ignoring it,
@@ -1454,6 +1517,7 @@ async fn call_once(key: &str, body: &Value, provider: &Provider) -> Result<Value
             retryable: status.is_server_error() || at_capacity,
             capacity: at_capacity,
             spent,
+            transport: false,
             message: format!("{} API {status}: {detail}", provider.label),
         });
     }
@@ -1461,6 +1525,7 @@ async fn call_once(key: &str, body: &Value, provider: &Provider) -> Result<Value
         retryable: true,
         capacity: false,
         spent: None,
+        transport: false,
         message: format!("Bad API response: {e}"),
     })
 }
@@ -1487,6 +1552,7 @@ async fn post_once(
                 retryable: true,
                 capacity: false,
                 spent: None,
+                transport: true,
                 message: format!("Network error: {e}"),
             }
         })?;
@@ -1499,6 +1565,7 @@ async fn post_once(
             retryable: true,
             capacity: false,
             spent: None,
+            transport: true,
             message: e.to_string(),
         }
     })?;

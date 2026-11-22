@@ -22,8 +22,10 @@ All notable changes to **Oczi** are recorded here.
 - Gemini odpowiada szybciej. Model, który przed chwilą odmówił albo nie odpowiedział w porę, nie
   jest pytany ponownie w każdej rundzie, a przerwa między próbami nie dokłada się do zmiany modelu.
   Rozmowa wysyła ostatnie kilka wymian zamiast całej historii, a przy Gemini nie ma przełącznika
-  myślenia, bo o poziomie decyduje model. Tura ma też własny limit: po 95 sekundach karta mówi, że
-  padło połączenie, zamiast czekać do końca swojego limitu i milczeć.
+  myślenia, bo o poziomie decyduje model. Model, który w ogóle nie odpowiada (a tak robi Gemini,
+  gdy jego limit jest wyczerpany, a w zapytaniu są narzędzia), jest traktowany jak zajęty i wędrówka
+  idzie dalej, zamiast powtarzać go trzy razy. Tura ma też własny limit: po 95 sekundach karta mówi,
+  że padło połączenie, zamiast czekać do końca swojego limitu i milczeć.
 
 ## 0.5.16 — 2026-11-21
 
