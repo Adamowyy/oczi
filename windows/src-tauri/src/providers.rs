@@ -232,12 +232,14 @@ mod tests {
 
     #[test]
     fn the_gemini_table_is_a_budget_not_a_preference_list() {
-        // The free tier meters each model separately, so the Lite model behind the fast one is
-        // what keeps a spent day usable — dropping it silently returns the 20-a-day ceiling.
+        // The free tier meters each model separately: 500 requests a day on a Lite model against
+        // 20 on the rest, while a turn costs two to four requests. So the table carries Lite models
+        // only — a "better" model first in it silently brings the 20-a-day ceiling back.
         assert!(GEMINI.models.len() >= 2);
-        assert!(GEMINI.models.contains(&"gemini-3.5-flash-lite"));
-        // …and the slow models measured at 27 s are not offered at all.
-        assert!(!GEMINI.models.contains(&"gemini-3.1-flash-lite"));
+        for model in GEMINI.models {
+            assert!(model.ends_with("-lite"), "{model} is not a Lite model");
+        }
+        assert_eq!(GEMINI.default_model, GEMINI.models[0]);
     }
 
 
