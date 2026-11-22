@@ -22,6 +22,18 @@ const MAX_INLINE_IMAGE: u64 = 10 * 1024 * 1024;
 /// is cut off at this point so a fresh connection can be tried instead.
 const ATTEMPT_TIMEOUT_SECS: u64 = 45;
 const MAX_ATTEMPTS: u32 = 3;
+/// How long a whole turn may spend on tool rounds before the tools are taken away and the
+/// model is made to write the answer. Gemini walks its rounds slowly enough that a chat could
+/// sit empty for two minutes and then die on the card's own deadline; the budget is what keeps
+/// a turn inside it.
+const TURN_BUDGET_SECS: u64 = 40;
+/// A model that answered "quota spent" stays out of the walk for this long. The free tier's
+/// allowance comes back at midnight Pacific, not in the next round, and every retry of a spent
+/// model costs a second or two of waiting plus a call the day does not have.
+const SPENT_FOR_SECS: u64 = 30 * 60;
+/// How many user turns of the conversation travel with a question. Enough to follow "and what
+/// about the other one", few enough that the card's own brevity is not undone by the history.
+const MAX_HISTORY_TURNS: usize = 6;
 
 // Model IDs live in `providers.rs`, one allowlist per provider.
 
@@ -806,8 +818,23 @@ impl Chat {
         self.messages.lock().unwrap().push(message);
     }
 
+    /// The tail of the conversation: the last few user turns and everything that followed them.
+    /// The session keeps the whole thing, but sending it all makes every answer slower and dearer,
+    /// and after a dozen messages a free Gemini call spends its time re-reading. The cut lands on
+    /// a user message, so a tool call and its result never travel apart.
     fn snapshot(&self) -> Vec<Value> {
-        self.messages.lock().unwrap().clone()
+        let all = self.messages.lock().unwrap().clone();
+        let users: Vec<usize> = all
+            .iter()
+            .enumerate()
+            .filter(|(_, message)| message["role"] == json!("user"))
+            .map(|(at, _)| at)
+            .collect();
+        if users.len() <= MAX_HISTORY_TURNS {
+            return all;
+        }
+        let from = users[users.len() - MAX_HISTORY_TURNS];
+        all[from..].to_vec()
     }
 }
 
@@ -991,10 +1018,15 @@ pub async fn send(
     // even when the model refuses to stop calling tools and never writes prose.
     let mut last_output: Option<String> = None;
     let mut nudged = false;
+    let turn_start = std::time::Instant::now();
     for round in 1..=MAX_TOOL_ROUNDS + 2 {
-        // The last round is a plain completion: whatever the lookups returned
-        // has to become an answer, so the tools are taken away.
-        let with_tools = (options.web || options.terminal) && round <= MAX_TOOL_ROUNDS;
+        // The last round is a plain completion: whatever the lookups returned has to become
+        // an answer, so the tools are taken away. The same happens once the turn has spent its
+        // budget on rounds, which is what keeps a slow provider from walking them all while the
+        // card sits empty.
+        let over_budget = turn_start.elapsed().as_secs() >= TURN_BUDGET_SECS;
+        let with_tools =
+            (options.web || options.terminal) && round <= MAX_TOOL_ROUNDS && !over_budget;
         let model = options.model;
         let thinking = options.thinking;
         let mut body = json!({
@@ -1012,6 +1044,11 @@ pub async fn send(
         // reaching for them otherwise spends the round writing a call it cannot
         // make instead of the answer that is wanted.
         if !with_tools && !nudged {
+            if over_budget {
+                crate::log::line(format!(
+                    "chat  turn took over {TURN_BUDGET_SECS}s, answering without tools"
+                ));
+            }
             messages.push(json!({
                 "role": "user",
                 "content": "Answer now, in plain text, with what you already have. No more tool calls."
@@ -1231,15 +1268,71 @@ fn no_model_left(provider: &Provider, spent: Option<u32>) -> String {
     }
 }
 
-/// A stall retries the same name, a 503 or 429 moves to the next untried one. The budget covers
-/// the whole table, so a three-model provider can be walked end to end.
+/// Models that answered "quota spent" or stalled a moment ago, with the moment. Process-wide
+/// because the reason does not change between two questions: the free tier's allowance returns at
+/// midnight Pacific, and a model that just timed out is not the one to wait 45 s for again.
+static UNAVAILABLE: std::sync::Mutex<Vec<(String, std::time::Instant)>> =
+    std::sync::Mutex::new(Vec::new());
+
+fn unavailable_recently(model: &str) -> bool {
+    let Ok(list) = UNAVAILABLE.lock() else {
+        return false;
+    };
+    list.iter().any(|(name, at)| {
+        name.eq_ignore_ascii_case(model)
+            && at.elapsed() < std::time::Duration::from_secs(SPENT_FOR_SECS)
+    })
+}
+
+fn mark_unavailable(model: &str) {
+    let Ok(mut list) = UNAVAILABLE.lock() else {
+        return;
+    };
+    list.retain(|(name, at)| {
+        !name.eq_ignore_ascii_case(model)
+            && at.elapsed() < std::time::Duration::from_secs(SPENT_FOR_SECS)
+    });
+    list.push((model.to_string(), std::time::Instant::now()));
+}
+
+/// The model to start this call on: the one asked for, unless it is one that just refused, in
+/// which case the first of the provider's table that is still worth a call.
+fn starting_model(provider: &Provider, wanted: &str) -> String {
+    if !unavailable_recently(wanted) {
+        return wanted.to_string();
+    }
+    provider
+        .models
+        .iter()
+        .copied()
+        .find(|model| !unavailable_recently(model))
+        .unwrap_or(wanted)
+        .to_string()
+}
+
+/// Up to `MAX_ATTEMPTS` tries, and never two of them on the same model when the model itself is the
+/// problem: a 503/429 or a stall moves the walk on, and a model that just refused is skipped for
+/// the next half hour instead of being asked again on every round.
 async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result<Value, String> {
     let mut body = body.clone();
     let mut last = String::new();
     let attempts = MAX_ATTEMPTS.max(provider.models.len() as u32);
-    // Which models this call has already spent an attempt on, and the allowance the last 429 named.
-    let mut tried: Vec<String> = Vec::new();
+    // Models this call has spent an attempt on, seeded with the ones that refused a moment ago:
+    // a round must not walk back into a name whose allowance is already gone.
+    let mut tried: Vec<String> = provider
+        .models
+        .iter()
+        .filter(|model| unavailable_recently(model))
+        .map(|model| model.to_string())
+        .collect();
     let mut spent: Option<u32> = None;
+    let wanted = body["model"].as_str().unwrap_or_default().to_string();
+    let start = starting_model(provider, &wanted);
+    if start != wanted {
+        crate::log::line(format!("chat  {wanted} is spent or stalled, starting on {start}"));
+        body["model"] = json!(start);
+    }
+    let mut switched = false;
     for attempt in 1..=attempts {
         let current = body["model"].as_str().unwrap_or_default().to_string();
         if !tried.iter().any(|name| name.eq_ignore_ascii_case(&current)) {
@@ -1262,12 +1355,14 @@ async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result
                     spent = Some(limit);
                 }
                 if err.capacity {
+                    mark_unavailable(&current);
                     match providers::next_untried(provider, &tried) {
                         Some(next) => {
                             crate::log::line(format!(
                                 "chat  {current} has no capacity or is out of quota, trying {next}"
                             ));
                             body["model"] = json!(next);
+                            switched = true;
                         }
                         // Nothing left to try: the sleep and the attempts after it buy nothing,
                         // so the sentence comes here, once, instead of six seconds of nothing.
@@ -1278,11 +1373,22 @@ async fn call_with_retry(key: &str, body: &Value, provider: &Provider) -> Result
             Err(_) => {
                 last = format!("no answer within {ATTEMPT_TIMEOUT_SECS}s");
                 crate::log::line(format!("chat  attempt {attempt} stalled: {last}"));
+                // The same name again means the same wait: a model that sits on an answer for
+                // 45 s is not made faster by asking twice, so the walk moves on instead.
+                mark_unavailable(&current);
+                if let Some(next) = providers::next_untried(provider, &tried) {
+                    crate::log::line(format!("chat  {current} stalled, trying {next}"));
+                    body["model"] = json!(next);
+                    switched = true;
+                }
             }
         }
-        if attempt < attempts {
+        // A switch is the retry: sleeping on top of it would add seconds to a wait the user is
+        // already paying for, and the fresh model gets a fresh connection anyway.
+        if attempt < attempts && !switched {
             tokio::time::sleep(std::time::Duration::from_secs(attempt as u64 * 2)).await;
         }
+        switched = false;
     }
     crate::log::line(format!("chat  giving up after {attempts} attempts: {last}"));
     Err(format!(
@@ -1459,5 +1565,51 @@ fn file_context(name: &str, path: &str) -> String {
             crate::log::line(format!("chat  file {name} {len}B — binary, not attached"));
             format!("File: {name} (binary — contents not attached)")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_model_that_just_refused_is_skipped_on_the_next_call() {
+        let provider = providers::get("gemini");
+        let spent = "gemini-3.8-flash";
+        assert!(!unavailable_recently(spent));
+        mark_unavailable(spent);
+        assert!(unavailable_recently(spent));
+        // The walk starts past it instead of paying for the same refusal twice.
+        assert_eq!(starting_model(provider, spent), "gemini-3.6-flash");
+        // A name that has not refused is used exactly as asked.
+        assert_eq!(
+            starting_model(provider, "gemini-3.5-flash-lite"),
+            "gemini-3.5-flash-lite"
+        );
+    }
+
+    #[test]
+    fn a_table_with_every_name_spent_still_answers_with_the_asked_one() {
+        let provider = providers::get("deepseek");
+        mark_unavailable("deepseek-flash");
+        assert_eq!(starting_model(provider, "deepseek-flash"), "deepseek-flash");
+    }
+
+    #[test]
+    fn only_the_tail_of_a_long_conversation_is_sent() {
+        let chat = Chat::default();
+        for i in 0..8 {
+            chat.push(json!({ "role": "user", "content": format!("q{i}") }));
+            chat.push(json!({ "role": "assistant", "content": format!("a{i}") }));
+        }
+        let sent = chat.snapshot();
+        assert_eq!(sent.len(), MAX_HISTORY_TURNS * 2);
+        // The cut lands on a user message, so the newest turns arrive whole.
+        assert_eq!(sent[0]["content"], json!("q2"));
+        assert_eq!(sent[sent.len() - 1]["role"], json!("assistant"));
+        // A short conversation travels complete.
+        let short = Chat::default();
+        short.push(json!({ "role": "user", "content": "hi" }));
+        assert_eq!(short.snapshot().len(), 1);
     }
 }

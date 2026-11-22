@@ -18,6 +18,11 @@ All notable changes to **Oczi** are recorded here.
   otwierać Oczi.
 - Tekst w czacie daje się zaznaczyć myszką. Powitanie trwa sekundę i macha łapką, a domyślne skróty
   to **Alt+R** dla wyspy, **Ctrl+Shift+S** dla zrzutu i **Ctrl+Shift+P** dla przypięcia.
+- DeepSeek ma jedną wersję modelu, Flash: większy nic nie wniósł do karty tej wielkości.
+- Gemini odpowiada szybciej. Model, który przed chwilą odmówił albo nie odpowiedział w porę, nie
+  jest pytany ponownie w każdej rundzie, a przerwa między próbami nie dokłada się do zmiany modelu.
+  Rozmowa wysyła ostatnie kilka wymian zamiast całej historii, a przy Gemini nie ma przełącznika
+  myślenia, bo o poziomie decyduje model.
 
 ## 0.5.16 — 2026-11-21
 

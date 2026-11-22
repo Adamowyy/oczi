@@ -40,7 +40,9 @@ pub const DEEPSEEK: Provider = Provider {
     label: "DeepSeek",
     endpoint: "https://api.deepseek.com/chat/completions",
     key_name: "deepseek-api-key",
-    models: &["deepseek-flash", "deepseek-v4-pro"],
+    // Flash only: it answers everything Oczi asks of it, and the slower model is a second
+    // thing to choose with no visible gain in the card's few lines.
+    models: &["deepseek-flash"],
     default_model: "deepseek-flash",
     reasoning: Reasoning::ThinkingSwitch,
 };
@@ -101,10 +103,11 @@ pub fn apply_reasoning(body: &mut Value, provider: &Provider, thinking: bool) {
             body["thinking"] = json!({ "type": if thinking { "enabled" } else { "disabled" } });
         }
         Reasoning::EffortLevel => {
-            // Gemini 3.x has no "off": the cheapest level stands in for it. `minimal` is the
-            // value some Lite models refuse outright — a 400, not a downgrade — so
+            // Gemini has no "off", only levels, and the card has no button for it: the cheapest
+            // level is always what goes out. A level it cannot take is a 400, not a downgrade, so
             // `deepseek::call_once` walks down to `low` when that happens.
-            body["reasoning_effort"] = json!(if thinking { "high" } else { "minimal" });
+            let _ = thinking;
+            body["reasoning_effort"] = json!("minimal");
         }
     }
 }
@@ -233,11 +236,9 @@ mod tests {
         // A name the provider does not serve is not a model this call has used up.
         let nonsense = vec!["nonsense".to_string()];
         assert_eq!(next_untried(&GEMINI, &nonsense), Some("gemini-3.6-flash"));
-        // DeepSeek keeps its two-name walk.
-        assert_eq!(
-            next_untried(&DEEPSEEK, &["deepseek-flash".to_string()]),
-            Some("deepseek-v4-pro")
-        );
+        // DeepSeek has one model, so its walk ends at once.
+        assert_eq!(next_untried(&DEEPSEEK, &["deepseek-flash".to_string()]), None);
+        assert_eq!(DEEPSEEK.models, &["deepseek-flash"]);
     }
 
     #[test]
@@ -257,6 +258,10 @@ mod tests {
         apply_reasoning(&mut gemini, &GEMINI, false);
         assert_eq!(gemini["reasoning_effort"], json!("minimal"));
         assert!(gemini.get("thinking").is_none());
+        // The thinking switch is DeepSeek's alone: Gemini takes the cheapest level either way.
+        let mut asked = json!({});
+        apply_reasoning(&mut asked, &GEMINI, true);
+        assert_eq!(asked["reasoning_effort"], json!("minimal"));
 
         let mut deepseek = json!({});
         apply_reasoning(&mut deepseek, &DEEPSEEK, true);

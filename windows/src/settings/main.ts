@@ -115,21 +115,30 @@ function apiSection(present: Record<string, boolean>): HTMLElement {
       void save();
     });
 
-    detail.append(
+    // Gemini has no thinking switch to offer: it always answers at its cheapest level, so the row
+    // would be a button that changes nothing.
+    const thinking =
+      provider.id === "gemini"
+        ? null
+        : h("div", { class: "row" },
+            h("label", { text: t("set.thinking") }),
+            toggle(settings.thinking, (v) => { settings.thinking = v; void save(); }),
+            h("span", { class: "hint", text: t("set.thinkingHint") }),
+          );
+
+    for (const node of [
       state,
       h("div", { class: "row" }, h("label", { text: t("set.apiKey") }), field, saveBtn, clearBtn),
       h("div", { class: "row" }, h("label", { text: t("set.model") }), model),
-      h("div", { class: "row" },
-        h("label", { text: t("set.thinking") }),
-        toggle(settings.thinking, (v) => { settings.thinking = v; void save(); }),
-        h("span", { class: "hint", text: t("set.thinkingHint") }),
-      ),
+      thinking,
       h("div", { class: "row" },
         h("label", { text: t("set.getKey") }),
         h("button", { text: provider.keyUrl, onclick: () => void Bridge.openUrl(provider.keyUrl) }),
       ),
       h("div", { class: "row" }, h("span", { class: "hint", text: t("set.providerHint") })),
-    );
+    ]) {
+      if (node) detail.append(node);
+    }
   }
 
   providerSelect.addEventListener("change", () => {

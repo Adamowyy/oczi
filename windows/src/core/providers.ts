@@ -29,10 +29,9 @@ export const CHAT_PROVIDERS: ChatProvider[] = [
     key: "deepseek-api-key",
     placeholder: "sk-…",
     keyUrl: "https://platform.deepseek.com/api_keys",
-    models: [
-      ["deepseek-flash", "DeepSeek Flash"],
-      ["deepseek-v4-pro", "DeepSeek V4 Pro"],
-    ],
+    // Flash only, as in the Rust table: the bigger model is a second choice with nothing to
+    // show for it in a card this small.
+    models: [["deepseek-flash", "DeepSeek Flash"]],
   },
   {
     id: "gemini",
