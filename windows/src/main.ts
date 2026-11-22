@@ -76,21 +76,21 @@ async function main() {
 
   await onEvent<null>("screen-changed", () => void Bridge.reposition());
 
-  // The summon chord, registered by Rust (Ctrl+Alt+M unless the user recorded
+  // The summon chord, registered by Rust (Alt+R unless the user recorded
   // another one). Same as clicking the island: show it.
   await onEvent<null>("hotkey", () => {
     setPaused(false);
     island.revealOrOpen();
   });
 
-  // The screenshot chord, registered by Rust (Ctrl+Alt+Shift+S by default). Same
+  // The screenshot chord, registered by Rust (Ctrl+Shift+S by default). Same
   // as clicking the eye.
   await onEvent<null>("hotkey-snip", () => {
     setPaused(false);
     island.snipStart();
   });
 
-  // The pin chord, registered by Rust (Ctrl+Alt+Shift+P). The same overlay as the eye, but the
+  // The pin chord, registered by Rust (Ctrl+Shift+P). The same overlay as the eye, but the
   // crop stays on the screen instead of becoming a question — the pin window is its own, so the
   // island has nothing to draw here.
   await onEvent<null>("hotkey-pin", () => {
@@ -131,9 +131,12 @@ async function main() {
       if (State.view === "update") island.collapse();
       return;
     }
+    // The card is the only sign an update exists, so it does not fold on a countdown: it sits
+    // there, on top of whatever the user opens next, until "Got it" or "Restart now" is pressed.
+    // A notice that leaves by itself is the notice people miss.
+    State.isPinned = true;
     island.alert("update");
-    // The installer is checked and waiting: the bar stays a moment, then the card goes by itself.
-    if (p.done) island.autoFoldIn("update", 6);
+    if (p.done) island.holdOpen(0);
     void Bridge.log(`update: ${p.version} ${p.received}/${p.total}${p.done ? " ready" : ""}`);
   });
 
@@ -218,14 +221,18 @@ async function main() {
     if (seen !== version) void Bridge.markVersionSeen(version);
     // A fresh install was never updated, so it has nothing to be told about.
     const changed = seen !== "" && seen !== version ? newsKey(version) : null;
-    const show = (title: string, body: string) => {
+    const show = (title: string, body: string, pinned = false) => {
       State.newsMessage = { title, body };
       State.notify();
       // While the greeting is up, island.ts hands the card over when it folds.
       // Otherwise open it now — but never over something the user just opened.
       if (island.fsm.state === "greeting") return;
       if (State.mode === "expanded" && State.view !== "whatsnew") return;
+      // News about a new version is the one card that must not slip past: it waits on screen
+      // until it is dismissed with its button, while a plain "what's new" may go by.
+      State.isPinned = pinned;
       island.alert("whatsnew");
+      if (pinned) island.holdOpen(0);
     };
     // What this version has to say goes up before the release check, which is a
     // call over the network: the greeting folds in well under a second, and a
@@ -237,10 +244,10 @@ async function main() {
     // A card already up keeps its title and takes the update line as one more.
     if (changed) {
       if (!State.newsMessage) return;
-      show(State.newsMessage.title, `${State.newsMessage.body}\n${line}`);
+      show(State.newsMessage.title, `${State.newsMessage.body}\n${line}`, true);
       return;
     }
-    show(t("news.updateTitle"), line);
+    show(t("news.updateTitle"), line, true);
   }
   void announce();
 

@@ -22,6 +22,10 @@ const USER_AGENT: &str = concat!("Oczi/", env!("CARGO_PKG_VERSION"));
 /// is looking at, and a request plus a 2.5 MB download may not compete with it.
 const SETTLE: Duration = Duration::from_secs(12);
 
+/// Dropped by the card's "Restart now": the swap script finds it after the installer returns and
+/// starts the new build, so restarting is one click instead of quitting and finding the icon.
+const RELAUNCH: &str = "relaunch.flag";
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Release {
@@ -279,15 +283,16 @@ async fn download(
 /// silently. Nothing is replaced under a running app: the new build is what starts next, and
 /// the installer needs no prompt because it installs per-user into `%LOCALAPPDATA%\Oczi`.
 fn arm(ready: &Ready) -> bool {
-    if installed_exe().is_none() {
+    let Some(exe) = installed_exe() else {
         return false;
-    }
+    };
     let Some(dir) = update_dir() else {
         return false;
     };
     let pid = std::process::id();
     // `ping` is the sleep here: `timeout` wants a console and hangs without one. The PID is
     // matched as a whole word, so 12345 cannot keep the watcher waiting on 1234.
+    let flag = dir.join(RELAUNCH);
     let lines = [
         "@echo off".to_string(),
         ":wait".to_string(),
@@ -297,6 +302,12 @@ fn arm(ready: &Ready) -> bool {
         ":apply".to_string(),
         format!("start \"\" /wait \"{installer}\" /S", installer = ready.installer),
         format!("del /f /q \"{installer}\" 2>nul", installer = ready.installer),
+        // "Restart now" leaves a marker: after the installer returns, the new build starts by
+        // itself. Without it the window stays closed, which is what "Got it" asked for.
+        format!("if not exist \"{}\" goto done", flag.display()),
+        format!("del /f /q \"{}\" 2>nul", flag.display()),
+        format!("start \"\" \"{}\"", exe.display()),
+        ":done".to_string(),
         String::new(),
     ];
     let script = lines.join("\r\n");
@@ -330,6 +341,17 @@ fn arm(ready: &Ready) -> bool {
     {
         let _ = bat;
         false
+    }
+}
+
+/// "Restart now": leaves the marker the swap script looks for once the installer has run, so the
+/// new build comes back on its own after a passive update instead of staying closed.
+pub fn relaunch_after_apply() {
+    let Some(dir) = update_dir() else {
+        return;
+    };
+    if let Err(e) = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(RELAUNCH), b"")) {
+        crate::log::line(format!("update: could not ask for a relaunch: {e}"));
     }
 }
 

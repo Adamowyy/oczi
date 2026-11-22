@@ -436,6 +436,9 @@ export interface Settings {
   webSearch: boolean;
   /** Game mode: quiet over a fullscreen app on the island's own display. */
   gameMode: boolean;
+  /** The top edge of the screen wakes the island when the cursor touches it. Off means
+   *  the chords are the only way in. */
+  wakeBand: boolean;
   /** Which search backend backs those tools: "duckduckgo", "brave" or "tavily". */
   searchProvider: string;
   /** UI language. English unless the user picked Polish. */
@@ -450,8 +453,8 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   soundEnabled: true,
   soundVolume: 0.12,
-  autoCloseInterval: 15,
-  notchHideInterval: 60,
+  autoCloseInterval: 5,
+  notchHideInterval: 5,
   islandAnchor: 0.5,
   absenceInterval: 180,
   // On a fresh install only the two that need no key: PC and Music. Every service
@@ -462,11 +465,12 @@ export const DEFAULT_SETTINGS: Settings = {
   provider: "deepseek",
   model: "deepseek-flash",
   thinking: false,
-  hotkey: "Ctrl+Alt+M",
-  snipHotkey: "Ctrl+Alt+Shift+S",
-  pinHotkey: "Ctrl+Alt+Shift+P",
+  hotkey: "Alt+R",
+  snipHotkey: "Ctrl+Shift+S",
+  pinHotkey: "Ctrl+Shift+P",
   webSearch: true,
   gameMode: true,
+  wakeBand: true,
   searchProvider: "duckduckgo",
   language: "en",
   terminalEnabled: false,

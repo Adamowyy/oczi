@@ -539,7 +539,7 @@ function generalSection(): HTMLElement {
     style: "width:72px",
   }) as HTMLInputElement;
   autoClose.addEventListener("change", () => {
-    settings.autoCloseInterval = Math.max(5, Math.min(120, Number(autoClose.value) || 15));
+    settings.autoCloseInterval = Math.max(5, Math.min(120, Number(autoClose.value) || 5));
     autoClose.value = String(settings.autoCloseInterval);
     void save();
   });
@@ -550,7 +550,7 @@ function generalSection(): HTMLElement {
     style: "width:72px",
   }) as HTMLInputElement;
   notchHide.addEventListener("change", () => {
-    settings.notchHideInterval = Math.max(5, Math.min(600, Number(notchHide.value) || 60));
+    settings.notchHideInterval = Math.max(5, Math.min(600, Number(notchHide.value) || 5));
     notchHide.value = String(settings.notchHideInterval);
     void save();
   });
@@ -665,6 +665,11 @@ function generalSection(): HTMLElement {
       h("label", { text: t("set.gameMode") }),
       toggle(settings.gameMode, (v) => { settings.gameMode = v; void save(); }),
       h("span", { class: "hint", text: t("set.gameModeHint") }),
+    ),
+    h("div", { class: "row" },
+      h("label", { text: t("set.wakeBand") }),
+      toggle(settings.wakeBand, (v) => { settings.wakeBand = v; void save(); }),
+      h("span", { class: "hint", text: t("set.wakeBandHint") }),
     ),
   );
 }

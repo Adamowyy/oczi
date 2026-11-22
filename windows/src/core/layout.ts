@@ -109,7 +109,7 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
   // Prices: a search field, the cover, four numbers and two buttons. Taller than the greeting
   // because the numbers are the point and a card that clips them is worse than no card.
-  prices: { height: 250, botX: 60, botY: null, botDiameter: 52, agentMode: "none" },
+  prices: { height: 270, botX: 60, botY: null, botDiameter: 52, agentMode: "none" },
   // The PC pill's own screen: the machine card on the left, and on the right the two things a
   // person wants from that pill — a health scan and the debloat list — with the numbers already
   // known about them. Same geometry as `overview`, which it is a variant of, plus the height the

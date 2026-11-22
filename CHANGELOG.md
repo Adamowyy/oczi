@@ -2,6 +2,23 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.17 — 2026-11-22
+
+**Oceny Steam w pigułce Gry i karta aktualizacji, która czeka na Twoją decyzję.**
+
+- Gry pokazują pod cenami to, co gracze sądzą o grze: werdykt Steam w rodzaju „Bardzo pozytywne"
+  oraz liczbę ocen pozytywnych i negatywnych. Liczby są z tej samej strony sklepu, którą otwiera
+  przycisk Steam, więc nie kłócą się z tym, co tam widać, a gdy Steam nie odpowie, karta pokazuje
+  tylko ceny.
+- Karta z nową wersją nie znika sama. Czeka, aż klikniesz **Wiem, dzięki** albo **Zrestartuj teraz**;
+  restart zamyka Oczi, instaluje pobrany plik i wraca już jako nowa wersja. Klik poza wyspą ani Esc
+  jej nie zamykają, a przy kolejnym otwarciu wyspy wraca na wierzch, dopóki nie zdecydujesz.
+- Wyspa zamyka się i chowa domyślnie po 5 sekundach, a w Ustawieniach jest przełącznik **Górna
+  krawędź**: wyłączony zostawia wywoływanie tylko skrótem, więc machanie myszką u góry przestaje
+  otwierać Oczi.
+- Tekst w czacie daje się zaznaczyć myszką. Powitanie trwa sekundę i macha łapką, a domyślne skróty
+  to **Alt+R** dla wyspy, **Ctrl+Shift+S** dla zrzutu i **Ctrl+Shift+P** dla przypięcia.
+
 ## 0.5.16 — 2026-11-21
 
 **Menu pod prawym przyciskiem wraca do stanu, w którym działa, a aktualizacja ma pasek.**

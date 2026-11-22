@@ -59,6 +59,10 @@ pub struct Settings {
     /// changes nothing.
     #[serde(default = "default_true")]
     pub game_mode: bool,
+    /// The top edge of the screen is a way in: the cursor touching it opens the island. Off
+    /// means the chords are the only way in, and the band stops taking the mouse at all.
+    #[serde(default = "default_true")]
+    pub wake_band: bool,
     /// Which search backend the web tools use — see `crate::web::PROVIDERS`.
     /// The keyless one needs no setup, so it is the default.
     #[serde(default = "default_search_provider")]
@@ -81,7 +85,7 @@ fn default_anchor() -> f64 {
 }
 
 fn default_notch_hide() -> f64 {
-    60.0
+    5.0
 }
 
 fn default_true() -> bool {
@@ -105,17 +109,17 @@ fn default_model() -> String {
 }
 
 fn default_hotkey() -> String {
-    "Ctrl+Alt+M".to_string()
+    "Alt+R".to_string()
 }
 
 fn default_snip_hotkey() -> String {
-    "Ctrl+Alt+Shift+S".to_string()
+    "Ctrl+Shift+S".to_string()
 }
 
-/// Ctrl+Alt+Shift+P: the snip chord with one more key, so the two can never collide, and a
+/// Ctrl+Shift+P: the snip chord with one letter swapped, so the two never collide, and a
 /// letter rather than Alt+Shift, which Windows keeps for the keyboard layout switch.
 fn default_pin_hotkey() -> String {
-    "Ctrl+Alt+Shift+P".to_string()
+    "Ctrl+Shift+P".to_string()
 }
 
 /// Languages the UI ships with. Anything else in settings.json becomes English.
@@ -130,7 +134,7 @@ impl Default for Settings {
         Self {
             sound_enabled: true,
             sound_volume: 0.12,
-            auto_close_interval: 15.0,
+            auto_close_interval: 5.0,
             notch_hide_interval: default_notch_hide(),
             island_anchor: default_anchor(),
             absence_interval: 180.0,
@@ -148,6 +152,7 @@ impl Default for Settings {
             pin_hotkey: default_pin_hotkey(),
             web_search: true,
             game_mode: true,
+            wake_band: true,
             search_provider: default_search_provider(),
             language: default_language(),
             terminal_enabled: false,

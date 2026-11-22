@@ -27,12 +27,12 @@ insist — and does the small jobs without pulling you out of what you were doin
 - ⏰ **Reminders** — ask in the chat; a card arrives on time with **OK** and **+10 min**. Daily, working days or weekly.
 - 🔁 **Routines** — say what to do and when: opening programs, pages, music, closing a process.
 - 🖱️ **The eye** — drag a region of the screen onto your next question.
-- 📌 **Pinned screenshots** — `Ctrl+Alt+Shift+P` pins a region on top of everything, on any monitor.
+- 📌 **Pinned screenshots** — `Ctrl+Shift+P` pins a region on top of everything, on any monitor.
 - 🩺 **Health** — one click reads load, logs, disks, startup and crashes down to the driver, then scores.
 - 🧹 **Debloat** — the packages Windows brought with it, removed only where you tick, and the result read back.
 - ⏱️ **Watch** — 15 or 30 minutes of every freeze, with the process that was on the processor then.
 - 🏷️ **Game prices** — type a title; the cheapest key beside Steam's price, both record lows.
-- 🫥 **Out of the way** — hides in the top edge; `Ctrl+Alt+M` summons her, `Ctrl+Alt+Shift+S` snips.
+- 🫥 **Out of the way** — hides in the top edge; `Alt+R` summons her, `Ctrl+Shift+S` snips.
 - 🔒 **Private by design** — no account, no telemetry; keys live in the Credential Manager.
 - 🌍 **English or Polish** — one setting away.
 - 🖥️ **Terminal** — off by default. Switched on, the chat can run commands on your PC: help with code, fixing what is broken, opening a program.

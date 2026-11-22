@@ -2256,6 +2256,37 @@ html.asleep *::after {
   line-height: 1.35;
 }
 
+/* What players make of it: Steam's verdict with a dot in its colour, then both counts. */
+.pr-reviews {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-reviews::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--dim-2);
+}
+
+.pr-reviews[data-tone="good"]::before {
+  background: #4ade80;
+}
+
+.pr-reviews[data-tone="mixed"]::before {
+  background: #e4a11b;
+}
+
+.pr-reviews[data-tone="bad"]::before {
+  background: #ff6b6b;
+}
+
 .pr-note.bad {
   color: #ff8a80;
   opacity: 1;

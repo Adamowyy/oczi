@@ -421,11 +421,24 @@ function buildNote(): ViewHost {
 // One line and a bar while the installer comes down, because a download nobody can see is a
 // download interrupted by starting the app again. `done` turns the same card into "gotowe".
 
-function buildUpdate(): ViewHost {
+function buildUpdate(actions: ViewActions): ViewHost {
   const title = h("div", { class: "title" });
   const pct = h("span", { class: "update-pct" });
   const fill = h("i", { class: "update-fill" });
   const track = h("div", { class: "update-track" }, fill);
+  // Once the installer is down the card asks instead of telling: closing Oczi is what installs
+  // it, so the two ways out of this card are leaving it for later, or leaving now and coming
+  // back as the new build. Nothing else closes it — a notice that folds away on its own is the
+  // notice that gets missed.
+  const later = btn(t("news.dismiss"), "secondary", () => {
+    State.update = null;
+    State.isPinned = false;
+    actions.setView(State.defaultView());
+  });
+  const restart = btn(t("update.restartNow"), "primary", () => {
+    void Bridge.installNow();
+  });
+  const row = h("div", { class: "row" }, h("div", { class: "grow" }), later, restart);
   const el = h(
     "div",
     { class: "view" },
@@ -436,6 +449,7 @@ function buildUpdate(): ViewHost {
         { class: "stack", style: "padding:0 18px 0 98px" },
         h("div", { class: "update-head" }, title, pct),
         track,
+        row,
       ),
     ),
   );
@@ -453,6 +467,8 @@ function buildUpdate(): ViewHost {
       // An unknown total still moves: the bar fills once and the card says the version.
       fill.style.width = !u ? "0%" : u.total > 0 ? `${share * 100}%` : "100%";
       el.classList.toggle("unknown", !u || u.total === 0);
+      // The buttons only make sense once there is something to install.
+      row.style.display = u?.done ? "" : "none";
     },
   };
 }
@@ -674,6 +690,9 @@ function buildWhatsNew(actions: ViewActions): ViewHost {
           h("div", { class: "grow" }),
           btn(t("news.dismiss"), "primary", () => {
             State.newsMessage = null;
+            // The card was pinned while it waited to be read; dismissing it is what lets the
+            // island start counting down again.
+            State.isPinned = false;
             actions.setView(State.defaultView());
           }),
         ),
@@ -718,11 +737,11 @@ function buildWhatsNew(actions: ViewActions): ViewHost {
 
 function buildSettings(actions: ViewActions): ViewHost {
   const autoLabel = h("span", {});
-  const segButtons = [10, 15, 30].map((s) =>
+  const segButtons = [5, 15, 30].map((s) =>
     h("button", { onclick: () => actions.setAutoClose(s) }, `${s}s`),
   );
   const notchLabel = h("span", {});
-  const notchButtons = [10, 30, 60].map((s) =>
+  const notchButtons = [5, 30, 60].map((s) =>
     h("button", { onclick: () => actions.setNotchHide(s) }, `${s}s`),
   );
   // The island may only ask whether the key exists, never read it, so the
@@ -774,9 +793,9 @@ function buildSettings(actions: ViewActions): ViewHost {
     sync() {
       const s = State.settings;
       autoLabel.textContent = t("set.autoCloseChip", Math.round(s.autoCloseInterval));
-      segButtons.forEach((b, i) => b.classList.toggle("on", s.autoCloseInterval === [10, 15, 30][i]));
+      segButtons.forEach((b, i) => b.classList.toggle("on", s.autoCloseInterval === [5, 15, 30][i]));
       notchLabel.textContent = t("set.notchChip", Math.round(s.notchHideInterval));
-      notchButtons.forEach((b, i) => b.classList.toggle("on", s.notchHideInterval === [10, 30, 60][i]));
+      notchButtons.forEach((b, i) => b.classList.toggle("on", s.notchHideInterval === [5, 30, 60][i]));
       // Re-check while the view is open, so saving a key in the settings window
       // shows up without a restart.
       if (performance.now() - lastKeyCheck > 1500) void refreshKey();
@@ -2758,6 +2777,8 @@ function buildPrices(actions: ViewActions): ViewHost {
   const steamNow = h("div", { class: "pr-big" });
   const keyLow = h("div", { class: "pr-low" });
   const steamLow = h("div", { class: "pr-low" });
+  // What players think of it: Steam's own verdict and the two counts behind it, under the prices.
+  const reviews = h("div", { class: "pr-reviews" });
   const note = h("div", { class: "pr-note" });
   const body = h(
     "div",
@@ -2850,6 +2871,21 @@ function buildPrices(actions: ViewActions): ViewHost {
     } else {
       cover.style.display = "none";
     }
+
+    // The verdict is Steam's own, so the card never has to argue with the store page. A game
+    // without a rating of any kind simply has no line here.
+    const counts = (n: number) => n.toLocaleString(State.settings.language === "pl" ? "pl-PL" : "en-US");
+    if (offer.reviewScore && offer.reviewPositive !== null && offer.reviewNegative !== null) {
+      reviews.style.display = "";
+      reviews.dataset.tone = offer.reviewScore >= 7 ? "good" : offer.reviewScore >= 5 ? "mixed" : "bad";
+      reviews.textContent = `${t(`prices.review.${offer.reviewScore}` as TextKey)} · ${t(
+        "prices.reviewVotes",
+        counts(offer.reviewPositive),
+        counts(offer.reviewNegative),
+      )}`;
+    } else {
+      reviews.style.display = "none";
+    }
   }
 
   go.addEventListener("click", () => void search());
@@ -2858,7 +2894,7 @@ function buildPrices(actions: ViewActions): ViewHost {
   });
 
   const el = h("div", { class: "view" }, card("amber", h("div", { class: "pr" },
-    h("div", { class: "pr-top" }, input, go), body, note, actionsRow)));
+    h("div", { class: "pr-top" }, input, go), body, reviews, note, actionsRow)));
 
   return {
     el,
@@ -2880,7 +2916,7 @@ export function buildViews(
   map.set("empty", buildEmpty(actions));
   map.set("confused", buildConfused());
   map.set("note", buildNote());
-  map.set("update", buildUpdate());
+  map.set("update", buildUpdate(actions));
   map.set("reminder", buildReminder(actions));
   map.set("routine", buildRoutine(actions, false));
   map.set("routineFull", buildRoutine(actions, true));

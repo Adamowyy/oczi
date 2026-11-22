@@ -316,6 +316,15 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+/// "Restart now" on the update card: the installer is already checked and waiting, and it only
+/// runs once Oczi is gone. Marking the swap first means the new build comes back by itself.
+#[tauri::command]
+fn install_now(app: AppHandle) {
+    update::relaunch_after_apply();
+    crate::log::line("update: restarting into the new build");
+    app.exit(0);
+}
+
 /// Tray → Pause. Paused means paused: the pollers stop talking to the network,
 /// not just the island stopping showing things.
 #[tauri::command]
@@ -1565,6 +1574,7 @@ pub fn run() {
             resize_island,
             open_url,
             quit_app,
+            install_now,
             log_line,
             chat_send,
             chat_reset,

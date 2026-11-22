@@ -173,6 +173,10 @@ export interface PricesOffer {
   historicalRetail: string | null;
   historicalKeyshops: string | null;
   url: string | null;
+  /** Steam's own score from the store page: 1..9, 9 being `Overwhelmingly positive`. */
+  reviewScore: number | null;
+  reviewPositive: number | null;
+  reviewNegative: number | null;
 }
 
 export const Bridge = {
@@ -320,6 +324,10 @@ export const Bridge = {
   openUrl: (url: string) => call<void>("open_url", { url }),
 
   quit: () => call<void>("quit_app"),
+
+  /** Closes Oczi so the downloaded installer can run, and asks Rust to bring it back as the
+   *  new build. The swap script picks the marker up after the install. */
+  installNow: () => call<void>("install_now"),
 
   openSettingsWindow: () => call<void>("open_settings_window"),
 

@@ -5,29 +5,35 @@ import { Sound } from "../core/sound";
 import { COMPACT_W, NOTCH_H, NOTCH_W } from "../core/layout";
 import { OCZI } from "./skin";
 
-// ── Timing (mirrors greeting-v2.html `T`) ─────────────────────────────────────
+// ── Timing ────────────────────────────────────────────────────────────────────
+// A splash, not a film: the card rushes out, Oczi hops once and waves, and the island
+// is on the main screen in about a second and a third. The beats are the ones from
+// greeting-v2.html, pulled tight — the long hold in the middle of that timeline was
+// what made the launch feel like it had stalled.
 
 const T = {
-  grow: 0.45,
-  squint0: 0.6,
-  squint1: 0.82,
-  dip0: 1.25,
-  dip1: 1.4,
-  pop0: 1.36,
-  pop1: 1.52,
-  content0: 2.45,
-  content1: 2.58,
-  tuck0: 2.58,
-  tuck1: 2.8,
-  badge: 2.72,
-  down0: 2.85,
-  down1: 3.2,
-  blink2: 3.8,
-  tint0: 3.85,
-  tint1: 4.15,
-  end: 4.6,
-  autoLeave: 4.9,
-  COLLAPSE: 0.34,
+  grow: 0.3,
+  squint0: 0.34,
+  squint1: 0.5,
+  dip0: 0.6,
+  dip1: 0.7,
+  pop0: 0.64,
+  pop1: 0.76,
+  wave0: 0.62,
+  wave1: 1.18,
+  content0: 1.02,
+  content1: 1.1,
+  tuck0: 1.06,
+  tuck1: 1.16,
+  badge: 0.9,
+  down0: 0.92,
+  down1: 1.06,
+  blink2: 0.86,
+  tint0: 1.04,
+  tint1: 1.2,
+  end: 1.35,
+  autoLeave: 1.45,
+  COLLAPSE: 0.28,
 };
 
 export const GREETING_END = T.end;
@@ -72,6 +78,8 @@ interface Pose {
   lookX: number; lookY: number;
   badge: number; tint: number; halo: number; minis: number; fx: number;
   header: number; card: number;
+  /** The waving hand: how far up it is (0 = not there) and its swing. */
+  waveAmp: number; waveAngle: number;
   iw: number; ih: number;
 }
 
@@ -116,7 +124,12 @@ function greetPose(t: number): Pose {
     const k = seg(t, tb, tb + 0.12);
     return k > 0 && k < 1 ? 1 - Math.sin(Math.PI * k) * 0.94 : 1;
   };
-  const open = Math.min(blink(1.95), blink(T.blink2));
+  const open = Math.min(blink(0.58), blink(T.blink2));
+
+  // The hand: up with the hop, three quick swings, down before the card folds. The swing is
+  // scaled by how far the hand is up, so it never twitches on its way in or out.
+  const waveAmp = seg(t, T.wave0, T.wave0 + 0.06) * (1 - seg(t, T.wave1 - 0.1, T.wave1));
+  const waveAngle = Math.sin((t - T.wave0) * Math.PI * 2 * 3.2) * 0.8 * waveAmp;
 
   let lookX = 0;
   let lookY = 0;
@@ -135,11 +148,12 @@ function greetPose(t: number): Pose {
     lookX, lookY,
     badge: E.back(seg(t, T.badge, T.badge + 0.28)),
     tint: 0.6 * E.inOut(seg(t, T.tint0, T.tint1)),
-    halo: E.out(seg(t, 0.3, 0.7)),
+    halo: E.out(seg(t, 0.08, 0.24)),
     minis: 0,
     fx: 1,
-    header: seg(t, 0.35, 0.6),
-    card: seg(t, 0.18, 0.45),
+    header: seg(t, 0.12, 0.22),
+    card: seg(t, 0.06, 0.18),
+    waveAmp, waveAngle,
     iw, ih,
   };
 }
@@ -155,6 +169,7 @@ function smallPose(): Pose {
     badge: 1, tint: 0.6, halo: 0.6,
     minis: 1, fx: 1,
     header: 0, card: 0,
+    waveAmp: 0, waveAngle: 0,
     iw: SMALL_W, ih: SMALL_H,
   };
 }
@@ -179,6 +194,8 @@ function pose(t: number, tc: number): Pose {
   p.sx = lerp(a.sx, 1, e);
   p.sy = lerp(a.sy, 1, e);
   p.eyeRoll = a.eyeRoll * (1 - e);
+  p.waveAmp = a.waveAmp * (1 - e);
+  p.waveAngle = a.waveAngle * (1 - e);
   const bk = seg(t, tc + 0.14, tc + 0.26);
   p.eye = "dot";
   p.open = bk > 0 && bk < 1 ? 1 - Math.sin(Math.PI * bk) * 0.94 : 1;
@@ -295,6 +312,46 @@ function drawShards(x: CanvasRenderingContext2D, hh: number, p: Pose) {
   }
 }
 
+/** A big, simple paw that waves beside the body: one round shape with three little fingers,
+ *  held clear of the silhouette so it never reads as a bump on the body. Pivoted at the wrist
+ *  so the swing looks like a wave, with a soft shadow lifting it off the card. */
+function drawHand(x: CanvasRenderingContext2D, hh: number, p: Pose) {
+  if (p.waveAmp <= 0.01) return;
+  const R = hh / OCZI.extents(0)[1];
+  const hw = hh * ASP;
+  // Over half the body tall, and a finger's width away from it.
+  const gap = R * 0.26;
+  const px = hw + gap + R * 0.34;
+  const py = -hh * 0.2;
+  x.save();
+  x.translate(px, py + R * 0.1);
+  x.rotate(p.waveAngle);
+  x.globalAlpha = clamp(p.waveAmp, 0, 1);
+  x.shadowColor = "rgba(3,10,20,0.5)";
+  x.shadowBlur = R * 0.18;
+  x.shadowOffsetY = R * 0.04;
+  const g = x.createLinearGradient(0, -R * 0.95, 0, R * 0.1);
+  g.addColorStop(0, "rgb(214,250,246)");
+  g.addColorStop(0.45, css(OCZI.top));
+  g.addColorStop(1, css(OCZI.bottom));
+  x.fillStyle = g;
+
+  // One round paw with three small fingers on top — nothing to read, nothing to get wrong.
+  x.beginPath();
+  x.arc(0, -R * 0.38, R * 0.38, 0, Math.PI * 2);
+  x.fill();
+  for (const [fx, fy, fr] of [
+    [-0.26, -0.72, 0.095],
+    [0, -0.82, 0.1],
+    [0.26, -0.71, 0.095],
+  ] as const) {
+    x.beginPath();
+    x.arc(fx * R, fy * R, fr * R, 0, Math.PI * 2);
+    x.fill();
+  }
+  x.restore();
+}
+
 function drawOczi(x: CanvasRenderingContext2D, p: Pose) {
   const hh = p.hb / 2;
   const hw = hh * ASP;
@@ -369,6 +426,9 @@ function drawOczi(x: CanvasRenderingContext2D, p: Pose) {
     x.restore();
   }
   x.restore();
+
+  // Waving hand, in the body's own transformed space so the hop and tilt carry it along.
+  drawHand(x, hh, p);
 
   // Activity badge
   if (p.badge > 0.01) {
@@ -452,6 +512,9 @@ export class Greeting {
   private tc = Number.POSITIVE_INFINITY;
   private fired = false;
   private timers: number[] = [];
+  /** The deadline that survives an interrupt: a greeting whose timers were cancelled and
+   *  whose canvas stopped being drawn still has to end, or the splash becomes the screen. */
+  private deadline: number | null = null;
 
   onComplete: (() => void) | null = null;
 
@@ -465,6 +528,7 @@ export class Greeting {
       window.setTimeout(() => Sound.play("blip"), T.badge * 1000),
       window.setTimeout(() => this.fire(), (T.end + 0.05) * 1000),
     );
+    this.deadline = window.setTimeout(() => this.fire(), (T.end + 0.6) * 1000);
   }
 
   /** Mouse entered the island during the greeting — hold it open. */
@@ -491,6 +555,10 @@ export class Greeting {
     if (this.fired) return;
     this.fired = true;
     this.cancelTimers();
+    if (this.deadline != null) {
+      window.clearTimeout(this.deadline);
+      this.deadline = null;
+    }
     this.onComplete?.();
   }
 

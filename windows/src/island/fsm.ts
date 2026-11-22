@@ -12,16 +12,11 @@ export class IslandStateMachine {
   homeToPetitDelay = 15;
   /** petit → hidden delay, seconds. */
   petitToHiddenDelay = 60;
-  /** greeting → petit once the greeting animation ends (no hover). */
-  greetAutoCollapseDelay = 0.6;
-  /** greeting → petit while the mouse hovers the greeting. */
-  greetHoverCollapseDelay = 10;
   /** An alert waiting for an answer stays open, even when the mouse leaves. */
   pinned = false;
 
   private petitHide: number | null = null;
   private homeCollapse: number | null = null;
-  private greetCollapse: number | null = null;
   /** The pointer is over the island, so a countdown means "waiting for it to leave". */
   private hovering = false;
 
@@ -46,8 +41,8 @@ export class IslandStateMachine {
         this.clear("homeCollapse");
         break;
       case "greeting":
-        // Entering holds the greeting, the way it holds a card open.
-        this.scheduleGreetCollapse(this.greetHoverCollapseDelay);
+        // The splash has its own clock and nothing may stretch it: a greeting that waits for
+        // the pointer to leave is a greeting somebody sits and stares at.
         break;
     }
   }
@@ -64,8 +59,7 @@ export class IslandStateMachine {
         this.scheduleHomeCollapse();
         break;
       case "greeting":
-        this.clear("greetCollapse");
-        this.transition("petit");
+        // Same as above: leaving does not end it early either, the clock does.
         break;
     }
   }
@@ -76,14 +70,12 @@ export class IslandStateMachine {
     this.transition("home");
   }
 
-  /** Greeting animation finished (T.end). Doesn't override a running hover timer. */
+  /** The greeting animation finished. The splash hands straight over to the main screen —
+   *  landing on the bare bar meant the first thing anyone saw was the thing they did not
+   *  open the app for. */
   greetComplete() {
     if (this.state !== "greeting") return;
-    // Skip only a live hover countdown — the pointer is over the island and the long timer is
-    // really running. A timer cancelled by an interrupt must not stop the re-arm, or the
-    // greeting is left on screen with nothing left to fold it.
-    if (this.hovering && this.greetCollapse != null) return;
-    this.scheduleGreetCollapse(this.greetAutoCollapseDelay);
+    this.transition("home");
   }
 
   /** Non-alert work event: show compact from hidden. */
@@ -146,15 +138,7 @@ export class IslandStateMachine {
     }, this.homeToPetitDelay * 1000);
   }
 
-  private scheduleGreetCollapse(delay: number) {
-    this.clear("greetCollapse");
-    this.greetCollapse = window.setTimeout(() => {
-      this.greetCollapse = null;
-      if (this.state === "greeting") this.transition("petit");
-    }, delay * 1000);
-  }
-
-  private clear(which: "petitHide" | "homeCollapse" | "greetCollapse") {
+  private clear(which: "petitHide" | "homeCollapse") {
     const id = this[which];
     if (id != null) window.clearTimeout(id);
     this[which] = null;
@@ -163,12 +147,11 @@ export class IslandStateMachine {
   cancelTimers() {
     this.clear("petitHide");
     this.clear("homeCollapse");
-    this.clear("greetCollapse");
   }
 
   /** Where the machine stands, for a log line that has to explain a card that never came. */
   status(): string {
-    return `${this.state} hover=${this.hovering} collapse=${this.greetCollapse != null}`;
+    return `${this.state} hover=${this.hovering}`;
   }
 
   private transition(next: FsmState) {

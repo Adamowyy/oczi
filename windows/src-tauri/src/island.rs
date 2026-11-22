@@ -55,11 +55,11 @@ const POLL_MS_FULLSCREEN: u64 = 200;
 /// How close counts as "about to reach the island".
 const NEAR_PX: f64 = 260.0;
 
-/// Id of our global hotkey (Ctrl+Alt+M by default), and the mods it is registered with.
+/// Id of our global hotkey (Alt+R by default), and the mods it is registered with.
 const HOTKEY_ID: i32 = 0xC0CC;
-/// Ctrl+Alt+Shift+S — the same thing as clicking the eye.
+/// Ctrl+Shift+S — the same thing as clicking the eye.
 const HOTKEY_SNIP_ID: i32 = 0xC0CD;
-/// Ctrl+Alt+Shift+P — pins a region to the screen. Registered by every build: a pin is drawn by
+/// Ctrl+Shift+P — pins a region to the screen. Registered by every build: a pin is drawn by
 /// the app itself, so no engine and no key stands between the chord and the crop.
 const HOTKEY_PIN_ID: i32 = 0xC0CF;
 
@@ -215,6 +215,14 @@ pub fn detect_fullscreen(app: &AppHandle) -> bool {
 fn game_mode_on(app: &AppHandle) -> bool {
     app.try_state::<crate::Shared>()
         .map(|s| s.settings.lock().unwrap().game_mode)
+        .unwrap_or(true)
+}
+
+/// The `Top edge` switch. Off means the band over the hidden island is not a way in: it
+/// stops taking the mouse, and the chords are what opens the island.
+fn wake_band_on(app: &AppHandle) -> bool {
+    app.try_state::<crate::Shared>()
+        .map(|s| s.settings.lock().unwrap().wake_band)
         .unwrap_or(true)
 }
 
@@ -728,7 +736,7 @@ mod hotkey_tests {
 
     #[test]
     fn a_chord_needs_a_modifier_and_exactly_one_known_key() {
-        let (mods, key) = parse_hotkey("Ctrl+Alt+Shift+S").expect("the default screenshot chord");
+        let (mods, key) = parse_hotkey("Ctrl+Shift+S").expect("the default screenshot chord");
         assert_eq!(mods, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT);
         assert_eq!(key, 'S' as u32);
         // Win is allowed, and the order the recorder writes is not required.
@@ -765,8 +773,8 @@ mod hotkey_tests {
         assert!(chord_is_usable("Win+Alt+Shift+R"));
         // And the defaults are usable.
         assert!(chord_is_usable("Ctrl+Shift+D"));
-        assert!(chord_is_usable("Ctrl+Alt+M"));
-        assert!(chord_is_usable("Ctrl+Alt+Shift+S"));
+        assert!(chord_is_usable("Alt+R"));
+        assert!(chord_is_usable("Ctrl+Shift+S"));
         // Unparseable is unusable, not a panic.
         assert!(!chord_is_usable("Ctrl+Enter"));
         assert!(!chord_is_usable(""));
@@ -949,6 +957,9 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
         // The `Game mode` switch, re-read with them: off means the wake band never stops
         // working, whatever is on screen.
         let mut game_mode = true;
+        // The `Top edge` switch, read on the same pass: off means the wake band is not a way
+        // in at all, so the window stays click-through while the island is down.
+        let mut wake_band = true;
         loop {
             let idle = !gate.is_active() || gate.collapsed.load(Ordering::Relaxed);
             // With a fullscreen app on the display and the island down, the only job left
@@ -990,6 +1001,7 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
             if ticks % check_every == 0 {
                 island_mon = island_monitor(&app);
                 game_mode = game_mode_on(&app);
+                wake_band = wake_band_on(&app);
             }
             // Somebody else's app covering the island's own display: the top edge is
             // theirs now. A game on the *other* monitor is not this, and must leave the
@@ -1063,6 +1075,10 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
             // across the top of a game.
             let accept = if screen_full {
                 !idle && on_island
+            } else if idle && !wake_band {
+                // The top edge is not a way in: the window stays click-through until a chord
+                // brings the island up, so brushing the top of the screen does nothing.
+                false
             } else {
                 on_island || dragging
             };
@@ -1108,11 +1124,11 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
 /// Which of the three global chords a change applies to.
 #[derive(Clone, Copy)]
 pub enum HotkeySlot {
-    /// Summon the island. Default Ctrl+Alt+M.
+    /// Summon the island. Default Alt+R.
     Summon,
-    /// Start a snip — the same thing as clicking the eye. Default Ctrl+Alt+Shift+S.
+    /// Start a snip — the same thing as clicking the eye. Default Ctrl+Shift+S.
     Snip,
-    /// Pin a region to the screen instead of asking about it. Default Ctrl+Alt+Shift+P.
+    /// Pin a region to the screen instead of asking about it. Default Ctrl+Shift+P.
     Pin,
 }
 
@@ -1240,7 +1256,7 @@ pub fn chord_is_usable(hotkey: &str) -> bool {
     }
 }
 
-/// "Ctrl+Alt+M" → the RegisterHotKey modifiers and virtual key. The settings
+/// "Alt+R" → the RegisterHotKey modifiers and virtual key. The settings
 /// window's recorder writes exactly these names; anything else is refused, so a
 /// hand-edited settings.json falls back to the default.
 ///

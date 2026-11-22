@@ -55,6 +55,12 @@ pub struct Offer {
     /// The gg.deals page for this game, where the shops themselves are listed. The API returns no
     /// shop address, so this is the closest thing to \"buy it here\" it can offer.
     pub url: Option<String>,
+    /// Steam's own verdict from the store page, as the store numbers it (1..9, 9 being
+    /// `Overwhelmingly Positive`), with the two counts behind it. The wording is the front end's
+    /// job, so the card can say it in the interface's language.
+    pub review_score: Option<u32>,
+    pub review_positive: Option<u64>,
+    pub review_negative: Option<u64>,
 }
 
 fn client() -> Result<reqwest::Client, String> {
@@ -166,6 +172,10 @@ fn gg_prices(json: &Value, app_id: u64) -> Option<Offer> {
         historical_retail: text("historicalRetail"),
         historical_keyshops: text("historicalKeyshops"),
         url: entry.get("url").and_then(Value::as_str).map(str::to_string),
+        // Steam's verdict comes from the store page, not from this answer.
+        review_score: None,
+        review_positive: None,
+        review_negative: None,
     })
 }
 
@@ -186,6 +196,52 @@ fn api_message(body: &str) -> Option<String> {
         .get("message")
         .and_then(Value::as_str)
         .map(str::to_string)
+}
+
+/// The counts and the store's own score out of the JSON the app page carries in a script tag.
+/// `summaryGlobalNoOutliers` is the "All Reviews" block Steam shows, already free of the review
+/// bombing it discounts, and `eReviewScore` is the 1..9 enum behind the words on the page.
+fn review_block(html: &str) -> Option<(u32, u64, u64)> {
+    // The block sits inside a script tag whose quotes arrive escaped.
+    let html = html.replace("&quot;", "\"");
+    let key = "\"summaryGlobalNoOutliers\":";
+    let at = html.find(key)? + key.len();
+    let rest = &html[at..];
+    // The block is flat, so the first closing brace ends it.
+    let end = rest.find('}')?;
+    let json: Value = serde_json::from_str(&rest[..=end]).ok()?;
+    let score = json.get("eReviewScore")?.as_u64()? as u32;
+    let total = json.get("nReviews")?.as_u64()?;
+    let positive = json.get("nReviewsPositive")?.as_u64()?;
+    if score == 0 || total == 0 || positive > total {
+        return None;
+    }
+    Some((score, positive, total - positive))
+}
+
+/// The store's own verdict for an app, keyless: the page it already links to carries the numbers.
+/// A failure here costs the verdict and nothing else, so every error becomes `None` rather than
+/// failing the lookup.
+async fn steam_reviews(http: &reqwest::Client, app_id: u64) -> Option<(u32, u64, u64)> {
+    let url = format!("https://store.steampowered.com/app/{app_id}/?l=english");
+    let html = http.get(&url).send().await.ok()?.text().await.ok()?;
+    review_block(&html)
+}
+
+/// Steam's wording for each score, for the tool result the model answers from. The card has its own
+/// translations; this is the Polish the model reads.
+fn review_word(score: u32) -> &'static str {
+    match score {
+        9 => "przytłaczająco pozytywne",
+        8 => "bardzo pozytywne",
+        7 => "pozytywne",
+        6 => "w większości pozytywne",
+        5 => "mieszane",
+        4 => "w większości negatywne",
+        3 => "negatywne",
+        2 => "bardzo negatywne",
+        _ => "przytłaczająco negatywne",
+    }
 }
 
 /// One game's prices by the title the user typed.
@@ -219,6 +275,15 @@ pub async fn lookup(title: &str) -> Result<Offer, String> {
     let (app_id, name) = steam_hit(&search_json)
         .ok_or_else(|| format!("Steam nie zna gry „{title}”."))?;
     log::line(format!("prices search: {title} → {app_id} ({name})"));
+
+    // One more request to the same store, and the card says what people think of the game. A
+    // missing verdict costs the bottom line only, never the prices.
+    let reviews = steam_reviews(&http, app_id).await;
+    if let Some((score, positive, negative)) = reviews {
+        log::line(format!(
+            "prices reviews: {app_id} {score}/9 ({positive}+ / {negative}-)"
+        ));
+    }
 
     let price_url = format!(
         "{GG_PRICES}?ids={app_id}&region={}&key={}",
@@ -254,6 +319,11 @@ pub async fn lookup(title: &str) -> Result<Offer, String> {
         offer.title = name;
     }
     offer.app_id = app_id;
+    if let Some((score, positive, negative)) = reviews {
+        offer.review_score = Some(score);
+        offer.review_positive = Some(positive);
+        offer.review_negative = Some(negative);
+    }
     log::line(format!(
         "prices: {} {} {} (retail {:?}, keyshops {:?})",
         offer.title, offer.best.clone().unwrap_or_default(), offer.currency, offer.retail, offer.keyshops
@@ -299,6 +369,14 @@ pub fn describe(offer: &Offer) -> String {
     if let Some(url) = &offer.url {
         out.push_str(&format!("\nStrona ze sklepami: {url}"));
     }
+    if let (Some(score), Some(positive), Some(negative)) =
+        (offer.review_score, offer.review_positive, offer.review_negative)
+    {
+        out.push_str(&format!(
+            "\nOceny na Steam: {} — {positive} pozytywnych, {negative} negatywnych",
+            review_word(score)
+        ));
+    }
     out.push_str(&format!("\nSteam App ID: {}", offer.app_id));
     out
 }
@@ -324,6 +402,20 @@ mod tests {
         assert_eq!(
             offer.image.as_deref(),
             Some("https://cdn.cloudflare.steamstatic.com/steam/apps/107410/header.jpg")
+        );
+    }
+
+    #[test]
+    fn reads_the_review_block_the_store_page_carries() {
+        let html = r#"<script>{"bHasAnyReviews":true,"summaryRecent":{"nReviews":2660,"nReviewsPositive":2456,"eReviewScore":8},
+        "summaryGlobalNoOutliers":{"nReviews":836593,"nReviewsPositive":779529,"eReviewScore":8,"bFilteredReviews":true,"nAgeInDays":0},
+        "summaryYourLanguage":{"nReviews":437852,"nReviewsPositive":412785,"eReviewScore":8}}</script>"#;
+        assert_eq!(review_block(html), Some((8, 779529, 57064)));
+        // No review data on the page (age gate, a fresh app, a hiccup) is not a verdict.
+        assert_eq!(review_block("<html>nothing here</html>"), None);
+        assert_eq!(
+            review_block(r#"{"summaryGlobalNoOutliers":{"nReviews":0,"nReviewsPositive":0,"eReviewScore":0}}"#),
+            None
         );
     }
 

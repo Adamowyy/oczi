@@ -12,7 +12,7 @@ import {
 import { Sound } from "../core/sound";
 import { State, routineView, ROUTINE_VIEWS } from "../core/state";
 import { BotEngine, hexToRGB } from "../bot/engine";
-import { Greeting } from "../bot/greeting";
+import { Greeting, GREETING_END } from "../bot/greeting";
 import { createMiniBot, miniBotCount, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../bot/minibots";
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
@@ -348,14 +348,23 @@ export class Island {
           break;
         case "home": {
           // A reminder that is waiting takes the stage at every opening until it is answered;
-          // then a news card; then whatever the opening asked for. A routine's report does not:
-          // it is a passing notice and goes by itself.
+          // then a news card; then a downloaded update, which is the one notice that must not be
+          // missed; then whatever the opening asked for. A routine's report does not: it is a
+          // passing notice and goes by itself.
           const view: IslandViewName = State.reminder
             ? "reminder"
             : State.newsMessage
               ? "whatsnew"
-              : State.defaultView();
+              : State.update?.done && State.view !== "update"
+                ? "update"
+                : State.defaultView();
           this.expand(view);
+          // The splash has handed over: the main screen is up, so nothing may think a greeting
+          // is still running (a skipped animation used to leave that flag up for the session).
+          if (from === "greeting") {
+            this.greetingStarted = false;
+            void Bridge.log(`ui  greeting handed over to ${view}`);
+          }
           // Coming back to a card that was put away: it is still waiting for an
           // answer, so the countdown must not fold it away while it is read.
           if (view === "reminder") {
@@ -377,6 +386,7 @@ export class Island {
 
   launch() {
     this.fsm.launch();
+    this.watchGreeting();
     // Rust sizes the window as PANEL_W × screen scale. If the page and the window
     // ever disagree, the right-hand column is clipped at the window edge — and the
     // mismatch is invisible in a screenshot, so every change is written down.
@@ -394,6 +404,19 @@ export class Island {
       this.animateGeometry(false);
     });
     note();
+  }
+
+  /** A splash is a promise that the app is about to be usable. If neither the animation nor
+   *  its own deadline ended the greeting — a skipped start, a frame loop that never drew, a
+   *  clock that was cancelled — this hands over anyway. A welcome screen that outlives its
+   *  clock and waits for a click is the app being stuck. */
+  private watchGreeting() {
+    window.setTimeout(() => {
+      if (this.fsm.state !== "greeting") return;
+      void Bridge.log("ui  greeting outlived its clock — handing over to the main screen");
+      this.greetingStarted = false;
+      this.fsm.greetComplete();
+    }, (GREETING_END + 1.2) * 1000);
   }
 
   // ── Mode / view ─────────────────────────────────────────────────────────────
@@ -415,6 +438,9 @@ export class Island {
     }
     if (mode !== "expanded") {
       this.engine.resetMorph();
+      // The greeting canvas is gone with the expanded island: nothing may keep believing it
+      // is still playing, or the next launch skips it.
+      this.greetingStarted = false;
       // Nothing can be seen of the sequence once the island is shut, and leaving
       // it running would keep the frame loop awake — the island must cost
       // nothing while hidden.
@@ -555,6 +581,11 @@ export class Island {
   }
 
   collapse() {
+    // The update card is not put away by clicking elsewhere or by Esc: it is the only place a
+    // new version is announced, and its own two buttons are the only ways out. A card that a
+    // stray click can swallow is the card the user never read.
+    if (State.view === "update" && State.update) return;
+    if (State.view === "whatsnew" && State.isPinned) return;
     // A note is a message, not a destination: once the island folds away it has
     // been read, and Esc has to be able to make it go away. Leaving the view set
     // meant the text came straight back the next time the island was opened.
@@ -787,13 +818,19 @@ export class Island {
     // click outside the island, and folding the drop prompt away at that moment is
     // exactly what killed the drag before it could reach us.
     if (UPLOAD_VIEWS.has(State.view)) return;
+    // Not during the splash either: it is not a card waiting to be dismissed, it is the app
+    // starting. A stray click a second after launch used to cut the greeting off mid-wave —
+    // and the greeting is the one screen that has to play to the end to make sense.
+    if (this.fsm.state === "greeting") return;
     // An answer being written is not a reason to stay open. This used to return early while
     // the island was "thinking", so a request that stalled — or one whose answer simply took
     // its time — left a window that could not be dismissed by clicking away at all. The
     // answer lands in the conversation whether or not the card is still on screen.
     if (State.mode === "expanded") {
-      void Bridge.log("ui  click outside — folding");
       this.collapse();
+      // Said after the fact, because the update card refuses to fold: the log has to match what
+      // the island actually did, or a report of a card "stuck" open points at the wrong place.
+      void Bridge.log(`ui  click outside — ${State.mode === "expanded" ? "held" : "folding"}`);
     }
   }
 
@@ -1067,6 +1104,9 @@ export class Island {
     // The wake strip is the only thing the OS can hit while the island is hidden.
     this.wakeStrip.addEventListener("mouseenter", () => {
       Sound.resume();
+      // The top edge is a way in only while the switch says so — with it off, the band over a
+      // hidden island must not wake her.
+      if (!State.settings.wakeBand) return;
       // A fullscreen app owns the top edge of the display it is on, so the band is not a
       // way in while it runs — the chord is.
       if (State.fullscreen) return;
@@ -1123,7 +1163,11 @@ export class Island {
     // the island while it runs, and a hidden island is only reachable by chord. Once it
     // is up (summoned, or opened over the game) it behaves as usual.
     const margin = State.fullscreen ? 0 : HIT_MARGIN;
+    // The `Top edge` switch: off means a hidden island is not under the cursor at all, so
+    // brushing the top of the screen cannot bring her up.
+    const bandOff = !State.settings.wakeBand && State.mode === "hidden";
     const inIsland =
+      !bandOff &&
       x >= rect.x - margin && x <= rect.x + rect.w + margin &&
       y >= rect.y - margin && y <= rect.y + rect.h + margin &&
       !(State.fullscreen && this.fsm.state === "hidden");
@@ -1493,10 +1537,27 @@ export class Island {
       target instanceof Element &&
       !!target.closest("button, input, select, textarea, a, .mini, .pill, .upload-hit");
 
+    /** Text the user is meant to be able to select. A press there belongs to the browser's
+     *  selection, never to the window drag: moving the island mid-drag is what made copying an
+     *  answer impossible. `.bubble`, `.reply` and the rest opt in through `user-select: text`,
+     *  so the computed style is what decides rather than a list of class names to keep in step. */
+    const isSelectableText = (target: EventTarget | null) => {
+      if (!(target instanceof Element)) return false;
+      if (target.closest("pre, code, textarea, [contenteditable='true']")) return true;
+      const style = getComputedStyle(target);
+      return style.userSelect === "text" || style.webkitUserSelect === "text";
+    };
+
     const down = (e: PointerEvent) => {
       if (e.button !== 0 || isControl(e.target)) return;
       // The drop card is a place where a press means something else.
       if (UPLOAD_VIEWS.has(State.view)) return;
+      if (isSelectableText(e.target)) {
+        // Selecting is only half of it: Ctrl+C reaches the island only when it holds the
+        // keyboard, and every view but the chat leaves it in the background.
+        void Bridge.focusWindow(true);
+        return;
+      }
       dragging = true;
       grabX = e.screenX;
       startAnchor = State.settings.islandAnchor;
@@ -1511,6 +1572,9 @@ export class Island {
 
     const move = (e: PointerEvent) => {
       if (!dragging) return;
+      // A click with a wobble is still a click: the island moves only once the pointer has
+      // actually gone somewhere.
+      if (!moved && Math.abs(e.screenX - grabX) < 4) return;
       // A fraction of the room the island has to slide in, so the same number means
       // the same place on another screen or at another resolution.
       const span = Math.max(1, window.screen.availWidth - this.panelSize.w);
@@ -1777,7 +1841,7 @@ export class Island {
     const showGrid = State.mode === "compact";
     this.miniGrid.style.opacity = showGrid ? "1" : "0";
     if (showGrid) {
-      const hotkey = State.settings.hotkey || "Ctrl+Alt+M";
+      const hotkey = State.settings.hotkey || "Alt+R";
       const shown = State.tasks.slice(0, 4);
       const key = `${hotkey}|${shown.map((t) => t.id).join("|")}`;
       if (this.miniGrid.dataset.key !== key) {
@@ -1807,7 +1871,7 @@ export class Island {
   /** Somebody started (or closed) a fullscreen app on the island's own display. Rust has
    *  already made the window click-through across the whole top edge; this side keeps the
    *  island itself away and stops the hover path from waking it. The chords are untouched,
-   *  so `Ctrl+Alt+M` still opens it mid-game and it is usable as ever once it is up. */
+   *  so `Alt+R` still opens it mid-game and it is usable as ever once it is up. */
   setFullscreen(on: boolean) {
     if (State.fullscreen === on) return;
     State.fullscreen = on;
