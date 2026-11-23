@@ -10,7 +10,7 @@ export const IS_TAURI =
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
   if (!IS_TAURI) return null;
   try {
-    return await invoke<T>(cmd, args);
+    return await retrying(() => invoke<T>(cmd, args));
   } catch (err) {
     console.error(`[oczi] ${cmd} failed`, err);
     return null;
@@ -448,7 +448,22 @@ export interface RoutineEvent {
 /** Same as `call`, but surfaces the error so the UI can show what went wrong. */
 async function callOrThrow<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!IS_TAURI) throw new Error("not running inside Oczi");
-  return invoke<T>(cmd, args);
+  return retrying(() => invoke<T>(cmd, args));
+}
+
+/** Tauri answers this when the request arrives while the window that sent it is being rebuilt:
+ *  the command never runs. One retry, then the caller sees the error. */
+const WEBVIEW_GONE = "failed to acquire webview reference";
+
+async function retrying<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (!String(err).includes(WEBVIEW_GONE)) throw err;
+    console.warn("[oczi] webview was mid-rebuild, asking again");
+    await new Promise((done) => setTimeout(done, 150));
+    return run();
+  }
 }
 
 export type BridgeEvent =

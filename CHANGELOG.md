@@ -2,6 +2,16 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.18 — 2026-11-23
+
+**Ustawienia nie gubią klucza, gdy okno jest w trakcie przebudowy.**
+
+- Zapis klucza API i ustawień ponawia żądanie, gdy Tauri odpowie „failed to acquire
+  webview reference" — wcześniej ten komunikat trafiał do karty jako czerwony błąd, a klucz nie
+  był zapisywany wcale.
+- Ten sam komunikat sprawiał, że karta pokazywała brak klucza, choć wpis był w Menedżerze
+  poświadczeń; po ponowieniu odczyt wraca i przycisk nie kłamie.
+
 ## 0.5.17 — 2026-11-22
 
 **Oceny Steam w pigułce Gry i karta aktualizacji, która czeka na Twoją decyzję.**
