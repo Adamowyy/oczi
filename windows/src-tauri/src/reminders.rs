@@ -352,13 +352,18 @@ fn select_due(
 }
 
 /// What is due now, marked as shown in the same breath so it is not handed over
-/// twice in one run.
-fn take_due(now: i64, leftovers: bool) -> Vec<Reminder> {
+/// twice in one run. Each one carries whether it had already been on screen in an
+/// earlier run: a card that was shown once is not "missed" when it comes back, only
+/// one that came due while Oczi was not running at all.
+fn take_due(now: i64, leftovers: bool) -> Vec<(Reminder, bool)> {
     let (mut due, rest) = select_due(load(), now, leftovers);
     if due.is_empty() {
-        return due;
+        return Vec::new();
     }
     due.sort_by_key(|r| r.at);
+    // Read before `fired` is set below: this is the only moment the difference between
+    // "was on screen already" and "waited for a launch" still exists in the file.
+    let shown: Vec<(Reminder, bool)> = due.iter().map(|r| (r.clone(), r.fired)).collect();
     let mut keep = rest;
     for r in &mut due {
         r.fired = true;
@@ -369,7 +374,7 @@ fn take_due(now: i64, leftovers: bool) -> Vec<Reminder> {
     if let Err(e) = save(&keep) {
         crate::log::line(format!("reminders could not be saved: {e}"));
     }
-    due
+    shown
 }
 
 /// The list as the model reads it back. A reminder that was already shown but not
@@ -730,13 +735,17 @@ pub fn start(app: AppHandle) {
 fn fire(app: &AppHandle, leftovers: bool) {
     let now = now_local();
     let started = *STARTED_AT.get_or_init(now_local);
-    for r in take_due(now, leftovers) {
+    for (r, was_shown) in take_due(now, leftovers) {
+        // Missed means "it came due while Oczi was not running": a card that had already
+        // been put on screen once is a card the user saw, so handing it back is not a miss.
+        let missed = !was_shown && r.at <= started;
         crate::log::line(format!(
-            "reminder {} fired (due {}, {}s late{})",
+            "reminder {} fired (due {}, {}s late{}{})",
             r.id,
             format_local(r.at),
             now - r.at,
-            if r.at <= started { ", missed" } else { "" }
+            if was_shown { ", shown before" } else { "" },
+            if missed { ", missed" } else { "" }
         ));
         let payload = Fired {
             id: r.id,
@@ -744,7 +753,7 @@ fn fire(app: &AppHandle, leftovers: bool) {
             at: r.at,
             at_text: format_local(r.at),
             late_seconds: now - r.at,
-            missed: r.at <= started,
+            missed,
             repeat: r.repeat,
         };
         // Nobody hears an event that fails, and a reminder is already off the list

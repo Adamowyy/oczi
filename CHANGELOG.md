@@ -2,6 +2,23 @@
 
 All notable changes to **Oczi** are recorded here.
 
+## 0.5.19 — 2026-11-28
+
+**Przypomnienia czekają na Twoje „Jasne", a prawy klik nie otwiera już menu przeglądarki.**
+
+- Przypomnienie stoi na karcie, dopóki nie klikniesz **Jasne** albo **+10 min**. Klik poza wyspą
+  i Esc go nie zamykają — wcześniej karta zsuwała się po pierwszym kliknięciu, a po pół godziny ta
+  sama karta mówiła „Przegapione przypomnienie", choć cały czas była na ekranie. Przegapione jest
+  teraz tylko to, co wypadło, gdy Oczi nie działał.
+- W grze albo innej aplikacji pełnoekranowej przypomnienie też się pokazuje, a na karcie odlicza się
+  5 sekund. Po nich klik w grę odkłada kartę i zamyka przypomnienie tak samo jak **Jasne**, więc nie
+  wraca jako przegapione; wcześniej nie dało się go zamknąć bez trafienia w przycisk.
+- Karta, której nikt nie potwierdził, nie blokuje kolejnych: po minucie ustępuje nowemu
+  przypomnieniu, a sama wraca do kolejki.
+- Prawy klik w Oczi nie otwiera menu przeglądarki z **Drukuj** i **Odśwież**.
+- W Sprzątaniu zniknął nagłówek „Dwie góry do wywiezienia" wraz z opisem pod nim, a przy czyszczeniu
+  aktualizacji zostało samo zdanie o zgodzie administratora.
+
 ## 0.5.18 — 2026-11-23
 
 **Ustawienia nie gubią klucza, gdy okno jest w trakcie przebudowy.**

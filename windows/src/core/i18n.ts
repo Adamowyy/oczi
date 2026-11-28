@@ -333,8 +333,6 @@ const EN = {
   "startup.hint.realtek": "Realtek: sound.",
   "debloat.loading": "Reading what is installed…",
   // Cleanup: two piles, measured before and after.
-  "clean.title": "Two piles worth emptying",
-  "clean.hint": "The temp folder and the Recycle Bin, measured first and again afterwards. Files another program still holds are left alone and counted.",
   "clean.temp": "Temp folder",
   "clean.recycle": "Recycle Bin",
   "clean.recycleItems": "{} · {} items",
@@ -362,7 +360,7 @@ const EN = {
   "clean.devRun": "Clear toolchain caches",
   "clean.residueAll": "Clear everything",
   "clean.residueBusy": "Clearing…",
-  "clean.residueAdmin": "Windows asks for administrator permission once. That is the only window you will see; after it the list cleans itself and everything else stays as it is.",
+  "clean.residueAdmin": "Windows asks for administrator permission once.",
   "clean.residueFreed": "Freed {}. Still in use, so left: {}.",
   "clean.residueMeasured": "Measured again.",
   "debloat.fallback": "kind: {}",
@@ -553,6 +551,10 @@ const EN = {
   "rem.everyHoursFew": "every {} hours",
   "rem.ok": "OK",
   "rem.snooze": "+10 min",
+  // A reminder in front of a fullscreen app can be put away with a click in that app; the card
+  // counts the seconds until that is allowed, then says it may be done.
+  "rem.holdIn": "a click outside hides it in {} s",
+  "rem.holdDone": "a click outside hides it",
   // Routine report, raised by Rust when a routine has run. The strip shows only the name of what
   // ran; the taller card adds the kind, the time, and one line naming a step that failed.
   "routine.title": "Routine done",
@@ -899,9 +901,6 @@ const PL: Record<TextKey, string> = {
   "startup.hint.asus": "ASUS/GHelper: wentylatory i profil.",
   "startup.hint.realtek": "Realtek: dźwięk.",
   "debloat.loading": "Czytam, co jest zainstalowane…",
-  // Sprzątanie: dwie góry, mierzone przed i po.
-  "clean.title": "Dwie góry do wywiezienia",
-  "clean.hint": "Folder tymczasowy i Kosz, zmierzone przed i po. Pliki trzymane przez inne programy zostają i są policzone osobno.",
   "clean.temp": "Folder tymczasowy",
   "clean.recycle": "Kosz",
   "clean.recycleItems": "{} · {} elementów",
@@ -930,7 +929,7 @@ const PL: Record<TextKey, string> = {
   "clean.devRun": "Wyczyść cache narzędzi",
   "clean.residueAll": "Wyczyść wszystko",
   "clean.residueBusy": "Czyszczę…",
-  "clean.residueAdmin": "Windows zapyta raz o zgodę administratora. To jedyne okno, jakie się pojawi — potem samo czyści i nic więcej nie wyskakuje.",
+  "clean.residueAdmin": "Windows zapyta raz o zgodę administratora.",
   "clean.residueFreed": "Zwolniono {}. W użyciu, więc zostało: {}.",
   "clean.residueMeasured": "Zmierzone ponownie.",
   "debloat.fallback": "typ: {}",
@@ -1117,6 +1116,10 @@ const PL: Record<TextKey, string> = {
   "rem.everyHoursFew": "co {} godziny",
   "rem.ok": "Jasne",
   "rem.snooze": "+10 min",
+  // Przypomnienie na tle aplikacji pełnoekranowej schodzi kliknięciem w tę aplikację; karta
+  // odlicza sekundy do momentu, w którym to wolno, a potem mówi, że można.
+  "rem.holdIn": "klik obok ukryje za {} s",
+  "rem.holdDone": "klik obok ukrywa",
   // Karta rutyny: pasek pokazuje tylko nazwę tego, co poszło; wyższa karta dodaje typ, termin
   // i jedną linię z nazwą kroku, który zawiódł.
   "routine.title": "Rutyna wykonana",

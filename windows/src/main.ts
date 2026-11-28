@@ -9,6 +9,10 @@ import { newsKey } from "./core/whats-new";
 import { Island } from "./island/island";
 import { registerIntegrationHandlers, refreshConfigured } from "./island/integrations";
 
+/** How long one reminder may keep the card before the next one that comes due takes it.
+ *  A card nobody answers must not hold the ones behind it off the screen for ever. */
+const REMINDER_TAKEOVER_MS = 60_000;
+
 async function main() {
   const root = document.getElementById("root");
   if (!root) return;
@@ -149,11 +153,21 @@ async function main() {
   // pinned so it waits to be answered instead of counting down while it is read.
   await onEvent<ReminderEvent>("reminder", (r) => {
     // One card at a time: a second reminder that lands while the first is up waits
-    // its turn rather than taking the card away.
-    if (State.reminder) {
+    // its turn rather than taking the card away…
+    if (State.reminder && performance.now() - State.reminderShownAt < REMINDER_TAKEOVER_MS) {
       State.queuedReminders.push(r);
       void Bridge.log(`reminder #${r.id} queued (${State.queuedReminders.length})`);
       return;
+    }
+    // …but a card nobody answered does not hold the stage for ever: after a minute the
+    // reminder that has just come due takes it, and the old one goes back to the queue. A
+    // card left on screen forever is how the ones behind it were never seen at all.
+    if (State.reminder) {
+      const held = Math.round((performance.now() - State.reminderShownAt) / 1000);
+      State.queuedReminders.push(State.reminder);
+      void Bridge.log(
+        `reminder #${State.reminder.id} stepped aside after ${held}s (${State.queuedReminders.length} waiting)`,
+      );
     }
     State.reminder = r;
     State.reminderShownAt = performance.now();

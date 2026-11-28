@@ -526,7 +526,11 @@ function countKey(base: "rem.everyMinutes" | "rem.everyHours", n: number): TextK
   return (few ? `${base}Few` : base) as TextKey;
 }
 
-const STALE_REMINDER_MS = 30 * 60 * 1000;
+/** How long a reminder sits in front of a fullscreen app before a click in that app may put
+ *  it away. Long enough to read a two-line card, short enough that a game's next click is not
+ *  swallowed by it — and the countdown on the card says when it has gone by. Shared with
+ *  island.ts, which refuses the fold until it is zero. */
+export const REMINDER_FULLSCREEN_HOLD_MS = 5000;
 
 function buildReminder(actions: ViewActions): ViewHost {
   const kind = h("div", { class: "eyebrow" });
@@ -553,22 +557,41 @@ function buildReminder(actions: ViewActions): ViewHost {
       ),
     ),
   );
+  // The countdown is the only thing on the card that changes without an event, so it runs on
+  // its own beat: a fullscreen app is where a reminder can be put away by a click in it, and
+  // the number has to be true at the moment that click lands.
+  let ticker = 0;
+  const paintWhen = () => {
+    const r = State.reminder;
+    if (!r) {
+      if (ticker) window.clearInterval(ticker);
+      ticker = 0;
+      return;
+    }
+    const cycle = r.repeat ? cycleLabel(r.repeat) : null;
+    const when = t("rem.at", r.atText);
+    let line = cycle ? `${when} · ${cycle}` : when;
+    if (State.fullscreen) {
+      const left = REMINDER_FULLSCREEN_HOLD_MS - (performance.now() - State.reminderShownAt);
+      line += left > 0
+        ? ` · ${t("rem.holdIn", String(Math.ceil(left / 1000)))}`
+        : ` · ${t("rem.holdDone")}`;
+    }
+    whenEl.textContent = line;
+  };
   return {
     el,
     sync() {
       const r = State.reminder;
       if (!r) return;
-      const waiting = State.reminderShownAt ? performance.now() - State.reminderShownAt : 0;
-      const missed = r.missed || waiting >= STALE_REMINDER_MS;
-      kind.textContent = missed ? t("rem.missedTitle") : t("rem.title");
-      kind.classList.toggle("late", missed);
-      snooze.style.display = missed ? "none" : "";
+      // Only a reminder that came due while Oczi was off is "missed": one that is on the
+      // screen right now has not been missed, however long it waits to be answered.
+      kind.textContent = r.missed ? t("rem.missedTitle") : t("rem.title");
+      kind.classList.toggle("late", r.missed);
+      snooze.style.display = r.missed ? "none" : "";
       text.textContent = r.text;
-      // A repeating reminder has to say so on the card: "codziennie o 11:50" and a
-      // one-off at the same hour look identical otherwise.
-      const cycle = r.repeat ? cycleLabel(r.repeat) : null;
-      const when = t("rem.at", r.atText);
-      whenEl.textContent = cycle ? `${when} · ${cycle}` : when;
+      paintWhen();
+      if (State.fullscreen && !ticker) ticker = window.setInterval(paintWhen, 250);
     },
   };
 }
@@ -2087,12 +2110,7 @@ function residueBlock(d: DebloatState): HTMLElement {
 }
 
 function cleanBlock(d: DebloatState): HTMLElement {
-  const block = h(
-    "div",
-    { class: "tweak-group" },
-    h("div", { class: "game-eyebrow", text: t("clean.title") }),
-    h("div", { class: "game-note", text: t("clean.hint") }),
-  );
+  const block = h("div", { class: "tweak-group" });
   const sizes = d.clean;
   if (!sizes) {
     block.append(

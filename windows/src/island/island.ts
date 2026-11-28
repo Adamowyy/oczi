@@ -16,7 +16,7 @@ import { Greeting, GREETING_END } from "../bot/greeting";
 import { createMiniBot, miniBotCount, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../bot/minibots";
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
-import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
+import { buildHeader, buildViews, REMINDER_FULLSCREEN_HOLD_MS, type ViewActions, type ViewHost } from "../views/views";
 import { musicPlaying } from "../views/music";
 
 /** What the selection overlay reports back. Zeros mean the user cancelled. */
@@ -602,18 +602,20 @@ export class Island {
       State.newsMessage = null;
       State.view = State.defaultView();
     }
-    // A reminder is not answered by hiding the island. Clicking somewhere else puts
-    // the card away for now, and it is still there the next time the island opens;
-    // only its own buttons end it, which is what makes an unnoticed card impossible
-    // to lose. The first few seconds are ignored outright, so a click that was
-    // already on its way when the card appeared cannot take it away either.
+    // A reminder is not answered by hiding the island. Clicking somewhere else, Esc or a
+    // countdown never takes it off the screen: only its own buttons end it. The one exception
+    // is a fullscreen app, where a click in the game is the only thing the user can reach —
+    // and only once the countdown on the card has run out, so a click already on its way (or
+    // one that came while the card was still unread) cannot swallow it. That way out closes
+    // the reminder exactly like "Jasne", so a card the user put away himself is never handed
+    // back as missed.
     if (State.view === "reminder") {
-      if (State.reminder && performance.now() - State.reminderShownAt < REMINDER_GRACE_MS) return;
-      // Logged because the card is the only thing that can lose a reminder the file
-      // still holds: whether the state survived this is what a report turns on.
-      void Bridge.log(
-        `reminder ${State.reminder ? `#${State.reminder.id} card put away` : "card gone"}`,
-      );
+      if (State.reminder) {
+        if (!this.reminderMayGo()) return;
+        this.answerReminder("put away with a click in a fullscreen app");
+        // A second reminder that waited takes the card now: the island stays open on it.
+        if (State.reminder) return;
+      }
       State.view = State.defaultView();
     }
     // A routine's report is *read* by folding away: it is a notice about something already
@@ -647,6 +649,32 @@ export class Island {
     this.animateGeometry(true);
     // Whatever report waited behind the card that just went takes it now.
     this.showQueuedRoutine();
+  }
+
+  /** True once a reminder card in front of a fullscreen app has been readable long enough for
+   *  a click in that app to count as having seen it. Outside a fullscreen app it is never
+   *  true: there only the card's own buttons end it. */
+  private reminderMayGo(): boolean {
+    if (!State.fullscreen || !State.reminder) return false;
+    return performance.now() - State.reminderShownAt >= REMINDER_FULLSCREEN_HOLD_MS;
+  }
+
+  /** Closes the reminder on the card the way "Jasne" does: Rust ends it (or moves a repeating
+   *  one to its next turn), and the next queued reminder takes the stage. */
+  private answerReminder(reason: string) {
+    const done = State.reminder;
+    if (done) void Bridge.reminderDone(done.id);
+    const next = State.queuedReminders.shift() ?? null;
+    State.reminder = next;
+    State.reminderShownAt = performance.now();
+    // Logged because the card is the only thing that can lose a reminder the file still
+    // holds: whether the state survived this is what a report turns on.
+    void Bridge.log(
+      `reminder ${done ? `#${done.id}` : "card"} ${reason}${next ? ` — #${next.id} next` : ""}`,
+    );
+    if (!next) return;
+    this.holdOpen(0);
+    State.notify();
   }
 
   /** Holds the island open for `seconds`, or indefinitely when 0. Sending a question
@@ -1880,6 +1908,15 @@ export class Island {
     State.fullscreen = on;
     void Bridge.log(`ui  fullscreen ${on ? "on — wake band off" : "off"}`);
     if (!on) {
+      State.notify();
+      return;
+    }
+    // A reminder on the card is the one thing a game may not take away: the card is the only
+    // moment the user is told, and one folded under the game is a card nobody ever saw. It
+    // stays up with its countdown, and a click in the game puts it away once that has run out
+    // (see `collapse`).
+    if (State.reminder && State.view === "reminder" && State.mode === "expanded") {
+      void Bridge.log("ui  fullscreen on — the reminder card stays up");
       State.notify();
       return;
     }
