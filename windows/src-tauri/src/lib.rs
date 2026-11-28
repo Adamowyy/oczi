@@ -935,6 +935,7 @@ fn ensure_pc_window(
     {
         Ok(win) => {
             log::line(format!("{label} window built"));
+            webview_guard::quiet_context_menu(app, label);
             reveal_unless_painted(win.clone(), label);
             Some(win)
         }
@@ -970,6 +971,7 @@ fn ensure_settings_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     {
         Ok(win) => {
             webview_guard::attach(app, "settings");
+            webview_guard::quiet_context_menu(app, "settings");
             log::line("settings window built".to_string());
             reveal_unless_painted(win.clone(), "settings");
             Some(win)
@@ -1050,6 +1052,7 @@ fn ensure_snip_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
         .build()
         .map_err(|e| format!("the selection overlay could not be built: {e}"))?;
     webview_guard::attach(app, "snip");
+    webview_guard::quiet_context_menu(app, "snip");
     log::line(format!(
         "snip overlay ready — desktop {x},{y} {w}x{h} @{scale}x"
     ));
@@ -1081,7 +1084,7 @@ pub(crate) fn build_pin_window(
     app: &AppHandle,
     name: &str,
 ) -> Result<tauri::WebviewWindow, String> {
-    WebviewWindowBuilder::new(app, name, pin_page_url(app))
+    let win = WebviewWindowBuilder::new(app, name, pin_page_url(app))
         .additional_browser_args(BROWSER_ARGS)
         .title("Pin — Oczi")
         .decorations(false)
@@ -1094,7 +1097,9 @@ pub(crate) fn build_pin_window(
         .focused(false)
         .visible(false)
         .build()
-        .map_err(|e| format!("the pin window {name} could not be built: {e}"))
+        .map_err(|e| format!("the pin window {name} could not be built: {e}"))?;
+    webview_guard::quiet_context_menu(app, name);
+    Ok(win)
 }
 
 /// A health scan. One pass, on demand: a few seconds of load samples plus the event log, which is

@@ -50,6 +50,45 @@ static RESTARTING: AtomicBool = AtomicBool::new(false);
 pub fn watch(app: &AppHandle) {
     for label in WATCHED {
         attach(app, label);
+        quiet_context_menu(app, label);
+    }
+}
+
+/// Turns off the webview's own right-click menu ("Print", "Reload", "Inspect"). Oczi draws
+/// cards, not pages in a browser, and a stray right click used to drop a Print/Reload menu
+/// over the thing being read. WebView2 keeps this per webview even though every window shares
+/// one environment, so every window this app builds has to pass through here. No "already
+/// done" flag: the call is cheap, and a webview still booting when the first attempt runs
+/// would otherwise keep the menu for the whole session.
+pub(crate) fn quiet_context_menu(app: &AppHandle, label: &str) {
+    let Some(window) = app.get_webview_window(label) else {
+        log::line(format!("webview  {label}: no window, right-click menu untouched"));
+        return;
+    };
+    let name = label.to_string();
+    let result = window.with_webview(move |platform| {
+        let controller = platform.controller();
+        let core = match unsafe { controller.CoreWebView2() } {
+            Ok(core) => core,
+            Err(err) => {
+                log::line(format!("webview  {name}: right-click menu untouched — {err}"));
+                return;
+            }
+        };
+        let settings = match unsafe { core.Settings() } {
+            Ok(settings) => settings,
+            Err(err) => {
+                log::line(format!("webview  {name}: right-click menu untouched — {err}"));
+                return;
+            }
+        };
+        match unsafe { settings.SetAreDefaultContextMenusEnabled(false) } {
+            Ok(()) => log::line(format!("webview  {name}: right-click menu off")),
+            Err(err) => log::line(format!("webview  {name}: right-click menu stayed — {err}")),
+        }
+    });
+    if let Err(err) = result {
+        log::line(format!("webview  {label}: right-click menu untouched — {err}"));
     }
 }
 
